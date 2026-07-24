@@ -36,8 +36,7 @@ export interface InterceptedCall {
 
 /** The result handed back to an interceptor: allow the call, or deny it. */
 export type Decision =
-  | { readonly allow: true }
-  | { readonly allow: false; readonly reason: string };
+  { readonly allow: true } | { readonly allow: false; readonly reason: string };
 
 /** Something that can be torn down. Local definition — we don't rely on `using`. */
 export interface Disposable {

@@ -45,7 +45,9 @@ describe('FileConfigPolicyLoader', () => {
   it('imports a default-exported config', async () => {
     const loader = new FileConfigPolicyLoader({
       configPath: '/x/dephawk.config.js',
-      importer: async () => ({ default: { mode: 'enforce', packages: { z: { env: true } } } }),
+      importer: async () => ({
+        default: { mode: 'enforce', packages: { z: { env: true } } },
+      }),
     });
     const policy = await loader.load();
     expect(policy.mode).toBe('enforce');

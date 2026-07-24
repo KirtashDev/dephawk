@@ -18,7 +18,7 @@ describe('normalizePolicy', () => {
       packages: {
         'image-optimizer': { spawn: true },
         '@sentry/node': { net: { connect: ['*.sentry.io'] }, env: ['SENTRY_DSN'] },
-        'reader': { fs: { read: ['/a'], write: ['/b'] } },
+        reader: { fs: { read: ['/a'], write: ['/b'] } },
       },
     });
     expect(policy.mode).toBe('enforce');

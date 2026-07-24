@@ -51,7 +51,10 @@ export {
   FileConfigPolicyLoader,
   resolveEnvPolicy,
 } from './adapters/config/policy-loader.js';
-export { normalizePolicy, applyModeOverride } from './adapters/config/normalize-policy.js';
+export {
+  normalizePolicy,
+  applyModeOverride,
+} from './adapters/config/normalize-policy.js';
 export {
   createInterceptors,
   FsInterceptor,

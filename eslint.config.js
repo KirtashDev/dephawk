@@ -19,7 +19,12 @@ export default tseslint.config(
   {
     // Adapters are the only place allowed to touch Node built-ins and the
     // `any` boundary that comes with monkey-patching them.
-    files: ['src/adapters/**/*.ts', 'src/composition/**/*.ts', 'src/cli.ts', 'src/register.ts'],
+    files: [
+      'src/adapters/**/*.ts',
+      'src/composition/**/*.ts',
+      'src/cli.ts',
+      'src/register.ts',
+    ],
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',
     },

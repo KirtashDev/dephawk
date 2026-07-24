@@ -26,7 +26,10 @@ export function createStyler(enabled: boolean): Styler {
  * Decide whether to emit colour: honour NO_COLOR, FORCE_COLOR, and TTY-ness.
  * Pure given its inputs so it can be unit-tested.
  */
-export function shouldColor(env: Record<string, string | undefined>, isTTY: boolean): boolean {
+export function shouldColor(
+  env: Record<string, string | undefined>,
+  isTTY: boolean,
+): boolean {
   if (env['NO_COLOR'] !== undefined) {
     return false;
   }

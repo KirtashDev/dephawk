@@ -1,13 +1,7 @@
 import http from 'node:http';
 import https from 'node:https';
 import type { CapabilityInterceptor, Disposable } from '../../application/ports.js';
-import {
-  blockedError,
-  patchMethod,
-  report,
-  restorer,
-  type RecordFn,
-} from './support.js';
+import { blockedError, patchMethod, report, restorer, type RecordFn } from './support.js';
 
 /**
  * Intercepts outbound connections: `http`/`https` `request`/`get`, and global
@@ -80,10 +74,8 @@ function describeHttp(args: readonly unknown[], secure: boolean): string {
     return first.href;
   }
   if (isObject(first)) {
-    const proto =
-      asString(first['protocol']) ?? (secure ? 'https:' : 'http:');
-    const host =
-      asString(first['hostname']) ?? asString(first['host']) ?? 'localhost';
+    const proto = asString(first['protocol']) ?? (secure ? 'https:' : 'http:');
+    const host = asString(first['hostname']) ?? asString(first['host']) ?? 'localhost';
     const path = asString(first['path']) ?? '/';
     return `${proto}//${host}${path}`;
   }

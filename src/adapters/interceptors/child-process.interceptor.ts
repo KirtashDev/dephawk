@@ -1,12 +1,6 @@
 import childProcess from 'node:child_process';
 import type { CapabilityInterceptor, Disposable } from '../../application/ports.js';
-import {
-  blockedError,
-  patchMethod,
-  report,
-  restorer,
-  type RecordFn,
-} from './support.js';
+import { blockedError, patchMethod, report, restorer, type RecordFn } from './support.js';
 
 /** All the child_process entrypoints that start a process. */
 const SPAWN_METHODS = [
@@ -35,14 +29,19 @@ export class ChildProcessInterceptor implements CapabilityInterceptor {
     const mod = childProcess as unknown as Record<string, unknown>;
 
     for (const key of SPAWN_METHODS) {
-      const restore = patchMethod(mod, key, (original) => (...args: unknown[]): unknown => {
-        const detail = describeSpawn(args);
-        const decision = report(record, 'process.spawn', detail);
-        if (!decision.allow) {
-          throw blockedError(`spawn of ${detail}`, decision.reason);
-        }
-        return original(...args);
-      });
+      const restore = patchMethod(
+        mod,
+        key,
+        (original) =>
+          (...args: unknown[]): unknown => {
+            const detail = describeSpawn(args);
+            const decision = report(record, 'process.spawn', detail);
+            if (!decision.allow) {
+              throw blockedError(`spawn of ${detail}`, decision.reason);
+            }
+            return original(...args);
+          },
+      );
       if (restore) {
         restores.push(restore);
       }

@@ -3,7 +3,9 @@ import { RulePolicyEngine } from '../../src/domain/policy-engine.js';
 import type { Policy } from '../../src/domain/policy.js';
 import type { CapabilityRequest } from '../../src/domain/capability-request.js';
 
-function req(partial: Partial<CapabilityRequest> & Pick<CapabilityRequest, 'capability'>): CapabilityRequest {
+function req(
+  partial: Partial<CapabilityRequest> & Pick<CapabilityRequest, 'capability'>,
+): CapabilityRequest {
   return {
     package: 'some-pkg',
     detail: '',
@@ -59,7 +61,9 @@ describe('RulePolicyEngine — net.connect', () => {
 
 describe('RulePolicyEngine — process.spawn', () => {
   it('is always sensitive and blocked by default', () => {
-    const v = engine.evaluate(req({ capability: 'process.spawn', detail: '/bin/sh -c curl' }));
+    const v = engine.evaluate(
+      req({ capability: 'process.spawn', detail: '/bin/sh -c curl' }),
+    );
     expect(v.sensitive).toBe(true);
     expect(v.allowed).toBe(false);
   });
@@ -92,7 +96,11 @@ describe('RulePolicyEngine — env.read', () => {
     expect(allowed.allowed).toBe(true);
 
     const denied = engine.evaluate(
-      req({ capability: 'env.read', package: '@sentry/node', detail: 'AWS_SECRET_ACCESS_KEY' }),
+      req({
+        capability: 'env.read',
+        package: '@sentry/node',
+        detail: 'AWS_SECRET_ACCESS_KEY',
+      }),
     );
     expect(denied.allowed).toBe(false);
   });
@@ -123,7 +131,11 @@ describe('RulePolicyEngine — fs.read / fs.write', () => {
 
   it('respects an fs.read allowlist', () => {
     const v = engine.evaluate(
-      req({ capability: 'fs.read', package: 'config-reader', detail: '/home/alice/.npmrc' }),
+      req({
+        capability: 'fs.read',
+        package: 'config-reader',
+        detail: '/home/alice/.npmrc',
+      }),
     );
     expect(v.allowed).toBe(true);
   });
@@ -138,7 +150,11 @@ describe('RulePolicyEngine — fs.read / fs.write', () => {
     expect(denied.allowed).toBe(false);
 
     const allowed = engine.evaluate(
-      req({ capability: 'fs.write', package: 'log-writer', detail: '/var/log/app/x.log' }),
+      req({
+        capability: 'fs.write',
+        package: 'log-writer',
+        detail: '/var/log/app/x.log',
+      }),
     );
     // /var/log/app is not sensitive, so it's allowed regardless — assert it stays allowed.
     expect(allowed.allowed).toBe(true);

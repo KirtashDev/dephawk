@@ -4,13 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { isSensitivePath } from '../../domain/sensitivity.js';
 import type { Capability } from '../../domain/capability.js';
 import type { CapabilityInterceptor, Disposable } from '../../application/ports.js';
-import {
-  blockedError,
-  patchMethod,
-  report,
-  restorer,
-  type RecordFn,
-} from './support.js';
+import { blockedError, patchMethod, report, restorer, type RecordFn } from './support.js';
 
 const READ_METHODS = [
   'readFile',
@@ -70,16 +64,21 @@ export class FsInterceptor implements CapabilityInterceptor {
     restores: (() => void)[],
   ): void {
     for (const key of keys) {
-      const restore = patchMethod(target, key, (original) => (...args: unknown[]): unknown => {
-        const path = resolvePath(args[0]);
-        if (path !== null && isSensitivePath(path)) {
-          const decision = report(record, capability, path);
-          if (!decision.allow) {
-            throw blockedError(`${capability} of ${path}`, decision.reason);
-          }
-        }
-        return original(...args);
-      });
+      const restore = patchMethod(
+        target,
+        key,
+        (original) =>
+          (...args: unknown[]): unknown => {
+            const path = resolvePath(args[0]);
+            if (path !== null && isSensitivePath(path)) {
+              const decision = report(record, capability, path);
+              if (!decision.allow) {
+                throw blockedError(`${capability} of ${path}`, decision.reason);
+              }
+            }
+            return original(...args);
+          },
+      );
       if (restore) {
         restores.push(restore);
       }

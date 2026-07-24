@@ -24,11 +24,7 @@ Examples:
   DEPHAWK_MODE=enforce dephawk run node ./app.js
 `;
 
-const CONFIG_NAMES = [
-  'dephawk.config.js',
-  'dephawk.config.mjs',
-  'dephawk.config.cjs',
-];
+const CONFIG_NAMES = ['dephawk.config.js', 'dephawk.config.mjs', 'dephawk.config.cjs'];
 
 export async function run(argv: readonly string[]): Promise<number> {
   const subcommand = argv[0];

@@ -13,12 +13,7 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'html', 'lcov'],
       include: ['src/**/*.ts'],
-      exclude: [
-        'src/index.ts',
-        'src/register.ts',
-        'src/cli.ts',
-        'src/**/index.ts',
-      ],
+      exclude: ['src/index.ts', 'src/register.ts', 'src/cli.ts', 'src/**/index.ts'],
       thresholds: {
         'src/domain/**': {
           statements: 90,

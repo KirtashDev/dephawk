@@ -87,8 +87,7 @@ function evaluateCapability(
         return allow(sensitive);
       }
       const env = pkg.env ?? false;
-      const permitted =
-        env === true || (Array.isArray(env) && env.includes(req.detail));
+      const permitted = env === true || (Array.isArray(env) && env.includes(req.detail));
       return permitted
         ? allow(sensitive)
         : deny(sensitive, `reading secret env var ${req.detail} is not allowed`);

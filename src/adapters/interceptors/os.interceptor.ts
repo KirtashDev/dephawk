@@ -1,12 +1,6 @@
 import os from 'node:os';
 import type { CapabilityInterceptor, Disposable } from '../../application/ports.js';
-import {
-  blockedError,
-  patchMethod,
-  report,
-  restorer,
-  type RecordFn,
-} from './support.js';
+import { blockedError, patchMethod, report, restorer, type RecordFn } from './support.js';
 
 const OS_METHODS = ['userInfo', 'networkInterfaces', 'hostname', 'homedir'] as const;
 
@@ -24,14 +18,19 @@ export class OsInterceptor implements CapabilityInterceptor {
     const mod = os as unknown as Record<string, unknown>;
 
     for (const key of OS_METHODS) {
-      const restore = patchMethod(mod, key, (original) => (...args: unknown[]): unknown => {
-        const detail = `os.${key}`;
-        const decision = report(record, 'os.info', detail);
-        if (!decision.allow) {
-          throw blockedError(detail, decision.reason);
-        }
-        return original(...args);
-      });
+      const restore = patchMethod(
+        mod,
+        key,
+        (original) =>
+          (...args: unknown[]): unknown => {
+            const detail = `os.${key}`;
+            const decision = report(record, 'os.info', detail);
+            if (!decision.allow) {
+              throw blockedError(detail, decision.reason);
+            }
+            return original(...args);
+          },
+      );
       if (restore) {
         restores.push(restore);
       }

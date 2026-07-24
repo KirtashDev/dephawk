@@ -11,8 +11,7 @@ export type RecordFn = (call: InterceptedCall) => Decision;
  */
 export function captureStack(): string {
   const capture = Error.captureStackTrace as
-    | ((target: object, ctor?: (...args: never[]) => unknown) => void)
-    | undefined;
+    ((target: object, ctor?: (...args: never[]) => unknown) => void) | undefined;
   if (typeof capture === 'function') {
     const holder: { stack?: string } = {};
     capture(holder, captureStack);

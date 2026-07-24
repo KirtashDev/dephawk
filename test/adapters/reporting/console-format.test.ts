@@ -47,7 +47,12 @@ describe('formatConsoleReport', () => {
   });
 
   it('aggregates identical events with a count', () => {
-    const dup = ev({ package: 'spammy', capability: 'net.connect', detail: 'h', allowed: false });
+    const dup = ev({
+      package: 'spammy',
+      capability: 'net.connect',
+      detail: 'h',
+      allowed: false,
+    });
     const out = formatConsoleReport([dup, dup, dup], { color: false });
     expect(out).toContain('(x3)');
   });

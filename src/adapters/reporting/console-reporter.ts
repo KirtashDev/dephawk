@@ -20,9 +20,7 @@ export class ConsoleReporter implements Reporter {
 
   constructor(options: ConsoleReporterOptions = {}) {
     this.write = options.write ?? ((text) => process.stderr.write(text));
-    this.color =
-      options.color ??
-      shouldColor(process.env, Boolean(process.stderr.isTTY));
+    this.color = options.color ?? shouldColor(process.env, Boolean(process.stderr.isTTY));
   }
 
   report(events: readonly DhEvent[]): void {
