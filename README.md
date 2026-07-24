@@ -8,9 +8,11 @@
 reading your SSH keys, phoning home, spawning shells.
 
 [![npm](https://img.shields.io/npm/v/dephawk.svg)](https://www.npmjs.com/package/dephawk)
+[![downloads](https://img.shields.io/npm/dm/dephawk.svg)](https://www.npmjs.com/package/dephawk)
 [![CI](https://github.com/kellendir/dephawk/actions/workflows/ci.yml/badge.svg)](https://github.com/kellendir/dephawk/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![node](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](#)
+[![stars](https://img.shields.io/github/stars/kellendir/dephawk?style=social)](https://github.com/kellendir/dephawk)
 
 </div>
 
