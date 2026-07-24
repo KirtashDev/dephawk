@@ -18,7 +18,7 @@
     "node": ">=20"
   },
   "bin": {
-    "dephawk": "./dist/cli.js"
+    "dephawk": "dist/cli.js"
   },
   "exports": {
     ".": {
