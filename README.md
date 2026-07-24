@@ -29,24 +29,19 @@ if you want — **blocks it**.
 npx dephawk run npm test
 ```
 
-```
-🦅 dephawk report — 1 package touched something sensitive
+<div align="center">
 
-  🚨  sneaky-dependency  →  read    /Users/you/.ssh/id_rsa_…
-  🚨  sneaky-dependency  →  env     NPM_TOKEN
-  🚨  sneaky-dependency  →  connect https://collector.dephawk-demo.invalid/exfil
+![dephawk catching a malicious dependency reading your SSH key, your NPM_TOKEN, and phoning home](assets/dephawk-report.svg)
 
-  ✔️  0 other calls looked normal
-
-  Run in enforce mode to block these →  DEPHAWK_MODE=enforce
-```
+</div>
 
 That single screenshot is the pitch. If a package tries to read your keys and
 phone home, the hawk spots it in the first three seconds — not after you're on the
 news.
 
-> 📺 **Demo:** `npm run demo` (observe) and `npm run demo:enforce` (block).
-> _<!-- GIF of the demo goes here -->_
+> 📺 **Live demo:** `npm run demo` (observe) and `npm run demo:enforce` (block).
+> Record your own GIF with [`vhs`](https://github.com/charmbracelet/vhs):
+> `vhs assets/demo.tape`.
 
 ## Why
 
