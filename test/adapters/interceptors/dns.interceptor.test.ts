@@ -66,13 +66,26 @@ describe('DnsInterceptor', () => {
     expect(spy.last?.detail).toBe('exfil.evil.com');
   });
 
-  it('covers the dns.promises.Resolver class too', () => {
+  it('rejects (not throws) a blocked dns.promises call so .catch works', async () => {
+    const spy = recordSpy();
+    spy.deny('no dns');
+    installed = new DnsInterceptor().install(spy.record);
+
+    // Must return a rejected promise, not throw synchronously — a caller with
+    // only .catch attached would otherwise crash.
+    await expect(dns.promises.resolve4('exfil.evil.com')).rejects.toThrow(
+      /dephawk: blocked/,
+    );
+    expect(spy.last?.detail).toBe('exfil.evil.com');
+  });
+
+  it('covers the dns.promises.Resolver class too (rejects on deny)', async () => {
     const spy = recordSpy();
     spy.deny('no dns');
     installed = new DnsInterceptor().install(spy.record);
 
     const resolver = new dns.promises.Resolver();
-    expect(() => resolver.resolve4('exfil.evil.com')).toThrow(/dephawk: blocked/);
+    await expect(resolver.resolve4('exfil.evil.com')).rejects.toThrow(/dephawk: blocked/);
     expect(spy.last?.detail).toBe('exfil.evil.com');
   });
 

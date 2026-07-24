@@ -45,9 +45,15 @@ const MAX_SNIPPET = 80;
  * prototype call it triggers is suppressed. A standalone `new vm.Script(code)`
  * is still caught at the prototype, labelled `<compiled vm.Script>`.
  *
- * Limitation: the `eval()` and `new Function()` intrinsics are language
- * primitives, not module methods, and cannot be monkey-patched — this covers
- * the `vm` surface, which is the deliberate, high-volume path for staged code.
+ * Limitations:
+ * - The `eval()` and `new Function()` intrinsics are language primitives, not
+ *   module methods, and cannot be monkey-patched — this covers the `vm`
+ *   surface, which is the deliberate, high-volume path for staged code.
+ * - The depth guard cannot tell a convenience fn's own internal delegation from
+ *   a genuinely separate `vm.Script` execution that the *running* code starts
+ *   synchronously inside it; the latter is suppressed. Erring toward one event
+ *   per top-level call, this trades a rare missed nested record for no double
+ *   counting on the common path.
  */
 export class VmInterceptor implements CapabilityInterceptor {
   readonly name = 'vm';
@@ -120,7 +126,15 @@ export class VmInterceptor implements CapabilityInterceptor {
               throw blockedError('dynamic code execution', decision.reason);
             }
           }
-          return (original as (...a: unknown[]) => unknown).apply(this, args);
+          // Increment across the call so a run method that delegates to another
+          // patched prototype method internally (runInNewContext -> runInContext)
+          // does not report a second time.
+          state.depth += 1;
+          try {
+            return (original as (...a: unknown[]) => unknown).apply(this, args);
+          } finally {
+            state.depth -= 1;
+          }
         },
     );
     if (restore) {

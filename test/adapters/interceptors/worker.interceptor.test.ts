@@ -33,6 +33,14 @@ describe('WorkerInterceptor', () => {
     expect(spy.last?.detail).toBe('<inline eval>');
   });
 
+  it('describes a URL filename via its href', () => {
+    const spy = recordSpy();
+    spy.deny();
+    installed = new WorkerInterceptor().install(spy.record);
+    expect(() => new wt.Worker(new URL('file:///tmp/w.js'))).toThrow(/dephawk: blocked/);
+    expect(spy.last?.detail).toBe('file:///tmp/w.js');
+  });
+
   it('constructs a real worker when allowed, then can be terminated', async () => {
     const spy = recordSpy();
     installed = new WorkerInterceptor().install(spy.record);

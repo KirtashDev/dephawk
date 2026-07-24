@@ -45,10 +45,15 @@ const DNS_METHODS = [
  * subdomain queries (`<base32-secret>.exfil.evil.com`) is a real exfil path
  * that leaves no TCP connection for the net interceptor to see.
  *
- * Limitation: `http`/`https` requests resolve their host internally, so a normal
- * outbound request may surface *both* a `net.connect` and a `net.resolve` event
- * for the same logical action. This is intentional over-reporting — the report
- * collapses identical rows — rather than risk missing a standalone resolve.
+ * Limitations:
+ * - `http`/`https` requests resolve their host internally, so a normal outbound
+ *   request may surface *both* a `net.connect` and a `net.resolve` event for the
+ *   same logical action. This is intentional over-reporting — the report
+ *   collapses identical rows — rather than risk missing a standalone resolve.
+ * - `dns.reverse`/`dns.lookupService` take an IP, not a hostname; a bare IPv6
+ *   literal does not survive the allowlist's host parser (it strips the final
+ *   hextet as a port), so an allowlisted IPv6 target is not matched for those
+ *   two calls. They are still recorded; only allowlist matching is affected.
  */
 export class DnsInterceptor implements CapabilityInterceptor {
   readonly name = 'dns';
@@ -56,17 +61,21 @@ export class DnsInterceptor implements CapabilityInterceptor {
   install(record: RecordFn): Disposable {
     const restores: (() => void)[] = [];
 
-    this.patchGroup(dns as unknown as Record<string, unknown>, record, restores);
+    // Callback API: on deny, throw synchronously.
+    this.patchGroup(dns as unknown as Record<string, unknown>, record, restores, false);
 
+    // Promise API: on deny, reject — throwing synchronously from a
+    // promise-returning method breaks its contract and crashes callers that
+    // only attach `.catch` (mirrors the fetch handling in net.interceptor).
     const promises = (dns as unknown as { promises?: Record<string, unknown> }).promises;
     if (promises !== undefined) {
-      this.patchGroup(promises, record, restores);
+      this.patchGroup(promises, record, restores, true);
     }
 
     for (const holder of [dns, promises]) {
       const proto = prototypeOf((holder as { Resolver?: unknown } | undefined)?.Resolver);
       if (proto) {
-        this.patchGroup(proto, record, restores);
+        this.patchGroup(proto, record, restores, holder === promises);
       }
     }
 
@@ -77,6 +86,7 @@ export class DnsInterceptor implements CapabilityInterceptor {
     target: Record<string, unknown>,
     record: RecordFn,
     restores: (() => void)[],
+    returnsPromise: boolean,
   ): void {
     for (const key of DNS_METHODS) {
       const restore = patchMethod(
@@ -87,7 +97,11 @@ export class DnsInterceptor implements CapabilityInterceptor {
             const host = firstString(args) ?? 'unknown';
             const decision = report(record, 'net.resolve', host);
             if (!decision.allow) {
-              throw blockedError(`DNS resolution of ${host}`, decision.reason);
+              const error = blockedError(`DNS resolution of ${host}`, decision.reason);
+              if (returnsPromise) {
+                return Promise.reject(error);
+              }
+              throw error;
             }
             return (original as (...a: unknown[]) => unknown).apply(this, args);
           },

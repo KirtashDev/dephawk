@@ -57,6 +57,30 @@ describe('RulePolicyEngine — net.connect', () => {
     );
     expect(v.allowed).toBe(true);
   });
+
+  it('matches a udp:// detail against the host allowlist (raw UDP gated like HTTP)', () => {
+    const e = new RulePolicyEngine({
+      ...policy,
+      packages: { metrics: { net: { connect: ['metrics.example.com'] } } },
+    });
+    const allowed = e.evaluate(
+      req({
+        capability: 'net.connect',
+        package: 'metrics',
+        detail: 'udp://metrics.example.com:8125',
+      }),
+    );
+    expect(allowed.allowed).toBe(true);
+
+    const denied = e.evaluate(
+      req({
+        capability: 'net.connect',
+        package: 'metrics',
+        detail: 'udp://evil.example.org:8125',
+      }),
+    );
+    expect(denied.allowed).toBe(false);
+  });
 });
 
 describe('RulePolicyEngine — net.resolve (DNS)', () => {

@@ -112,23 +112,44 @@ function describeStream(args: readonly unknown[]): string {
 }
 
 /**
- * Describe a UDP `send`/`connect` target. Best-effort: the address is a string
- * argument and the port a number, but `send`'s optional offset/length are also
- * numbers, so we take the last string as the host and pair it with a port only
- * when the args unambiguously provide one.
+ * Describe a UDP `dgram` `send`/`connect` target.
+ *
+ * Returned as a `udp://host[:port]` URL so the policy engine's `extractHost`
+ * strips it to a bare host and the per-package allowlist matches exactly as it
+ * does for TCP/TLS — while the `udp://` scheme still marks the protocol in the
+ * report.
+ *
+ * Argument shapes handled (callback stripped first):
+ *   connect(port[, address])
+ *   send(msg[, offset, length], port, address)   // unconnected
+ *   send(msg)                                     // connected — target set at connect()
+ * The address is the last string arg *after position 0* (position 0 is the
+ * message for `send` and the port for `connect`, never the address), which also
+ * prevents a string message on a connected socket from leaking in as the host.
+ * The port is the last numeric arg, so `send`'s leading offset/length do not
+ * masquerade as it.
  */
 function describeDatagram(args: readonly unknown[]): string {
-  let host: string | undefined;
-  for (const arg of args) {
-    if (typeof arg === 'string') {
-      host = arg; // last string wins — the address trails any message string
+  const positional = args.filter((a) => typeof a !== 'function');
+
+  let address: string | undefined;
+  for (let i = 1; i < positional.length; i++) {
+    if (typeof positional[i] === 'string') {
+      address = positional[i] as string;
     }
   }
-  const port = args.find((a): a is number => typeof a === 'number');
-  if (host === undefined) {
-    return 'udp';
+
+  let port: number | undefined;
+  for (const arg of positional) {
+    if (typeof arg === 'number') {
+      port = arg;
+    }
   }
-  return port === undefined ? `${host} (udp)` : `${host}:${port} (udp)`;
+
+  if (address === undefined) {
+    return 'udp'; // connected-socket send, or a form with no explicit target
+  }
+  return port === undefined ? `udp://${address}` : `udp://${address}:${port}`;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
