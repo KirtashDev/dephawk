@@ -29,7 +29,9 @@ describe('DnsInterceptor', () => {
     spy.deny('no dns'); // deny so the real (networked) query never runs
     installed = new DnsInterceptor().install(spy.record);
 
-    expect(() => dns.resolveTxt('evil.example.com', () => {})).toThrow(/dephawk: blocked/);
+    expect(() => dns.resolveTxt('evil.example.com', () => {})).toThrow(
+      /dephawk: blocked/,
+    );
     expect(spy.last?.capability).toBe('net.resolve');
     expect(spy.last?.detail).toBe('evil.example.com');
   });

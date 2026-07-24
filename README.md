@@ -80,17 +80,17 @@ On exit, dephawk prints the summary above and writes a shareable, self-contained
 
 ## What it watches
 
-| Capability       | Examples caught                                                          |
-| ---------------- | ------------------------------------------------------------------------ |
-| `fs.read`        | reading `~/.ssh`, `~/.aws`, `~/.gnupg`, `.env`, `.npmrc`, `/etc/passwd`  |
-| `fs.write`       | overwriting `~/.npmrc`, `authorized_keys`, other secret files            |
-| `net.connect`    | `http`/`https`/`fetch`, plus raw `net`/`tls` sockets and UDP (`dgram`)   |
-| `net.resolve`    | `dns.lookup`/`resolve*` — recon and DNS-tunnel exfil (no TCP to see)     |
-| `process.spawn`  | `child_process.exec`/`spawn`/`fork`, and `worker_threads` (the curl-pipe-sh) |
+| Capability       | Examples caught                                                                 |
+| ---------------- | ------------------------------------------------------------------------------- |
+| `fs.read`        | reading `~/.ssh`, `~/.aws`, `~/.gnupg`, `.env`, `.npmrc`, `/etc/passwd`         |
+| `fs.write`       | overwriting `~/.npmrc`, `authorized_keys`, other secret files                   |
+| `net.connect`    | `http`/`https`/`fetch`, plus raw `net`/`tls` sockets and UDP (`dgram`)          |
+| `net.resolve`    | `dns.lookup`/`resolve*` — recon and DNS-tunnel exfil (no TCP to see)            |
+| `process.spawn`  | `child_process.exec`/`spawn`/`fork`, and `worker_threads` (the curl-pipe-sh)    |
 | `process.native` | `process.dlopen` — loading a native addon (`.node`) that escapes the JS sandbox |
-| `code.eval`      | `vm.runInThisContext`/`Script`/`compileFunction` — running staged payloads |
-| `env.read`       | a dependency reading `NPM_TOKEN`, `AWS_SECRET_ACCESS_KEY`, …             |
-| `os.info`        | `os.userInfo`/`networkInterfaces`/`hostname` host profiling              |
+| `code.eval`      | `vm.runInThisContext`/`Script`/`compileFunction` — running staged payloads      |
+| `env.read`       | a dependency reading `NPM_TOKEN`, `AWS_SECRET_ACCESS_KEY`, …                    |
+| `os.info`        | `os.userInfo`/`networkInterfaces`/`hostname` host profiling                     |
 
 Each event is **attributed to the specific package** that triggered it, so you
 know exactly who's misbehaving.

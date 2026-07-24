@@ -18,7 +18,11 @@ const VM_FUNCTIONS = [
 ] as const;
 
 /** `vm.Script` prototype run methods (source was compiled in the constructor). */
-const SCRIPT_RUN_METHODS = ['runInThisContext', 'runInNewContext', 'runInContext'] as const;
+const SCRIPT_RUN_METHODS = [
+  'runInThisContext',
+  'runInNewContext',
+  'runInContext',
+] as const;
 
 const MAX_SNIPPET = 80;
 
@@ -130,5 +134,7 @@ function snippet(code: unknown): string {
     return '<non-string source>';
   }
   const oneLine = code.replace(/\s+/g, ' ').trim();
-  return oneLine.length <= MAX_SNIPPET ? oneLine : `${oneLine.slice(0, MAX_SNIPPET - 1)}…`;
+  return oneLine.length <= MAX_SNIPPET
+    ? oneLine
+    : `${oneLine.slice(0, MAX_SNIPPET - 1)}…`;
 }

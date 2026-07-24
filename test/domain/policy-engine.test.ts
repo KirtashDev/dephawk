@@ -108,7 +108,10 @@ describe('RulePolicyEngine — code.eval', () => {
   });
 
   it('is allowed for packages that opt in', () => {
-    const e = new RulePolicyEngine({ ...policy, packages: { templater: { eval: true } } });
+    const e = new RulePolicyEngine({
+      ...policy,
+      packages: { templater: { eval: true } },
+    });
     const v = e.evaluate(
       req({ capability: 'code.eval', package: 'templater', detail: 'render()' }),
     );

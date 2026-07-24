@@ -38,9 +38,21 @@ export class SocketInterceptor implements CapabilityInterceptor {
     const restores: (() => void)[] = [];
 
     for (const key of ['connect', 'createConnection'] as const) {
-      this.patch(net as unknown as Record<string, unknown>, key, describeStream, record, restores);
+      this.patch(
+        net as unknown as Record<string, unknown>,
+        key,
+        describeStream,
+        record,
+        restores,
+      );
     }
-    this.patch(tls as unknown as Record<string, unknown>, 'connect', describeStream, record, restores);
+    this.patch(
+      tls as unknown as Record<string, unknown>,
+      'connect',
+      describeStream,
+      record,
+      restores,
+    );
 
     const proto = prototypeOf((dgram as unknown as { Socket?: unknown }).Socket);
     if (proto) {
@@ -81,7 +93,8 @@ export class SocketInterceptor implements CapabilityInterceptor {
 function describeStream(args: readonly unknown[]): string {
   const first = args[0];
   if (typeof first === 'number') {
-    const host = args.slice(1).find((a): a is string => typeof a === 'string') ?? 'localhost';
+    const host =
+      args.slice(1).find((a): a is string => typeof a === 'string') ?? 'localhost';
     return `${host}:${first}`;
   }
   if (typeof first === 'string') {
@@ -91,8 +104,7 @@ function describeStream(args: readonly unknown[]): string {
     if (typeof first['path'] === 'string') {
       return first['path'];
     }
-    const host =
-      asString(first['host']) ?? asString(first['hostname']) ?? 'localhost';
+    const host = asString(first['host']) ?? asString(first['hostname']) ?? 'localhost';
     const port = first['port'];
     return port === undefined ? host : `${host}:${String(port)}`;
   }

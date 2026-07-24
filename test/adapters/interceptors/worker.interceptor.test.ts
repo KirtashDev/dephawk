@@ -27,7 +27,9 @@ describe('WorkerInterceptor', () => {
     const spy = recordSpy();
     spy.deny();
     installed = new WorkerInterceptor().install(spy.record);
-    expect(() => new wt.Worker('while(true){}', { eval: true })).toThrow(/dephawk: blocked/);
+    expect(() => new wt.Worker('while(true){}', { eval: true })).toThrow(
+      /dephawk: blocked/,
+    );
     expect(spy.last?.detail).toBe('<inline eval>');
   });
 
