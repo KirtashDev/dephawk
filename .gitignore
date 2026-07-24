@@ -4,3 +4,4 @@ coverage/
 .dephawk/
 *.log
 .DS_Store
+.idea/
