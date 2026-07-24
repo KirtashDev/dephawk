@@ -43,7 +43,8 @@
     "test:coverage": "vitest run --coverage",
     "build": "tsup",
     "prepublishOnly": "npm run build",
-    "demo": "node --import ./dist/register.js examples/demo/index.js"
+    "demo": "node dist/cli.js run --config examples/demo/dephawk.config.js node examples/demo/index.js",
+    "demo:enforce": "node dist/cli.js run --config examples/demo/dephawk.config.js --enforce node examples/demo/index.js"
   },
   "dependencies": {},
   "devDependencies": {

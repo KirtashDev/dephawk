@@ -48,10 +48,17 @@ describe('isSensitiveEnv', () => {
     expect(isSensitiveEnv(name)).toBe(true);
   });
 
-  it.each(['NODE_ENV', 'PATH', 'HOME', 'LANG', 'PWD'])(
-    'does not flag mundane var %s',
-    (name) => {
-      expect(isSensitiveEnv(name)).toBe(false);
-    },
-  );
+  it.each([
+    'NODE_ENV',
+    'PATH',
+    'HOME',
+    'LANG',
+    'PWD',
+    // False friends that must NOT be flagged:
+    'NODE_TLS_REJECT_UNAUTHORIZED', // contains "AUTH"
+    'MONKEY', // contains "KEY"
+    'KEYBOARD_LAYOUT', // starts with "KEY" but not a delimited word
+  ])('does not flag mundane var %s', (name) => {
+    expect(isSensitiveEnv(name)).toBe(false);
+  });
 });

@@ -34,12 +34,15 @@ const SENSITIVE_BASENAMES: readonly string[] = [
 const SENSITIVE_ABSOLUTE: readonly string[] = ['/etc/passwd', '/etc/shadow'];
 
 /**
- * Env var name pattern for secrets. Deliberately broad — false positives here
- * are cheap (an extra line in the report), false negatives are the failure we
- * actually care about.
+ * Env-var secret detection, in two tiers to balance recall against noise:
+ * - "strong" keywords match anywhere (a var containing SECRET/TOKEN/PASSWORD is
+ *   almost certainly a secret);
+ * - "weak" keywords (KEY, AUTH, …) match only as a delimited word, so common
+ *   false friends like NODE_TLS_REJECT_UNAUTHORIZED (contains "AUTH") or MONKEY
+ *   (contains "KEY") are not flagged.
  */
-const SECRET_ENV_PATTERN =
-  /(TOKEN|SECRET|KEY|PASSWORD|PASSWD|CREDENTIAL|AUTH|PRIVATE|SESSION|COOKIE|API[_-]?KEY|ACCESS)/i;
+const STRONG_SECRET = /(TOKEN|SECRET|PASSWORD|PASSWD|PASSPHRASE|CREDENTIALS?|APIKEY)/i;
+const WEAK_SECRET = /(?:^|[_-])(KEY|KEYS|AUTH|SESSION|COOKIE|PRIVATE)(?:[_-]|$)/i;
 
 /** Normalise Windows separators and lowercase-insensitive comparison basis. */
 function normalisePath(path: string): string {
@@ -70,5 +73,5 @@ export function isSensitivePath(path: string): boolean {
 
 /** True when an environment variable name looks like a secret. */
 export function isSensitiveEnv(name: string): boolean {
-  return SECRET_ENV_PATTERN.test(name);
+  return STRONG_SECRET.test(name) || WEAK_SECRET.test(name);
 }

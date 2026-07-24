@@ -14,6 +14,18 @@ type Env = Record<string, string | undefined>;
  * This keeps `register.ts` free of async config resolution — the crux of
  * requirement #5. `DEPHAWK_MODE` still overrides the mode last.
  */
+/**
+ * Synchronously resolve the policy from env vars. Split out so the `--import`
+ * entrypoint can install interceptors *during module evaluation* — before any
+ * application code runs — with no `await` and no microtask gap.
+ */
+export function resolveEnvPolicy(env: Env): Policy {
+  const json = env['DEPHAWK_POLICY'];
+  const policy =
+    json !== undefined && json.length > 0 ? safeParse(json) : PERMISSIVE_POLICY;
+  return applyModeOverride(policy, env['DEPHAWK_MODE']);
+}
+
 export class EnvPolicyLoader implements PolicyLoader {
   private readonly env: Env;
 
@@ -22,16 +34,7 @@ export class EnvPolicyLoader implements PolicyLoader {
   }
 
   load(): Promise<Policy> {
-    return Promise.resolve(this.resolve());
-  }
-
-  private resolve(): Policy {
-    const json = this.env['DEPHAWK_POLICY'];
-    let policy = PERMISSIVE_POLICY;
-    if (json !== undefined && json.length > 0) {
-      policy = safeParse(json);
-    }
-    return applyModeOverride(policy, this.env['DEPHAWK_MODE']);
+    return Promise.resolve(resolveEnvPolicy(this.env));
   }
 }
 
