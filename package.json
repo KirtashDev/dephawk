@@ -1,0 +1,60 @@
+{
+  "name": "dephawk",
+  "version": "0.1.0",
+  "description": "A hawk-eyed watch on your npm dependencies: see — and block — what they do at runtime.",
+  "keywords": [
+    "security",
+    "supply-chain",
+    "npm",
+    "dependencies",
+    "runtime",
+    "monitoring",
+    "sandbox",
+    "tripwire"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "dephawk": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./register": {
+      "types": "./dist/register.d.ts",
+      "import": "./dist/register.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "build": "tsup",
+    "prepublishOnly": "npm run build",
+    "demo": "node --import ./dist/register.js examples/demo/index.js"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@eslint/js": "^9.18.0",
+    "@types/node": "^22.10.7",
+    "@vitest/coverage-v8": "^2.1.9",
+    "eslint": "^9.18.0",
+    "prettier": "^3.4.2",
+    "tsup": "^8.3.6",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.21.0",
+    "vitest": "^2.1.9"
+  }
+}
