@@ -42,6 +42,20 @@ describe('normalizePolicy', () => {
     expect(policy.packages).toEqual({});
   });
 
+  it('parses native and eval boolean policies', () => {
+    const policy = normalizePolicy({
+      packages: { bcrypt: { native: true }, templater: { eval: true } },
+    });
+    expect(policy.packages['bcrypt']?.native).toBe(true);
+    expect(policy.packages['templater']?.eval).toBe(true);
+  });
+
+  it('drops non-boolean native/eval fields', () => {
+    const policy = normalizePolicy({ default: { native: 'yes', eval: 1 } });
+    expect(policy.default.native).toBeUndefined();
+    expect(policy.default.eval).toBeUndefined();
+  });
+
   it('accepts boolean and array env policies', () => {
     expect(normalizePolicy({ default: { env: true } }).default.env).toBe(true);
     expect(normalizePolicy({ default: { env: ['A', 1, 'B'] } }).default.env).toEqual([

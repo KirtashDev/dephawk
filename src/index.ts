@@ -59,7 +59,12 @@ export {
   createInterceptors,
   FsInterceptor,
   NetInterceptor,
+  SocketInterceptor,
+  DnsInterceptor,
   ChildProcessInterceptor,
+  WorkerInterceptor,
+  NativeAddonInterceptor,
+  VmInterceptor,
   EnvInterceptor,
   OsInterceptor,
 } from './adapters/interceptors/index.js';

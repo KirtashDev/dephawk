@@ -59,6 +59,63 @@ describe('RulePolicyEngine — net.connect', () => {
   });
 });
 
+describe('RulePolicyEngine — net.resolve (DNS)', () => {
+  it('blocks resolution of hosts not in the connect allowlist', () => {
+    const v = engine.evaluate(
+      req({ capability: 'net.resolve', detail: 'evil.attacker.com' }),
+    );
+    expect(v.allowed).toBe(false);
+    expect(v.sensitive).toBe(false);
+    expect(v.reason).toContain('evil.attacker.com');
+  });
+
+  it('allows resolution of allowlisted hosts (shares the net.connect allowlist)', () => {
+    const v = engine.evaluate(
+      req({
+        capability: 'net.resolve',
+        package: '@sentry/node',
+        detail: 'ingest.sentry.io',
+      }),
+    );
+    expect(v.allowed).toBe(true);
+  });
+});
+
+describe('RulePolicyEngine — process.native', () => {
+  it('is always sensitive and blocked by default', () => {
+    const v = engine.evaluate(
+      req({ capability: 'process.native', detail: '/x/addon.node' }),
+    );
+    expect(v.sensitive).toBe(true);
+    expect(v.allowed).toBe(false);
+    expect(v.reason).toContain('addon.node');
+  });
+
+  it('is allowed for packages that opt in', () => {
+    const e = new RulePolicyEngine({ ...policy, packages: { bcrypt: { native: true } } });
+    const v = e.evaluate(
+      req({ capability: 'process.native', package: 'bcrypt', detail: '/x/bcrypt.node' }),
+    );
+    expect(v.allowed).toBe(true);
+  });
+});
+
+describe('RulePolicyEngine — code.eval', () => {
+  it('is always sensitive and blocked by default', () => {
+    const v = engine.evaluate(req({ capability: 'code.eval', detail: 'atob("...")' }));
+    expect(v.sensitive).toBe(true);
+    expect(v.allowed).toBe(false);
+  });
+
+  it('is allowed for packages that opt in', () => {
+    const e = new RulePolicyEngine({ ...policy, packages: { templater: { eval: true } } });
+    const v = e.evaluate(
+      req({ capability: 'code.eval', package: 'templater', detail: 'render()' }),
+    );
+    expect(v.allowed).toBe(true);
+  });
+});
+
 describe('RulePolicyEngine — process.spawn', () => {
   it('is always sensitive and blocked by default', () => {
     const v = engine.evaluate(

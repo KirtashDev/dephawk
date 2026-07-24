@@ -48,7 +48,14 @@ function detectSensitive(req: CapabilityRequest): boolean {
     case 'process.spawn':
       // Spawning a process is always high signal — that's the curl-pipe-sh move.
       return true;
+    case 'process.native':
+      // Loading a native addon bypasses all JS-level interception — high signal.
+      return true;
+    case 'code.eval':
+      // Dynamically executing compiled code is the obfuscated-payload move.
+      return true;
     case 'net.connect':
+    case 'net.resolve':
     case 'os.info':
       return false;
   }
@@ -76,10 +83,32 @@ function evaluateCapability(
         : deny(sensitive, `network connection to ${host} is not in the allowlist`);
     }
 
+    case 'net.resolve': {
+      // DNS reuses the connect allowlist: resolving a host is a connection
+      // precursor (and a DNS-exfil channel), so it is gated by the same rule.
+      const host = extractHost(req.detail);
+      const allowlist = pkg.net?.connect ?? [];
+      return hostMatchesAny(host, allowlist)
+        ? allow(sensitive)
+        : deny(sensitive, `DNS resolution of ${host} is not in the allowlist`);
+    }
+
     case 'process.spawn': {
       return pkg.spawn === true
         ? allow(sensitive)
         : deny(sensitive, 'spawning child processes is not allowed');
+    }
+
+    case 'process.native': {
+      return pkg.native === true
+        ? allow(sensitive)
+        : deny(sensitive, `loading native addon ${req.detail} is not allowed`);
+    }
+
+    case 'code.eval': {
+      return pkg.eval === true
+        ? allow(sensitive)
+        : deny(sensitive, 'dynamic code execution (vm) is not allowed');
     }
 
     case 'env.read': {

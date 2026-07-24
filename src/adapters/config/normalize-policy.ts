@@ -49,6 +49,8 @@ function normalizePackagePolicy(input: unknown): PackagePolicy {
     net?: NetPolicy;
     fs?: FsPolicy;
     spawn?: boolean;
+    native?: boolean;
+    eval?: boolean;
     env?: EnvPolicy;
   } = {};
 
@@ -62,6 +64,12 @@ function normalizePackagePolicy(input: unknown): PackagePolicy {
   }
   if (typeof input['spawn'] === 'boolean') {
     policy.spawn = input['spawn'];
+  }
+  if (typeof input['native'] === 'boolean') {
+    policy.native = input['native'];
+  }
+  if (typeof input['eval'] === 'boolean') {
+    policy.eval = input['eval'];
   }
   const env = normalizeEnv(input['env']);
   if (env !== undefined) {

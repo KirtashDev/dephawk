@@ -9,7 +9,10 @@ export const CAPABILITIES = [
   'fs.read',
   'fs.write',
   'net.connect',
+  'net.resolve',
   'process.spawn',
+  'process.native',
+  'code.eval',
   'env.read',
   'os.info',
 ] as const;
@@ -45,9 +48,24 @@ export const CAPABILITY_META: Readonly<Record<Capability, CapabilityMeta>> = {
     description: 'Open an outbound network connection or HTTP request.',
     detailCanBeSensitive: false,
   },
+  'net.resolve': {
+    label: 'dns',
+    description: 'Resolve a hostname via DNS (a connection precursor or exfil channel).',
+    detailCanBeSensitive: false,
+  },
   'process.spawn': {
     label: 'spawn',
     description: 'Spawn a child process or shell.',
+    detailCanBeSensitive: false,
+  },
+  'process.native': {
+    label: 'native',
+    description: 'Load a native addon (.node) via process.dlopen.',
+    detailCanBeSensitive: false,
+  },
+  'code.eval': {
+    label: 'eval',
+    description: 'Execute dynamically compiled code via the vm module.',
     detailCanBeSensitive: false,
   },
   'env.read': {

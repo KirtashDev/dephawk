@@ -80,14 +80,17 @@ On exit, dephawk prints the summary above and writes a shareable, self-contained
 
 ## What it watches
 
-| Capability      | Examples caught                                                         |
-| --------------- | ----------------------------------------------------------------------- |
-| `fs.read`       | reading `~/.ssh`, `~/.aws`, `~/.gnupg`, `.env`, `.npmrc`, `/etc/passwd` |
-| `fs.write`      | overwriting `~/.npmrc`, `authorized_keys`, other secret files           |
-| `net.connect`   | `http`/`https` requests and `fetch` to unexpected hosts                 |
-| `process.spawn` | `child_process.exec`/`spawn`/`fork` (the classic curl-pipe-sh)          |
-| `env.read`      | a dependency reading `NPM_TOKEN`, `AWS_SECRET_ACCESS_KEY`, …            |
-| `os.info`       | `os.userInfo`/`networkInterfaces`/`hostname` host profiling             |
+| Capability       | Examples caught                                                          |
+| ---------------- | ------------------------------------------------------------------------ |
+| `fs.read`        | reading `~/.ssh`, `~/.aws`, `~/.gnupg`, `.env`, `.npmrc`, `/etc/passwd`  |
+| `fs.write`       | overwriting `~/.npmrc`, `authorized_keys`, other secret files            |
+| `net.connect`    | `http`/`https`/`fetch`, plus raw `net`/`tls` sockets and UDP (`dgram`)   |
+| `net.resolve`    | `dns.lookup`/`resolve*` — recon and DNS-tunnel exfil (no TCP to see)     |
+| `process.spawn`  | `child_process.exec`/`spawn`/`fork`, and `worker_threads` (the curl-pipe-sh) |
+| `process.native` | `process.dlopen` — loading a native addon (`.node`) that escapes the JS sandbox |
+| `code.eval`      | `vm.runInThisContext`/`Script`/`compileFunction` — running staged payloads |
+| `env.read`       | a dependency reading `NPM_TOKEN`, `AWS_SECRET_ACCESS_KEY`, …             |
+| `os.info`        | `os.userInfo`/`networkInterfaces`/`hostname` host profiling              |
 
 Each event is **attributed to the specific package** that triggered it, so you
 know exactly who's misbehaving.
@@ -108,13 +111,19 @@ export default {
   packages: {
     'image-optimizer': { spawn: true }, // it genuinely shells out
     '@sentry/node': { net: { connect: ['*.sentry.io'] }, env: ['SENTRY_DSN'] },
+    bcrypt: { native: true }, // legitimately loads a native addon
   },
 };
 ```
 
 - `net.connect` — allowlist of hosts. `*.sentry.io` matches the apex and any
-  subdomain; an exact host matches only itself.
-- `spawn` — `true` to permit child processes.
+  subdomain; an exact host matches only itself. The same list gates DNS
+  resolution (`net.resolve`): a host you may connect to, you may resolve.
+- `spawn` — `true` to permit child processes **and** worker threads.
+- `native` — `true` to permit loading native addons (`.node` via
+  `process.dlopen`). Off by default; set it for packages like `bcrypt`, `sharp`.
+- `eval` — `true` to permit dynamic code execution through the `vm` module. Off
+  by default — most dependencies should never need it.
 - `env` — `true` (any secret), `false` (no secrets), or an array of allowed
   secret var names. Non-secret vars (e.g. `NODE_ENV`) are always allowed.
 - `fs` — `{ read: [...], write: [...] }` path prefixes for sensitive paths.
@@ -124,7 +133,8 @@ Your own application code is never flagged — dephawk watches dependencies, not
 ## How it works (and what it can't do)
 
 At startup (`--import dephawk/register`) dephawk monkey-patches the sensitive
-Node built-ins — `fs`, `net`/`http`/`https`/`fetch`, `child_process`, `os`, and
+Node built-ins — `fs`, `http`/`https`/`fetch`, raw `net`/`tls`/`dgram` sockets,
+`dns`, `child_process`, `worker_threads`, `process.dlopen`, `vm`, `os`, and
 `process.env`. Each patched call captures a stack trace, walks it to find the
 first `node_modules/<package>` frame, checks it against your policy, and records
 the event. On exit it prints a summary and writes the HTML report.
@@ -134,7 +144,12 @@ policy layer_, not an unbreakable sandbox:
 
 - Attribution uses stack traces, which a determined attacker can obscure
   (rewriting `Error.stack`, deferring work, running native code).
-- Native addons and code that bypasses the standard built-ins aren't covered.
+- Native addons run outside the JS sandbox: dephawk flags the `.node` _load_
+  (`process.native`), but what the addon does afterwards is invisible.
+- `eval()` and `new Function()` are language primitives and can't be patched;
+  the `vm` module — the deliberate path for staged code — is covered.
+- HTTP resolves and connects internally, so one request may surface both a
+  `net.resolve` and a `net.connect`; identical rows collapse in the report.
 - Named imports captured before startup (`import { readFileSync } from 'fs'`)
   can slip past patching; namespace/`require` access is covered.
 - `process.env` interception is best-effort; some native reads slip through.
@@ -170,6 +185,8 @@ is not guaranteed.
 - [x] Shareable HTML report artifact (`.dephawk/report.html`)
 - [x] Async config loading + host/path glob matching
 - [x] `fs.write` coverage and `os.userInfo`/`networkInterfaces` interception
+- [x] DNS (`net.resolve`), raw socket/TLS/UDP, native addon (`process.native`),
+      `vm` code-eval (`code.eval`) and `worker_threads` interception
 - [ ] `--record`/`--replay` of dependency behavior for CI diffs
 - [ ] Baseline mode: snapshot normal behavior, alert only on _new_ capabilities
 - [ ] `postinstall` script guard (catch attacks before your code even runs)

@@ -63,6 +63,22 @@ export function patchMethod<T extends Record<string, any>>(
   };
 }
 
+/**
+ * The `.prototype` of a constructor-like value, or null when the value is not a
+ * function or has no object prototype. Lets interceptors patch class prototype
+ * methods (`dns.Resolver`, `dgram.Socket`, `vm.Script`) without unsafe casts,
+ * degrading gracefully when a runtime does not expose the class.
+ */
+export function prototypeOf(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== 'function') {
+    return null;
+  }
+  const proto = (value as { prototype?: unknown }).prototype;
+  return typeof proto === 'object' && proto !== null
+    ? (proto as Record<string, unknown>)
+    : null;
+}
+
 /** A disposable that runs a set of restore callbacks exactly once. */
 export function restorer(restores: readonly (() => void)[]): { dispose(): void } {
   let done = false;

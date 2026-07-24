@@ -1,13 +1,23 @@
 import type { CapabilityInterceptor } from '../../application/ports.js';
 import { FsInterceptor } from './fs.interceptor.js';
 import { NetInterceptor } from './net.interceptor.js';
+import { SocketInterceptor } from './socket.interceptor.js';
+import { DnsInterceptor } from './dns.interceptor.js';
 import { ChildProcessInterceptor } from './child-process.interceptor.js';
+import { WorkerInterceptor } from './worker.interceptor.js';
+import { NativeAddonInterceptor } from './native.interceptor.js';
+import { VmInterceptor } from './vm.interceptor.js';
 import { EnvInterceptor } from './env.interceptor.js';
 import { OsInterceptor } from './os.interceptor.js';
 
 export { FsInterceptor } from './fs.interceptor.js';
 export { NetInterceptor } from './net.interceptor.js';
+export { SocketInterceptor } from './socket.interceptor.js';
+export { DnsInterceptor } from './dns.interceptor.js';
 export { ChildProcessInterceptor } from './child-process.interceptor.js';
+export { WorkerInterceptor } from './worker.interceptor.js';
+export { NativeAddonInterceptor } from './native.interceptor.js';
+export { VmInterceptor } from './vm.interceptor.js';
 export { EnvInterceptor } from './env.interceptor.js';
 export { OsInterceptor } from './os.interceptor.js';
 
@@ -20,7 +30,12 @@ export function createInterceptors(): CapabilityInterceptor[] {
   return [
     new FsInterceptor(),
     new NetInterceptor(),
+    new SocketInterceptor(),
+    new DnsInterceptor(),
     new ChildProcessInterceptor(),
+    new WorkerInterceptor(),
+    new NativeAddonInterceptor(),
+    new VmInterceptor(),
     new EnvInterceptor(),
     new OsInterceptor(),
   ];

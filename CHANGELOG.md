@@ -3,6 +3,23 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+
+- Five new capability interceptors:
+  - `net.resolve` — DNS (`dns.lookup`/`resolve*`/`reverse`, `dns.promises`, and
+    `dns.Resolver`), gated by the same host allowlist as `net.connect`. Catches
+    reconnaissance and DNS-tunnel exfiltration.
+  - Raw sockets — `net.connect`/`createConnection`, `tls.connect`, and UDP
+    (`dgram`), recorded as `net.connect`. Closes the raw-socket gap around HTTP.
+  - `process.native` — native-addon loading via `process.dlopen`. New `native`
+    per-package policy (default deny).
+  - `code.eval` — dynamic code execution through the `vm` module. New `eval`
+    per-package policy (default deny).
+  - `worker_threads` — `new Worker(...)`, recorded as `process.spawn` (also an
+    attribution-evasion vector), gated by the existing `spawn` policy.
+
 ## [0.1.1] — 2026-07-24
 
 ### Added

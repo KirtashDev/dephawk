@@ -26,7 +26,12 @@ export interface FsPolicy {
 
 /** Network access policy: allowlist of host patterns. */
 export interface NetPolicy {
-  /** Host patterns this package may connect to (`api.x.com`, `*.x.com`). */
+  /**
+   * Host patterns this package may connect to (`api.x.com`, `*.x.com`). The
+   * same allowlist governs DNS resolution (`net.resolve`) — resolving a host is
+   * a connection precursor, so a package that may connect to a host may resolve
+   * it too, with no separate configuration.
+   */
   readonly connect?: readonly string[];
 }
 
@@ -34,8 +39,12 @@ export interface NetPolicy {
 export interface PackagePolicy {
   readonly net?: NetPolicy;
   readonly fs?: FsPolicy;
-  /** Whether the package may spawn child processes. Defaults to false. */
+  /** Whether the package may spawn child processes (and worker threads). Defaults to false. */
   readonly spawn?: boolean;
+  /** Whether the package may load native addons (`.node`). Defaults to false. */
+  readonly native?: boolean;
+  /** Whether the package may execute dynamically compiled code (`vm`). Defaults to false. */
+  readonly eval?: boolean;
   /** Env access policy. Defaults to false (no secret env). */
   readonly env?: EnvPolicy;
 }
