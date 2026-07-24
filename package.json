@@ -13,6 +13,15 @@
     "tripwire"
   ],
   "license": "MIT",
+  "author": "kellendir",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kellendir/dephawk.git"
+  },
+  "homepage": "https://github.com/kellendir/dephawk#readme",
+  "bugs": {
+    "url": "https://github.com/kellendir/dephawk/issues"
+  },
   "type": "module",
   "engines": {
     "node": ">=20"
