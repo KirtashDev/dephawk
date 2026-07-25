@@ -17,14 +17,14 @@
     "audit"
   ],
   "license": "MIT",
-  "author": "kellendir",
+  "author": "KirtashDev",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/kellendir/dephawk.git"
+    "url": "git+https://github.com/KirtashDev/dephawk.git"
   },
-  "homepage": "https://github.com/kellendir/dephawk#readme",
+  "homepage": "https://github.com/KirtashDev/dephawk#readme",
   "bugs": {
-    "url": "https://github.com/kellendir/dephawk/issues"
+    "url": "https://github.com/KirtashDev/dephawk/issues"
   },
   "type": "module",
   "engines": {
