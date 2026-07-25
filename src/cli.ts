@@ -1,14 +1,27 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, readFileSync, unlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import type { DhEvent } from './domain/event.js';
 import { FileConfigPolicyLoader } from './adapters/config/policy-loader.js';
+import { ConsoleReporter } from './adapters/reporting/console-reporter.js';
+import { HtmlReporter } from './adapters/reporting/html-reporter.js';
+import { parseSink } from './adapters/reporting/jsonl-sink-reporter.js';
 
 const USAGE = `🦅 dephawk — watch what your dependencies do at runtime
 
 Usage:
-  dephawk run [--config <path>] [--observe|--enforce] <command> [args...]
+  dephawk run   [--config <path>] [--observe|--enforce] <command> [args...]
+  dephawk guard [--config <path>] [--observe|--enforce] <command> [args...]
+
+Commands:
+  run     Monitor a single command (e.g. your app or test run).
+  guard   Monitor an install (e.g. \`npm ci\`) and every Node process it
+          spawns — including dependency lifecycle scripts (pre/post-install) —
+          then print ONE aggregated report. Catches attacks that run at
+          install time, before your own code ever executes.
 
 Modes:
   --observe (default)    record only, block nothing
@@ -21,7 +34,8 @@ Config:
 
 Examples:
   dephawk run npm test
-  DEPHAWK_MODE=enforce dephawk run node ./app.js
+  dephawk guard npm ci
+  DEPHAWK_MODE=enforce dephawk guard npm install
 `;
 
 const CONFIG_NAMES = ['dephawk.config.js', 'dephawk.config.mjs', 'dephawk.config.cjs'];
@@ -32,40 +46,16 @@ export async function run(argv: readonly string[]): Promise<number> {
     process.stdout.write(USAGE);
     return 0;
   }
-  if (subcommand !== 'run') {
+  if (subcommand !== 'run' && subcommand !== 'guard') {
     process.stderr.write(USAGE);
     return 1;
   }
 
-  let args = argv.slice(1);
-  let configOverride: string | null = null;
-  let modeOverride: string | undefined;
-  while (args[0] !== undefined && args[0].startsWith('--')) {
-    const flag = args[0];
-    if (flag === '--') {
-      args = args.slice(1);
-      break;
-    }
-    if (flag === '--config') {
-      configOverride = args[1] ?? null;
-      args = args.slice(2);
-      continue;
-    }
-    if (flag === '--enforce' || flag === '--observe') {
-      modeOverride = flag.slice(2);
-      args = args.slice(1);
-      continue;
-    }
-    process.stderr.write(`dephawk: unknown option ${flag}\n\n${USAGE}`);
+  const parsed = parseArgs(argv.slice(1));
+  if (parsed === null) {
     return 1;
   }
-
-  const command = args[0];
-  const commandArgs = args.slice(1);
-  if (command === undefined) {
-    process.stderr.write(`dephawk: no command given\n\n${USAGE}`);
-    return 1;
-  }
+  const { command, commandArgs, configOverride, modeOverride } = parsed;
 
   const configPath = configOverride ?? discoverConfig(process.cwd(), process.env);
   // A --enforce/--observe flag takes precedence over the ambient DEPHAWK_MODE.
@@ -85,17 +75,79 @@ export async function run(argv: readonly string[]): Promise<number> {
     .filter((part) => part !== undefined && part.length > 0)
     .join(' ');
 
-  const child = spawn(command, commandArgs, {
-    stdio: 'inherit',
-    env: {
-      ...process.env,
-      ...(modeOverride === undefined ? {} : { DEPHAWK_MODE: modeOverride }),
-      NODE_OPTIONS: nodeOptions,
-      DEPHAWK_POLICY: JSON.stringify(policy),
-    },
-  });
+  // In `guard` mode, every spawned process appends its events to one shared
+  // JSONL file (via DEPHAWK_SINK, honoured by register.js) so the parent can
+  // print a single aggregated report instead of each process reporting itself.
+  const sinkPath =
+    subcommand === 'guard'
+      ? join(tmpdir(), `dephawk-guard-${process.pid}-${Date.now()}.jsonl`)
+      : undefined;
 
-  return await new Promise<number>((resolveCode) => {
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    ...(modeOverride === undefined ? {} : { DEPHAWK_MODE: modeOverride }),
+    NODE_OPTIONS: nodeOptions,
+    DEPHAWK_POLICY: JSON.stringify(policy),
+    ...(sinkPath === undefined ? {} : { DEPHAWK_SINK: sinkPath }),
+  };
+
+  const exitCode = await spawnMonitored(command, commandArgs, env);
+
+  if (sinkPath !== undefined) {
+    await reportAggregate(sinkPath);
+  }
+
+  return exitCode;
+}
+
+interface ParsedArgs {
+  readonly command: string;
+  readonly commandArgs: string[];
+  readonly configOverride: string | null;
+  readonly modeOverride: string | undefined;
+}
+
+/** Parse `[flags...] <command> [args...]`, or null (after printing an error). */
+function parseArgs(input: readonly string[]): ParsedArgs | null {
+  let args = [...input];
+  let configOverride: string | null = null;
+  let modeOverride: string | undefined;
+  while (args[0] !== undefined && args[0].startsWith('--')) {
+    const flag = args[0];
+    if (flag === '--') {
+      args = args.slice(1);
+      break;
+    }
+    if (flag === '--config') {
+      configOverride = args[1] ?? null;
+      args = args.slice(2);
+      continue;
+    }
+    if (flag === '--enforce' || flag === '--observe') {
+      modeOverride = flag.slice(2);
+      args = args.slice(1);
+      continue;
+    }
+    process.stderr.write(`dephawk: unknown option ${flag}\n\n${USAGE}`);
+    return null;
+  }
+
+  const command = args[0];
+  if (command === undefined) {
+    process.stderr.write(`dephawk: no command given\n\n${USAGE}`);
+    return null;
+  }
+  return { command, commandArgs: args.slice(1), configOverride, modeOverride };
+}
+
+/** Spawn the command with the monitored environment, resolving its exit code. */
+function spawnMonitored(
+  command: string,
+  commandArgs: readonly string[],
+  env: NodeJS.ProcessEnv,
+): Promise<number> {
+  const child = spawn(command, commandArgs, { stdio: 'inherit', env });
+  return new Promise<number>((resolveCode) => {
     child.on('error', (error: Error) => {
       process.stderr.write(`dephawk: failed to start "${command}": ${error.message}\n`);
       resolveCode(127);
@@ -104,6 +156,30 @@ export async function run(argv: readonly string[]): Promise<number> {
       resolveCode(signal !== null ? 1 : (code ?? 0));
     });
   });
+}
+
+/** Read the shared sink, print one aggregated report, then remove the file. */
+async function reportAggregate(sinkPath: string): Promise<void> {
+  let events: DhEvent[] = [];
+  try {
+    events = existsSync(sinkPath) ? parseSink(readFileSync(sinkPath, 'utf8')) : [];
+  } catch {
+    events = [];
+  } finally {
+    try {
+      if (existsSync(sinkPath)) {
+        unlinkSync(sinkPath);
+      }
+    } catch {
+      // Best-effort cleanup of a temp file — never fail the command over it.
+    }
+  }
+
+  process.stderr.write(
+    '\ndephawk: install guard — aggregated across every process spawned:\n',
+  );
+  new ConsoleReporter().report(events);
+  await new HtmlReporter().report(events);
 }
 
 function discoverConfig(cwd: string, env: NodeJS.ProcessEnv): string | null {

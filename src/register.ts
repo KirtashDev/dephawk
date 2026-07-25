@@ -1,5 +1,6 @@
 import { resolveEnvPolicy } from './adapters/config/policy-loader.js';
 import { buildMonitor } from './composition/build-monitor.js';
+import { JsonlSinkReporter } from './adapters/reporting/jsonl-sink-reporter.js';
 
 /**
  * The `--import dephawk/register` entrypoint.
@@ -16,6 +17,20 @@ if (globals[INSTALLED] !== true) {
   globals[INSTALLED] = true;
 
   const policy = resolveEnvPolicy(process.env);
+  const sinkPath = process.env['DEPHAWK_SINK'];
+
+  if (sinkPath !== undefined && sinkPath.length > 0) {
+    installGuardMode(sinkPath, policy);
+  } else {
+    installStandaloneMode(policy);
+  }
+}
+
+/**
+ * Standalone `run`: report on exit with the human console + HTML reporters.
+ * These are async (HTML writes a file), so we drain on `beforeExit`.
+ */
+function installStandaloneMode(policy: ReturnType<typeof resolveEnvPolicy>): void {
   const monitor = buildMonitor({ policy });
   monitor.start();
 
@@ -29,15 +44,49 @@ if (globals[INSTALLED] !== true) {
     await monitor.report();
   };
 
-  // Normal completion: the event loop drains, we write the report, then exit.
   process.once('beforeExit', () => {
     void finish();
   });
 
-  // Ctrl-C / termination: report, then exit with the conventional code.
   const onSignal = (code: number): void => {
     void finish().finally(() => process.exit(code));
   };
   process.once('SIGINT', () => onSignal(130));
   process.once('SIGTERM', () => onSignal(143));
+}
+
+/**
+ * `guard` mode: append this process's events to the shared JSONL sink so the
+ * parent aggregates them. The sink reporter is *synchronous*, so we flush on
+ * the `exit` event — which fires even when a blocked call throws and crashes
+ * the process (an uncaught exception still runs `exit` handlers). That is
+ * exactly when we most want the record: an install-time capability was denied.
+ */
+function installGuardMode(
+  sinkPath: string,
+  policy: ReturnType<typeof resolveEnvPolicy>,
+): void {
+  const reporter = new JsonlSinkReporter(sinkPath);
+  const monitor = buildMonitor({ policy, reporters: [reporter] });
+  monitor.start();
+
+  let flushed = false;
+  const flush = (): void => {
+    if (flushed) {
+      return;
+    }
+    flushed = true;
+    monitor.stop();
+    reporter.report(monitor.snapshot()); // synchronous append
+  };
+
+  process.on('exit', flush);
+  process.once('SIGINT', () => {
+    flush();
+    process.exit(130);
+  });
+  process.once('SIGTERM', () => {
+    flush();
+    process.exit(143);
+  });
 }

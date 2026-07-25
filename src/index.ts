@@ -71,6 +71,8 @@ export {
 export {
   ConsoleReporter,
   HtmlReporter,
+  JsonlSinkReporter,
+  parseSink,
   formatConsoleReport,
   renderHtmlReport,
 } from './adapters/reporting/index.js';

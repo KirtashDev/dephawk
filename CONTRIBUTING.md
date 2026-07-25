@@ -29,7 +29,7 @@ src/
     config/        policy loading
   composition/   the wiring (composition root)
   register.ts    the --import entrypoint
-  cli.ts         the `dephawk run` CLI
+  cli.ts         the `dephawk run` / `dephawk guard` CLI
 ```
 
 ## The rules that keep this trustworthy

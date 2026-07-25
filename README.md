@@ -78,6 +78,21 @@ node --import dephawk/register ./your-app.js
 On exit, dephawk prints the summary above and writes a shareable, self-contained
 **`.dephawk/report.html`**.
 
+**Guard your install** (the attack surface that runs _before_ your code):
+
+```bash
+npx dephawk guard npm ci
+```
+
+`guard` runs the install and watches **every Node process it spawns** — the
+package manager itself and each dependency's `preinstall`/`postinstall`/`install`
+lifecycle script — then prints **one aggregated report** attributing any
+capability use to the exact package. This is where a huge share of real
+supply-chain attacks fire: a malicious `postinstall` reads your `~/.ssh` key or
+`NPM_TOKEN` and phones home the moment you `npm install`, long before your app
+ever starts. Add `--enforce` to block it. (Under the hood, `run` monitors one
+process; `guard` aggregates across the whole spawned tree via a shared sink.)
+
 ## What it watches
 
 | Capability       | Examples caught                                                                 |
@@ -187,9 +202,10 @@ is not guaranteed.
 - [x] `fs.write` coverage and `os.userInfo`/`networkInterfaces` interception
 - [x] DNS (`net.resolve`), raw socket/TLS/UDP, native addon (`process.native`),
       `vm` code-eval (`code.eval`) and `worker_threads` interception
+- [x] `postinstall` script guard (`dephawk guard` — catch install-time attacks
+      before your code even runs)
 - [ ] `--record`/`--replay` of dependency behavior for CI diffs
 - [ ] Baseline mode: snapshot normal behavior, alert only on _new_ capabilities
-- [ ] `postinstall` script guard (catch attacks before your code even runs)
 
 ## Contributing
 

@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- `dephawk guard <command>` — install-time guard. Runs an install (e.g.
+  `npm ci`) and monitors every Node process it spawns, including dependency
+  `pre`/`post`/`install` lifecycle scripts, aggregating them into one report via
+  a shared JSONL sink (`DEPHAWK_SINK`). Catches attacks that run before your own
+  code executes. Events are flushed on process `exit`, so a call blocked in
+  `--enforce` is still recorded even though it crashes the offending script.
 - Five new capability interceptors:
   - `net.resolve` — DNS (`dns.lookup`/`resolve*`/`reverse`, `dns.promises`, and
     `dns.Resolver`), gated by the same host allowlist as `net.connect`. Catches
