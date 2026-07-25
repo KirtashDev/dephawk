@@ -3,7 +3,7 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.2.0] — 2026-07-25
 
 ### Added
 
@@ -51,5 +51,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - `dephawk run <cmd>` CLI and `--import dephawk/register` entrypoint.
 - Hexagonal architecture, zero runtime dependencies, ≥90% core coverage.
 
+[0.2.0]: https://github.com/KirtashDev/dephawk/releases/tag/v0.2.0
 [0.1.1]: https://github.com/kellendir/dephawk/releases/tag/v0.1.1
 [0.1.0]: https://github.com/kellendir/dephawk/releases/tag/v0.1.0
