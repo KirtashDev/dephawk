@@ -65,6 +65,40 @@ export function captureMonitoringEnv(
   return { imports, variables };
 }
 
+/**
+ * The monitoring entries missing from `env`, read key by key.
+ *
+ * Used for the inherited-environment case, where the alternative — copying
+ * `process.env` and patching the copy — would touch every variable in it. That
+ * copy goes through the env interceptor's proxy, so it reports the package as
+ * having read every secret in the environment merely because it spawned
+ * something. Reading only the handful of names we care about avoids inventing
+ * findings that never happened.
+ */
+export function missingMonitoring(
+  env: NodeJS.ProcessEnv,
+  monitoring: MonitoringEnv,
+): readonly (readonly [string, string])[] {
+  const missing: (readonly [string, string])[] = [];
+
+  for (const [key, value] of Object.entries(monitoring.variables)) {
+    if (env[key] !== value) {
+      missing.push([key, value]);
+    }
+  }
+
+  const nodeOptions = env['NODE_OPTIONS'] ?? '';
+  const absent = monitoring.imports.filter((flag) => !nodeOptions.includes(flag));
+  if (absent.length > 0) {
+    missing.push([
+      'NODE_OPTIONS',
+      [nodeOptions, ...absent].filter((part) => part !== '').join(' '),
+    ]);
+  }
+
+  return missing;
+}
+
 /** The outcome of putting monitoring back into an environment. */
 export interface RestoredEnv {
   readonly env: NodeJS.ProcessEnv;

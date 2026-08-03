@@ -1,6 +1,6 @@
 import { isSensitiveEnv } from '../../domain/sensitivity.js';
 import type { CapabilityInterceptor, Disposable } from '../../application/ports.js';
-import { blockedError, report, type RecordFn } from './support.js';
+import { blockedError, inRuntimeInternals, report, type RecordFn } from './support.js';
 
 /**
  * Intercepts reads of secret-looking environment variables via a Proxy over
@@ -22,7 +22,9 @@ export class EnvInterceptor implements CapabilityInterceptor {
 
     const proxy = new Proxy(original, {
       get(target, prop, receiver): unknown {
-        if (typeof prop === 'string' && isSensitiveEnv(prop)) {
+        // Skip reads made by another built-in's own implementation — see
+        // `inRuntimeInternals`. Those are plumbing, not anyone's decision.
+        if (typeof prop === 'string' && isSensitiveEnv(prop) && !inRuntimeInternals()) {
           const decision = report(record, 'env.read', prop);
           if (!decision.allow) {
             throw blockedError(`env read of ${prop}`, decision.reason);

@@ -1,3 +1,4 @@
+import { homedir } from 'node:os';
 import {
   PERMISSIVE_POLICY,
   type EnvPolicy,
@@ -12,27 +13,55 @@ import {
  * Defensive normalisation of untrusted config into a valid {@link Policy}.
  *
  * Config comes from a user-authored file or a JSON env var, so it is `unknown`.
- * Anything malformed is dropped rather than trusted. Pure and fully tested,
- * which is why it lives apart from the loaders that do the I/O.
+ * Anything malformed is dropped rather than trusted.
+ *
+ * Filesystem patterns may start with `~/`, which is expanded here. A config is
+ * meant to be committed and run on other people's machines and in CI, and
+ * `/Users/alice/.npmrc` is true in exactly one of those places — so the
+ * portable spelling has to work, or every generated config would be
+ * machine-specific.
  */
-export function normalizePolicy(input: unknown): Policy {
+export interface NormalizeOptions {
+  /** Home directory `~/` expands to. Defaults to the current user's. */
+  readonly homeDir?: string;
+}
+
+export function normalizePolicy(input: unknown, options: NormalizeOptions = {}): Policy {
   if (!isRecord(input)) {
     return PERMISSIVE_POLICY;
   }
+
+  const home = options.homeDir ?? safeHomeDir();
 
   const packages: Record<string, PackagePolicy> = {};
   const packagesInput = input['packages'];
   if (isRecord(packagesInput)) {
     for (const [name, value] of Object.entries(packagesInput)) {
-      packages[name] = normalizePackagePolicy(value);
+      packages[name] = normalizePackagePolicy(value, home);
     }
   }
 
   return {
     mode: normalizeMode(input['mode']) ?? PERMISSIVE_POLICY.mode,
-    default: normalizePackagePolicy(input['default']),
+    default: normalizePackagePolicy(input['default'], home),
     packages,
   };
+}
+
+/** Replace a leading `~/` with the home directory. */
+export function expandHome(pattern: string, home: string): string {
+  if (pattern === '~') {
+    return home;
+  }
+  return pattern.startsWith('~/') ? `${home}/${pattern.slice(2)}` : pattern;
+}
+
+function safeHomeDir(): string {
+  try {
+    return homedir();
+  } catch {
+    return '';
+  }
 }
 
 /** Apply a `DEPHAWK_MODE`-style override string, if it is a valid mode. */
@@ -41,7 +70,7 @@ export function applyModeOverride(policy: Policy, mode: string | undefined): Pol
   return normalised === undefined ? policy : { ...policy, mode: normalised };
 }
 
-function normalizePackagePolicy(input: unknown): PackagePolicy {
+function normalizePackagePolicy(input: unknown, home: string): PackagePolicy {
   if (!isRecord(input)) {
     return {};
   }
@@ -58,7 +87,7 @@ function normalizePackagePolicy(input: unknown): PackagePolicy {
   if (net !== undefined) {
     policy.net = net;
   }
-  const fs = normalizeFs(input['fs']);
+  const fs = normalizeFs(input['fs'], home);
   if (fs !== undefined) {
     policy.fs = fs;
   }
@@ -86,18 +115,21 @@ function normalizeNet(input: unknown): NetPolicy | undefined {
   return connect === undefined ? {} : { connect };
 }
 
-function normalizeFs(input: unknown): FsPolicy | undefined {
+function normalizeFs(input: unknown, home: string): FsPolicy | undefined {
   if (!isRecord(input)) {
     return undefined;
   }
+  const expand = (patterns: readonly string[]): readonly string[] =>
+    patterns.map((pattern) => expandHome(pattern, home));
+
   const read = asStringArray(input['read']);
   const write = asStringArray(input['write']);
   const fs: { read?: readonly string[]; write?: readonly string[] } = {};
   if (read !== undefined) {
-    fs.read = read;
+    fs.read = expand(read);
   }
   if (write !== undefined) {
-    fs.write = write;
+    fs.write = expand(write);
   }
   return fs;
 }

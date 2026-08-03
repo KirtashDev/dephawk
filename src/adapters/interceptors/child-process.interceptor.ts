@@ -1,8 +1,16 @@
 import childProcess from 'node:child_process';
 import type { CapabilityInterceptor, Disposable } from '../../application/ports.js';
-import { blockedError, patchMethod, report, restorer, type RecordFn } from './support.js';
+import {
+  asRuntimeInternals,
+  blockedError,
+  patchMethod,
+  report,
+  restorer,
+  type RecordFn,
+} from './support.js';
 import {
   captureMonitoringEnv,
+  missingMonitoring,
   restoreMonitoring,
   type MonitoringEnv,
 } from './monitored-env.js';
@@ -82,7 +90,9 @@ export class ChildProcessInterceptor implements CapabilityInterceptor {
             if (!decision.allow) {
               throw blockedError(`spawn of ${detail}`, decision.reason);
             }
-            return original(...args);
+            // Node copies `process.env` in here to build the child's
+            // environment; those reads are not the caller's doing.
+            return asRuntimeInternals(() => original(...args));
           },
       );
       if (restore) {
@@ -111,11 +121,14 @@ function reattach(args: unknown[], monitoring: MonitoringEnv): readonly string[]
   const childEnv = options?.['env'];
 
   if (childEnv === undefined || childEnv === null) {
-    const { env, restored } = restoreMonitoring(process.env, monitoring);
-    for (const name of restored) {
-      process.env[name] = env[name];
+    // Repair `process.env` in place. Copying it would read every variable
+    // through the env interceptor's proxy and report the caller as having read
+    // every secret in the environment, just for spawning something.
+    const missing = missingMonitoring(process.env, monitoring);
+    for (const [name, value] of missing) {
+      process.env[name] = value;
     }
-    return restored;
+    return missing.map(([name]) => name);
   }
 
   const { env, restored } = restoreMonitoring(childEnv as NodeJS.ProcessEnv, monitoring);

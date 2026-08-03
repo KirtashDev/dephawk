@@ -7,6 +7,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- **`dephawk init <command>`** — watches a run and writes the
+  `dephawk.config.js` that would have let it pass. Enforcing was easy to
+  describe and miserable to start: every dependency that legitimately reaches
+  the network, shells out or reads `.npmrc` needed a hand-written rule before
+  the first green run, which is what kept `--enforce` switched off. The draft
+  grants what the run **did**, not what is safe — so it carries the observations
+  that produced each rule, lists open-ended grants (`spawn`, `native`, `eval`)
+  at the top for review, and never grants anything it could not attribute to a
+  package. Refuses to overwrite an existing config without `--force`; `--out`
+  chooses the path.
+- Filesystem patterns in a policy may start with `~/`, expanded on load, so a
+  committed config is not tied to one machine's home directory.
 - **`--fail-on <level>`** — dephawk can now fail a command on what it found,
   which it previously could not do at all: `run` returned only the child's exit
   code, so an observe-mode run that watched a dependency read `~/.ssh/id_rsa`
@@ -86,6 +98,13 @@ anything, upgrade.
 
 ### Fixed
 
+- Reads of `process.env` made by Node's own implementation of an intercepted
+  built-in are no longer attributed to the caller. `child_process` copies the
+  whole environment inside `normalizeSpawnArguments` to build a child's env, so
+  one `execSync('echo hi')` invented an `env.read` finding for every secret in
+  the environment — and a drafted policy would then hand that package all of
+  them. A secret the caller reads in its own code before spawning is still
+  caught.
 - Wrappers installed over Node built-ins now inherit the original's own
   properties, so API hung off them (`setTimeout[util.promisify.custom]`,
   `fs.realpath.native`) keeps working while dephawk is active.

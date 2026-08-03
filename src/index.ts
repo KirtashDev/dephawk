@@ -30,6 +30,8 @@ export {
   describeFailure,
 } from './domain/failure-threshold.js';
 export type { FailureThreshold } from './domain/failure-threshold.js';
+export { draftPolicy } from './domain/policy-draft.js';
+export type { PolicyDraft, PackageNote, DraftOptions } from './domain/policy-draft.js';
 export { protectedPathAffectedBy } from './domain/protected-path.js';
 export type { CapabilityRequest } from './domain/capability-request.js';
 export { RulePolicyEngine } from './domain/policy-engine.js';
@@ -72,7 +74,10 @@ export {
 export {
   normalizePolicy,
   applyModeOverride,
+  expandHome,
 } from './adapters/config/normalize-policy.js';
+export type { NormalizeOptions } from './adapters/config/normalize-policy.js';
+export { renderConfig } from './adapters/config/render-config.js';
 export {
   createInterceptors,
   FsInterceptor,

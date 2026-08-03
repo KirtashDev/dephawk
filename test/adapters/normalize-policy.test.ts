@@ -81,3 +81,41 @@ describe('applyModeOverride', () => {
     expect(applyModeOverride(base, undefined).mode).toBe('observe');
   });
 });
+
+describe('normalizePolicy — portable fs patterns', () => {
+  const home = '/home/alice';
+
+  it('expands a leading ~/ so a committed config works on any machine', () => {
+    const policy = normalizePolicy(
+      { packages: { pkg: { fs: { read: ['~/.npmrc'], write: ['~/.config/x'] } } } },
+      { homeDir: home },
+    );
+
+    expect(policy.packages['pkg']?.fs?.read).toEqual(['/home/alice/.npmrc']);
+    expect(policy.packages['pkg']?.fs?.write).toEqual(['/home/alice/.config/x']);
+  });
+
+  it('expands a bare ~', () => {
+    const policy = normalizePolicy(
+      { packages: { pkg: { fs: { read: ['~'] } } } },
+      { homeDir: home },
+    );
+    expect(policy.packages['pkg']?.fs?.read).toEqual([home]);
+  });
+
+  it('leaves absolute paths and mid-string tildes alone', () => {
+    const policy = normalizePolicy(
+      { packages: { pkg: { fs: { read: ['/etc/passwd', '/tmp/a~b'] } } } },
+      { homeDir: home },
+    );
+    expect(policy.packages['pkg']?.fs?.read).toEqual(['/etc/passwd', '/tmp/a~b']);
+  });
+
+  it('expands in the default bucket too', () => {
+    const policy = normalizePolicy(
+      { default: { fs: { read: ['~/.npmrc'] } } },
+      { homeDir: home },
+    );
+    expect(policy.default.fs?.read).toEqual(['/home/alice/.npmrc']);
+  });
+});

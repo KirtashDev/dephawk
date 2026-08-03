@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, beforeEach } from 'vitest';
 import childProcess from 'node:child_process';
 import { ChildProcessInterceptor } from '../../../src/adapters/interceptors/child-process.interceptor.js';
+import { EnvInterceptor } from '../../../src/adapters/interceptors/env.interceptor.js';
 import type { Disposable } from '../../../src/application/ports.js';
 import { recordSpy } from './spy.js';
 
@@ -72,6 +73,21 @@ describe('ChildProcessInterceptor', () => {
 });
 
 describe('ChildProcessInterceptor — re-attaching monitoring', () => {
+  // Re-attaching repairs `process.env` in place when the caller passed no env,
+  // so these tests leave fabricated values behind unless they are undone.
+  let savedEnv: NodeJS.ProcessEnv;
+  beforeEach(() => {
+    savedEnv = { ...process.env };
+  });
+  afterEach(() => {
+    for (const key of Object.keys(process.env)) {
+      if (!(key in savedEnv)) {
+        delete process.env[key];
+      }
+    }
+    Object.assign(process.env, savedEnv);
+  });
+
   const REGISTER = 'file:///app/node_modules/dephawk/dist/register.js';
   // A fixed snapshot, so the test does not depend on the runner's environment.
   const monitored: NodeJS.ProcessEnv = {
@@ -156,5 +172,50 @@ describe('ChildProcessInterceptor — re-attaching monitoring', () => {
       /dephawk: blocked/,
     );
     expect(spawnCalls).toHaveLength(0);
+  });
+});
+
+describe('ChildProcessInterceptor — reads made by the runtime', () => {
+  it('does not report the caller for the env Node copies to build the child', () => {
+    // `normalizeSpawnArguments` reads the whole of `process.env` to construct
+    // the child's environment. Attributing that to the caller invents a finding
+    // per secret in the environment — and, worse, a drafted policy that hands
+    // the package every one of them.
+    process.env['DEPHAWK_TEST_SECRET_TOKEN'] = 'x';
+    const spy = recordSpy();
+    const env = new EnvInterceptor().install(spy.record);
+    installed = new ChildProcessInterceptor({ env: {} }).install(spy.record);
+
+    try {
+      // execFileSync, not the stubbed spawnSync: this needs Node's real
+      // implementation to run, since that is what reads the environment.
+      childProcess.execFileSync(process.execPath, ['-e', '1']);
+    } finally {
+      env.dispose();
+      delete process.env['DEPHAWK_TEST_SECRET_TOKEN'];
+    }
+
+    expect(spy.calls.filter((c) => c.capability === 'process.spawn')).toHaveLength(1);
+    expect(spy.calls.filter((c) => c.capability === 'env.read')).toHaveLength(0);
+  });
+
+  it('still reports a secret the caller reads itself before spawning', () => {
+    process.env['DEPHAWK_TEST_SECRET_TOKEN'] = 'x';
+    const spy = recordSpy();
+    const env = new EnvInterceptor().install(spy.record);
+    installed = new ChildProcessInterceptor({ env: {} }).install(spy.record);
+
+    try {
+      const secret = process.env['DEPHAWK_TEST_SECRET_TOKEN'];
+      childProcess.execFileSync(process.execPath, ['-e', '1'], {
+        env: { SECRET: secret ?? '' },
+      });
+    } finally {
+      env.dispose();
+      delete process.env['DEPHAWK_TEST_SECRET_TOKEN'];
+    }
+
+    const reads = spy.calls.filter((c) => c.capability === 'env.read');
+    expect(reads.map((c) => c.detail)).toEqual(['DEPHAWK_TEST_SECRET_TOKEN']);
   });
 });

@@ -66,6 +66,11 @@ describe('cli argument handling', () => {
     expect(await run(['run', '--fail-on'])).toBe(1);
   });
 
+  it('exits 1 when --out has no path', async () => {
+    expect(await run(['init', '--out'])).toBe(1);
+    expect(await run(['init', '--out', '--force', 'node'])).toBe(1);
+  });
+
   it('exits 1 when --sarif has no path', async () => {
     expect(await run(['run', '--sarif'])).toBe(1);
     // A following flag is not a path — that would silently write to "--enforce".

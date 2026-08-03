@@ -140,6 +140,38 @@ export function restorer(restores: readonly (() => void)[]): { dispose(): void }
   };
 }
 
+/**
+ * Depth of nested calls currently executing Node's own implementation of an
+ * intercepted built-in.
+ *
+ * Some built-ins read others on the way through. `child_process` copies the
+ * whole of `process.env` inside `normalizeSpawnArguments` to build the child's
+ * environment, which the env interceptor's proxy sees as the calling package
+ * reading every secret in the environment — five invented findings for one
+ * `execSync('echo hi')`, and, worse, a drafted policy that hands that package
+ * every secret it never asked for. Those reads are the runtime's plumbing, not
+ * a decision by anyone's code, so they are not recorded.
+ *
+ * A package that genuinely reads a secret and passes it to a child does so in
+ * its own code, before the call, and is still caught.
+ */
+let runtimeDepth = 0;
+
+/** Run Node's own implementation of an intercepted call. */
+export function asRuntimeInternals<T>(fn: () => T): T {
+  runtimeDepth += 1;
+  try {
+    return fn();
+  } finally {
+    runtimeDepth -= 1;
+  }
+}
+
+/** Whether we are currently inside a built-in's own implementation. */
+export function inRuntimeInternals(): boolean {
+  return runtimeDepth > 0;
+}
+
 /** Build a blocked-call error with a consistent, greppable prefix. */
 export function blockedError(detail: string, reason: string): Error {
   return new Error(`dephawk: blocked ${detail} — ${reason}`);

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { DhEvent } from './domain/event.js';
@@ -13,7 +13,10 @@ import {
   FAILURE_THRESHOLDS,
   type FailureThreshold,
 } from './domain/failure-threshold.js';
+import { draftPolicy } from './domain/policy-draft.js';
+import { PERMISSIVE_POLICY } from './domain/policy.js';
 import { FileConfigPolicyLoader } from './adapters/config/policy-loader.js';
+import { renderConfig } from './adapters/config/render-config.js';
 import { ConsoleReporter } from './adapters/reporting/console-reporter.js';
 import { HtmlReporter } from './adapters/reporting/html-reporter.js';
 import { SarifReporter } from './adapters/reporting/sarif-reporter.js';
@@ -27,6 +30,7 @@ const USAGE = `🦅 dephawk — watch what your dependencies do at runtime
 Usage:
   dephawk run   [options] <command> [args...]
   dephawk guard [options] <command> [args...]
+  dephawk init  [--out <path>] [--force] <command> [args...]
 
 Commands:
   run     Monitor a command (e.g. your app or test run) and everything it
@@ -34,6 +38,9 @@ Commands:
   guard   The same, framed for an install (e.g. \`npm ci\`): it covers the
           dependency lifecycle scripts (pre/post-install) that run before your
           own code ever executes, which is where many real attacks fire.
+  init    Watch a run and write the policy that would have let it pass, so you
+          have something to edit instead of a blank file. It grants what it
+          SAW — read the result before trusting it.
 
 Modes:
   --observe (default)    record only, block nothing
@@ -48,6 +55,9 @@ Options:
                            violation  policy denied a call, blocked or not
                            sensitive  anything sensitive was touched
   --sarif <path>         also write SARIF 2.1.0 for GitHub code scanning
+  --out <path>           where \`init\` writes the policy (default:
+                         dephawk.config.js)
+  --force                let \`init\` overwrite an existing policy file
 
 Exit codes:
   0   clean, or below the --fail-on level
@@ -59,6 +69,7 @@ Config:
   or pass --config <path>, or set DEPHAWK_CONFIG=<path>.
 
 Examples:
+  dephawk init npm test
   dephawk run npm test
   dephawk guard npm ci
   dephawk run --fail-on violation --sarif dephawk.sarif npm test
@@ -73,7 +84,7 @@ export async function run(argv: readonly string[]): Promise<number> {
     process.stdout.write(USAGE);
     return 0;
   }
-  if (subcommand !== 'run' && subcommand !== 'guard') {
+  if (subcommand !== 'run' && subcommand !== 'guard' && subcommand !== 'init') {
     process.stderr.write(USAGE);
     return 1;
   }
@@ -84,6 +95,15 @@ export async function run(argv: readonly string[]): Promise<number> {
   }
   const { command, commandArgs, configOverride, modeOverride, failOn, sarifPath } =
     parsed;
+  const drafting = subcommand === 'init';
+
+  const outPath = resolve(parsed.outPath ?? 'dephawk.config.js');
+  if (drafting && existsSync(outPath) && !parsed.force) {
+    process.stderr.write(
+      `dephawk: ${outPath} already exists — pass --force to overwrite it\n`,
+    );
+    return 1;
+  }
 
   const configPath = configOverride ?? discoverConfig(process.cwd(), process.env);
   // A --enforce/--observe flag takes precedence over the ambient DEPHAWK_MODE.
@@ -91,10 +111,12 @@ export async function run(argv: readonly string[]): Promise<number> {
     modeOverride === undefined
       ? process.env
       : { ...process.env, DEPHAWK_MODE: modeOverride };
-  const policy = await new FileConfigPolicyLoader({
-    configPath,
-    env: loaderEnv,
-  }).load();
+  // `init` deliberately ignores any existing config and never enforces: it is
+  // learning what a run does, and a run that had calls blocked (or allowed by a
+  // rule already written) would teach it the wrong thing.
+  const policy = drafting
+    ? PERMISSIVE_POLICY
+    : await new FileConfigPolicyLoader({ configPath, env: loaderEnv }).load();
 
   // Resolve the sibling register.js next to this built CLI. As a file URL it is
   // safe to hand to `--import` (spaces are percent-encoded).
@@ -113,6 +135,7 @@ export async function run(argv: readonly string[]): Promise<number> {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     ...(modeOverride === undefined ? {} : { DEPHAWK_MODE: modeOverride }),
+    ...(drafting ? { DEPHAWK_MODE: 'observe' } : {}),
     NODE_OPTIONS: nodeOptions,
     DEPHAWK_POLICY: JSON.stringify(policy),
     DEPHAWK_SINK: sink.path,
@@ -124,6 +147,11 @@ export async function run(argv: readonly string[]): Promise<number> {
   // Nothing ran, so there is nothing to report on. Writing an empty report for
   // a command that never started would only be misleading.
   if (!started) {
+    return exitCode;
+  }
+
+  if (drafting) {
+    writeDraft(events, outPath);
     return exitCode;
   }
 
@@ -172,6 +200,8 @@ interface ParsedArgs {
   readonly modeOverride: string | undefined;
   readonly failOn: FailureThreshold;
   readonly sarifPath: string | undefined;
+  readonly outPath: string | undefined;
+  readonly force: boolean;
 }
 
 /** Parse `[flags...] <command> [args...]`, or null (after printing an error). */
@@ -181,6 +211,8 @@ function parseArgs(input: readonly string[]): ParsedArgs | null {
   let modeOverride: string | undefined;
   let failOn: FailureThreshold = 'none';
   let sarifPath: string | undefined;
+  let outPath: string | undefined;
+  let force = false;
   while (args[0] !== undefined && args[0].startsWith('--')) {
     const flag = args[0];
     if (flag === '--') {
@@ -219,6 +251,21 @@ function parseArgs(input: readonly string[]): ParsedArgs | null {
       args = args.slice(2);
       continue;
     }
+    if (flag === '--out') {
+      const path = args[1];
+      if (path === undefined || path.startsWith('--')) {
+        process.stderr.write('dephawk: --out expects a path\n');
+        return null;
+      }
+      outPath = path;
+      args = args.slice(2);
+      continue;
+    }
+    if (flag === '--force') {
+      force = true;
+      args = args.slice(1);
+      continue;
+    }
     process.stderr.write(`dephawk: unknown option ${flag}\n\n${USAGE}`);
     return null;
   }
@@ -235,7 +282,56 @@ function parseArgs(input: readonly string[]): ParsedArgs | null {
     modeOverride,
     failOn,
     sarifPath,
+    outPath,
+    force,
   };
+}
+
+/**
+ * Draft a policy from what the run did, and say plainly what that means.
+ *
+ * The warning is not boilerplate. Drafting from behaviour grants whatever was
+ * observed, so a package that was already exfiltrating gets an allowlist entry
+ * for its collector alongside the entries for your HTTP client — and the file
+ * looks equally reasonable either way. Saying so at the moment of writing is
+ * the only point where someone is definitely paying attention.
+ */
+function writeDraft(events: readonly DhEvent[], outPath: string): void {
+  const draft = draftPolicy(events, { homeDir: safeHome() });
+  writeFileSync(outPath, renderConfig(draft), 'utf8');
+
+  const packages = Object.keys(draft.policy.packages);
+  process.stderr.write(`\ndephawk: policy drafted at ${outPath}\n`);
+  process.stderr.write(
+    packages.length === 0
+      ? '  Nothing needed a rule — the run touched nothing sensitive.\n'
+      : `  ${String(packages.length)} package${packages.length === 1 ? '' : 's'} granted what they did: ${packages.join(', ')}\n`,
+  );
+
+  const review = draft.notes.filter((note) => note.needsReview.length > 0);
+  if (review.length > 0) {
+    process.stderr.write('  Open-ended grants worth checking first:\n');
+    for (const note of review) {
+      process.stderr.write(`    ${note.package}: ${note.needsReview.join(', ')}\n`);
+    }
+  }
+  if (draft.unattributed.length > 0) {
+    process.stderr.write(
+      `  ${String(draft.unattributed.length)} finding${draft.unattributed.length === 1 ? '' : 's'} could not be attributed and were NOT granted — see the file.\n`,
+    );
+  }
+
+  process.stderr.write(
+    '  This grants what the run DID, not what is safe. Read it before you trust it.\n',
+  );
+}
+
+function safeHome(): string {
+  try {
+    return homedir();
+  } catch {
+    return '';
+  }
 }
 
 /** The outcome of trying to run the monitored command. */

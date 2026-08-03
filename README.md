@@ -156,6 +156,32 @@ annotations appear on the pull request that caused them.
 Each event is **attributed to the specific package** that triggered it, so you
 know exactly who's misbehaving.
 
+## Getting a policy without writing one
+
+Enforcing is easy to describe and miserable to start: a real project has
+dependencies that legitimately reach the network, shell out and read `.npmrc`,
+and every one of them needs a rule before the first green run. So let dephawk
+write the first draft from a run it watched:
+
+```bash
+npx dephawk init npm test
+```
+
+That writes `dephawk.config.js` granting exactly what happened — then
+`--enforce` passes, and anything _new_ a dependency starts doing gets caught.
+
+**Read it before you trust it.** The draft grants what the run **did**, not what
+is safe: dephawk cannot tell a legitimate API call from exfiltration, so if
+something malicious is already installed, its behaviour is in the file too.
+Every entry carries a comment saying what produced it, and grants that hand over
+open-ended power (`spawn`, `native`, `eval`) are listed at the top for review.
+Calls dephawk could not attribute to a package are reported but never granted —
+the only place to put them is the default bucket, which would weaken it for
+everything at once.
+
+Paths under your home directory are written as `~/...`, so the file works on
+someone else's machine and in CI.
+
 ## Policies
 
 Allow only what a package legitimately needs. dephawk looks for
@@ -273,7 +299,8 @@ is not guaranteed.
       before your code even runs)
 - [x] CI gating: `--fail-on` exit codes and SARIF output for code scanning
 - [ ] `--record`/`--replay` of dependency behavior for CI diffs
-- [ ] Baseline mode: snapshot normal behavior, alert only on _new_ capabilities
+- [x] Policy bootstrap (`dephawk init`) — draft a policy from an observed run,
+      so enforcing does not start with a wall of hand-written denials
 
 ## Releases
 
