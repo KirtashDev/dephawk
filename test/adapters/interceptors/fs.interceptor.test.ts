@@ -139,7 +139,12 @@ describe('FsInterceptor — recon members', () => {
     expect(spy.calls).toHaveLength(0);
   });
 
-  it('catches a glob over a sensitive directory', () => {
+  // `glob` arrived in Node 22 and dephawk supports 20, where the member is not
+  // there to patch at all — `patchMethod` skips what a runtime does not have,
+  // which is the same reason dephawk degrades gracefully on Bun and Deno.
+  const hasGlob = typeof (fs as { globSync?: unknown }).globSync === 'function';
+
+  it.skipIf(!hasGlob)('catches a glob over a sensitive directory', () => {
     const spy = recordSpy();
     spy.deny('not allowed');
     installed = new FsInterceptor().install(spy.record);
@@ -148,7 +153,7 @@ describe('FsInterceptor — recon members', () => {
     expect(spy.last?.capability).toBe('fs.read');
   });
 
-  it('checks every pattern in a glob list, not just the first', () => {
+  it.skipIf(!hasGlob)('checks every pattern in a glob list, not just the first', () => {
     const spy = recordSpy();
     spy.deny('not allowed');
     installed = new FsInterceptor().install(spy.record);
