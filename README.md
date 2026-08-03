@@ -33,17 +33,21 @@ npx dephawk run npm test
 
 <div align="center">
 
-![dephawk catching a malicious dependency reading your SSH key, your NPM_TOKEN, and phoning home](assets/dephawk-report.svg)
+![dephawk catching a dependency listing ~/.ssh, reading a crypto wallet key and an npm token, shelling out with a credential, and phoning home — then blocking all of it in enforce mode](assets/demo.gif)
 
 </div>
 
-That single screenshot is the pitch. If a package tries to read your keys and
-phone home, the hawk spots it in the first three seconds — not after you're on the
-news.
+Those twenty seconds are the pitch. A dependency lists your `~/.ssh`, goes for a
+wallet key and your `NPM_TOKEN`, shells out with a bearer token and phones home —
+dephawk names it, redacts the token out of its own report, and on the second run
+blocks every one of those calls and fails the build with exit code 2.
 
-> 📺 **Live demo:** `npm run demo` (observe) and `npm run demo:enforce` (block).
-> Record your own GIF with [`vhs`](https://github.com/charmbracelet/vhs):
-> `vhs assets/demo.tape`.
+> 📺 **Run it yourself:** `npm run demo` (observe) and `npm run demo:enforce`
+> (block). The recording above is that same demo, made with
+> [`vhs`](https://github.com/charmbracelet/vhs): `vhs assets/demo.tape`. The
+> sample dependency simulates an attack and exfiltrates nothing — fake key paths,
+> a `.invalid` host, a made-up token
+> ([see for yourself](examples/demo/node_modules/sneaky-dependency/index.js)).
 
 ## Why
 
