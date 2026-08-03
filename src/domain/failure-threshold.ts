@@ -20,8 +20,19 @@ import type { DhEvent } from './event.js';
  *                 finding without enforcement having to break the build first.
  * - `sensitive` — fail when anything sensitive was touched at all, even where
  *                 policy allowed it.
+ * - `new`       — fail when `--replay` found behaviour the recorded baseline
+ *                 did not have. Orthogonal to the others: it asks whether
+ *                 anything *changed*, not whether anything is permitted, so a
+ *                 dependency bump that adds an outbound host trips it even
+ *                 where policy allows the host.
  */
-export const FAILURE_THRESHOLDS = ['none', 'blocked', 'violation', 'sensitive'] as const;
+export const FAILURE_THRESHOLDS = [
+  'none',
+  'blocked',
+  'violation',
+  'sensitive',
+  'new',
+] as const;
 
 export type FailureThreshold = (typeof FAILURE_THRESHOLDS)[number];
 
@@ -29,14 +40,23 @@ export function isFailureThreshold(value: string): value is FailureThreshold {
   return (FAILURE_THRESHOLDS as readonly string[]).includes(value);
 }
 
-/** Whether these events are bad enough to fail the command at `threshold`. */
+/**
+ * Whether these events are bad enough to fail the command at `threshold`.
+ *
+ * `newBehaviours` is how many things `--replay` found that the baseline did
+ * not; it is only consulted by the `new` threshold, and defaults to none so
+ * every other caller is unaffected.
+ */
 export function failsThreshold(
   events: readonly DhEvent[],
   threshold: FailureThreshold,
+  newBehaviours = 0,
 ): boolean {
   switch (threshold) {
     case 'none':
       return false;
+    case 'new':
+      return newBehaviours > 0;
     case 'blocked':
       return events.some((event) => event.blocked);
     case 'violation':
@@ -53,7 +73,11 @@ export function failsThreshold(
 export function describeFailure(
   events: readonly DhEvent[],
   threshold: FailureThreshold,
+  newBehaviours = 0,
 ): string {
+  if (threshold === 'new') {
+    return `${String(newBehaviours)} new behaviour${newBehaviours === 1 ? '' : 's'}`;
+  }
   const count = events.filter((event) => {
     switch (threshold) {
       case 'none':

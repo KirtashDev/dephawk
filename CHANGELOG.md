@@ -5,6 +5,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **`--record <path>` / `--replay <path>`** — a behavioural baseline for
+  dependency changes. A policy answers "is this permitted?"; a baseline answers
+  "is this _new_?", which is the question a dependency bump actually raises. A
+  package that used to resolve one host and now resolves two trips the diff even
+  where policy allows both. The file is canonicalised (project root to `.`, home
+  to `~`, no counts or timestamps) so it can be committed like a lockfile and
+  still match on another machine, and an unreadable baseline is an error rather
+  than a silent "no change". `--fail-on new` gates on it, reusing the existing
+  mechanism instead of adding a second way to fail a build.
+
 ## [0.4.3] — 2026-08-03
 
 Two holes found by attacking dephawk rather than reading it. Both reproduced

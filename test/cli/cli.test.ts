@@ -71,6 +71,21 @@ describe('cli argument handling', () => {
     expect(await run(['init', '--out', '--force', 'node'])).toBe(1);
   });
 
+  it('exits 1 when --record or --replay has no path', async () => {
+    expect(await run(['run', '--record'])).toBe(1);
+    expect(await run(['run', '--replay', '--enforce', 'node'])).toBe(1);
+  });
+
+  it('exits 1 when --record and --replay are combined', async () => {
+    expect(await run(['run', '--record', 'a.json', '--replay', 'b.json', 'node'])).toBe(
+      1,
+    );
+  });
+
+  it('exits 1 for --fail-on new without a baseline to compare against', async () => {
+    expect(await run(['run', '--fail-on', 'new', 'node'])).toBe(1);
+  });
+
   it('exits 1 when --sarif has no path', async () => {
     expect(await run(['run', '--sarif'])).toBe(1);
     // A following flag is not a path — that would silently write to "--enforce".

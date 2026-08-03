@@ -204,6 +204,42 @@ Matching is case-insensitive, and **listing** one of those directories counts as
 reading it — `readdir('~/.ssh')` names every key on the machine without opening
 one, and `readlink` says where a key really lives.
 
+## Catching what a policy would allow
+
+A policy answers "is this permitted?". It cannot answer the question you
+actually have when a pull request bumps a dependency: **is this new?** The
+interesting change is rarely a denial — it is a package that used to resolve one
+host and now resolves two, both of which your rules happily allow.
+
+Record what your dependencies do today, and commit it like a lockfile:
+
+```bash
+npx dephawk run --record .dephawk/baseline.json npm test
+```
+
+Then have CI say what changed:
+
+```bash
+npx dephawk run --replay .dephawk/baseline.json --fail-on new npm test
+```
+
+```
+🦅 dephawk baseline — 2 new behaviours since the baseline was recorded
+
+  + httpclient  →  read ./.npmrc
+  + httpclient  →  dns telemetry.vendor.example
+```
+
+Details are canonicalised — the project root becomes `.`, your home directory
+`~` — and counts, timestamps and ordering are left out, so a run on someone
+else's machine or in CI produces the same file. Without `--fail-on new` it
+reports and exits 0; the gate is the same `--fail-on` used everywhere else
+rather than a second way to turn a build red.
+
+**A baseline records what happened, not what is safe.** Recording a tree that is
+already compromised makes that behaviour the norm, and every later run will
+agree nothing changed. Re-record deliberately, and read the diff when you do.
+
 ## Getting a policy without writing one
 
 Enforcing is easy to describe and miserable to start: a real project has
@@ -355,7 +391,7 @@ is not guaranteed.
       before your code even runs)
 - [x] CI gating: `--fail-on` exit codes and SARIF output for code scanning
 - [x] A published GitHub Action, so adopting it in CI is two lines
-- [ ] `--record`/`--replay` of dependency behavior for CI diffs
+- [x] `--record`/`--replay` of dependency behavior for CI diffs
 - [x] Policy bootstrap (`dephawk init`) — draft a policy from an observed run,
       so enforcing does not start with a wall of hand-written denials
 

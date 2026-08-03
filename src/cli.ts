@@ -2,6 +2,7 @@
 import { spawn } from 'node:child_process';
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   realpathSync,
@@ -10,7 +11,7 @@ import {
 } from 'node:fs';
 import { createRequire } from 'node:module';
 import { homedir, tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { DhEvent } from './domain/event.js';
 import {
@@ -20,10 +21,18 @@ import {
   FAILURE_THRESHOLDS,
   type FailureThreshold,
 } from './domain/failure-threshold.js';
+import {
+  diffBaseline,
+  parseBaseline,
+  recordBaseline,
+  serializeBaseline,
+  type BaselineDiff,
+} from './domain/behaviour-baseline.js';
 import { draftPolicy } from './domain/policy-draft.js';
 import { PERMISSIVE_POLICY, type Mode } from './domain/policy.js';
 import { FileConfigPolicyLoader } from './adapters/config/policy-loader.js';
 import { renderConfig } from './adapters/config/render-config.js';
+import { formatBaselineDiff } from './adapters/reporting/baseline-format.js';
 import { ConsoleReporter } from './adapters/reporting/console-reporter.js';
 import { HtmlReporter } from './adapters/reporting/html-reporter.js';
 import { SarifReporter } from './adapters/reporting/sarif-reporter.js';
@@ -61,7 +70,11 @@ Options:
                            blocked    a call was actually prevented
                            violation  policy denied a call, blocked or not
                            sensitive  anything sensitive was touched
+                           new        --replay found behaviour the baseline
+                                      did not have
   --sarif <path>         also write SARIF 2.1.0 for GitHub code scanning
+  --record <path>        write what this run did, to diff against later
+  --replay <path>        report what changed since that recording
   --out <path>           where \`init\` writes the policy (default:
                          dephawk.config.js)
   --force                let \`init\` overwrite an existing policy file
@@ -76,10 +89,12 @@ Config:
   or pass --config <path>, or set DEPHAWK_CONFIG=<path>.
 
 Examples:
-  dephawk init npm test
   dephawk run npm test
   dephawk guard npm ci
+  dephawk init npm test
   dephawk run --fail-on violation --sarif dephawk.sarif npm test
+  dephawk run --record .dephawk/baseline.json npm test
+  dephawk run --replay .dephawk/baseline.json --fail-on new npm test
   DEPHAWK_MODE=enforce dephawk guard npm install
 `;
 
@@ -102,6 +117,19 @@ export async function run(argv: readonly string[]): Promise<number> {
   }
   const { command, commandArgs, configOverride, modeOverride, failOn, sarifPath } =
     parsed;
+  const { recordPath, replayPath } = parsed;
+  if (recordPath !== undefined && replayPath !== undefined) {
+    process.stderr.write(
+      'dephawk: --record and --replay do the opposite jobs; pass one\n',
+    );
+    return 1;
+  }
+  if (failOn === 'new' && replayPath === undefined) {
+    process.stderr.write(
+      'dephawk: --fail-on new needs a baseline to compare against (--replay <path>)\n',
+    );
+    return 1;
+  }
   const drafting = subcommand === 'init';
 
   const outPath = resolve(parsed.outPath ?? 'dephawk.config.js');
@@ -168,19 +196,80 @@ export async function run(argv: readonly string[]): Promise<number> {
     mode: policy.mode,
   });
 
+  if (recordPath !== undefined) {
+    writeRecording(events, resolve(recordPath));
+  }
+  const diff = replayPath === undefined ? undefined : replay(events, resolve(replayPath));
+  if (diff === null) {
+    return 1;
+  }
+  const newBehaviours = diff?.added.length ?? 0;
+
   // A command that failed on its own terms reports that, whatever dephawk saw:
   // its failure is the more immediate thing to fix, and masking it would be a
   // lie about what happened.
   if (exitCode !== 0) {
     return exitCode;
   }
-  if (failsThreshold(events, failOn)) {
+  if (failsThreshold(events, failOn, newBehaviours)) {
     process.stderr.write(
-      `\ndephawk: failing — ${describeFailure(events, failOn)} (--fail-on ${failOn})\n`,
+      `\ndephawk: failing — ${describeFailure(events, failOn, newBehaviours)} (--fail-on ${failOn})\n`,
     );
     return FINDINGS_EXIT_CODE;
   }
   return 0;
+}
+
+/** Canonicalisation shared by recording and replaying, so the two agree. */
+function baselineOptions(): { rootPath: string; homeDir: string } {
+  return { rootPath: process.cwd(), homeDir: safeHome() };
+}
+
+/** Snapshot what the run did, for a later `--replay` to diff against. */
+function writeRecording(events: readonly DhEvent[], path: string): void {
+  const baseline = recordBaseline(events, baselineOptions());
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, serializeBaseline(baseline), 'utf8');
+
+  process.stderr.write(
+    `\ndephawk: recorded ${String(baseline.behaviours.length)} behaviour${
+      baseline.behaviours.length === 1 ? '' : 's'
+    } to ${path}\n`,
+  );
+  process.stderr.write(
+    '  Commit it. This records what your dependencies DO, not what is safe —\n' +
+      '  recording an already-compromised tree makes its behaviour the norm.\n',
+  );
+}
+
+/**
+ * Compare the run against a recorded baseline, or null when it cannot be read.
+ *
+ * An unreadable baseline is an error rather than an empty comparison: silently
+ * diffing against nothing would report "no change" for a run nobody checked.
+ */
+function replay(events: readonly DhEvent[], path: string): BaselineDiff | null {
+  let contents: string;
+  try {
+    contents = readFileSync(path, 'utf8');
+  } catch {
+    process.stderr.write(
+      `dephawk: cannot read the baseline at ${path} — record one first with --record\n`,
+    );
+    return null;
+  }
+
+  const baseline = parseBaseline(contents);
+  if (baseline === null) {
+    process.stderr.write(`dephawk: ${path} is not a dephawk baseline\n`);
+    return null;
+  }
+
+  const diff = diffBaseline(baseline, events, baselineOptions());
+  process.stderr.write(
+    `\n${formatBaselineDiff(diff, { color: process.env['NO_COLOR'] === undefined })}`,
+  );
+  return diff;
 }
 
 interface Sink {
@@ -213,6 +302,8 @@ interface ParsedArgs {
   readonly sarifPath: string | undefined;
   readonly outPath: string | undefined;
   readonly force: boolean;
+  readonly recordPath: string | undefined;
+  readonly replayPath: string | undefined;
 }
 
 /** Parse `[flags...] <command> [args...]`, or null (after printing an error). */
@@ -224,6 +315,8 @@ function parseArgs(input: readonly string[]): ParsedArgs | null {
   let sarifPath: string | undefined;
   let outPath: string | undefined;
   let force = false;
+  let recordPath: string | undefined;
+  let replayPath: string | undefined;
   while (args[0] !== undefined && args[0].startsWith('--')) {
     const flag = args[0];
     if (flag === '--') {
@@ -277,6 +370,20 @@ function parseArgs(input: readonly string[]): ParsedArgs | null {
       args = args.slice(1);
       continue;
     }
+    if (flag === '--record' || flag === '--replay') {
+      const path = args[1];
+      if (path === undefined || path.startsWith('--')) {
+        process.stderr.write(`dephawk: ${flag} expects a path\n`);
+        return null;
+      }
+      if (flag === '--record') {
+        recordPath = path;
+      } else {
+        replayPath = path;
+      }
+      args = args.slice(2);
+      continue;
+    }
     process.stderr.write(`dephawk: unknown option ${flag}\n\n${USAGE}`);
     return null;
   }
@@ -295,6 +402,8 @@ function parseArgs(input: readonly string[]): ParsedArgs | null {
     sarifPath,
     outPath,
     force,
+    recordPath,
+    replayPath,
   };
 }
 

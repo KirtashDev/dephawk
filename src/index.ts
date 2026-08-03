@@ -30,6 +30,19 @@ export {
   describeFailure,
 } from './domain/failure-threshold.js';
 export type { FailureThreshold } from './domain/failure-threshold.js';
+export {
+  recordBaseline,
+  diffBaseline,
+  parseBaseline,
+  serializeBaseline,
+  canonicalDetail,
+} from './domain/behaviour-baseline.js';
+export type {
+  Baseline,
+  BaselineDiff,
+  BaselineOptions,
+  Behaviour,
+} from './domain/behaviour-baseline.js';
 export { draftPolicy } from './domain/policy-draft.js';
 export type { PolicyDraft, PackageNote, DraftOptions } from './domain/policy-draft.js';
 export { protectedPathAffectedBy } from './domain/protected-path.js';
@@ -122,6 +135,7 @@ export type {
   SarifMeta,
 } from './adapters/reporting/index.js';
 export { displayPackage } from './adapters/reporting/report-model.js';
+export { formatBaselineDiff } from './adapters/reporting/baseline-format.js';
 
 // Composition
 export { buildMonitor } from './composition/build-monitor.js';
