@@ -5,6 +5,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`npx dephawk …` did nothing at all.** Neither did a global install, nor
+  `node_modules/.bin/dephawk`: exit 0, no output, nothing monitored. Every
+  package manager installs a `bin` as a symlink, and the CLI's "am I the program
+  being run?" check compared `process.argv[1]` (the link) against
+  `import.meta.url` (the file it points at, because Node resolves the main
+  module's real path). That was false for every installed copy since 0.1.0. It
+  only ever worked when invoked by path — which is how the test suite and
+  `npm run demo` invoke it, so nothing caught it. The check now compares real
+  paths, and a regression test runs the built CLI through a symlink.
+
 ## [0.4.0] — 2026-08-03
 
 Adoption. 0.3.0 closed the holes; this release is about the tool being reachable:

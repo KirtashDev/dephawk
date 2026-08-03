@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { run } from '../../src/cli.js';
@@ -129,5 +129,30 @@ describe('cli process spawning', () => {
     expect(result.stderr).toContain('SARIF report written');
     const sarif = JSON.parse(readFileSync(sarifPath, 'utf8')) as { version: string };
     expect(sarif.version).toBe('2.1.0');
+  }, 30_000);
+
+  // Every package manager installs a `bin` as a symlink — node_modules/.bin, the
+  // global bin directory, npx's cache — and the entrypoint check compared
+  // argv[1] (the link) against import.meta.url (the file it points at). Every
+  // installed copy therefore did nothing at all: exit 0, no output, no
+  // monitoring. Invoking by path, which is all the rest of this suite does, hid
+  // it completely.
+  it('runs when invoked through a bin symlink, as npx and a global install do', () => {
+    const link = join(workDir, 'dephawk-bin-link');
+    rmSync(link, { force: true });
+    symlinkSync(builtCli, link);
+
+    const result = spawnSync(
+      process.execPath,
+      [link, 'run', process.execPath, '-e', '1'],
+      {
+        cwd: workDir,
+        encoding: 'utf8',
+        env: { ...process.env, NO_COLOR: '1' },
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toContain('dephawk report');
   }, 30_000);
 });

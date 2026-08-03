@@ -1,6 +1,13 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { createRequire } from 'node:module';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -425,9 +432,34 @@ function discoverConfig(cwd: string, env: NodeJS.ProcessEnv): string | null {
   return null;
 }
 
-// Only run when executed as a program (not when imported by tests).
-const entry = process.argv[1];
-if (entry !== undefined && import.meta.url === pathToFileURL(entry).href) {
+/**
+ * Whether this module is the program being run, rather than an import.
+ *
+ * The comparison has to go through `realpath`. Every package manager installs a
+ * `bin` as a **symlink** — `node_modules/.bin/dephawk`, the global bin
+ * directory, npx's cache — so `process.argv[1]` is the link while
+ * `import.meta.url` is the file it points at (Node resolves the main module's
+ * real path unless `--preserve-symlinks-main`). Comparing the two directly was
+ * false for every installed copy, which silently turned `npx dephawk …` and
+ * `dephawk …` into a no-op: exit 0, no output, nothing monitored. It only ever
+ * worked when invoked by path, which is how the test suite and `npm run demo`
+ * invoke it — so nothing caught it.
+ */
+function isProgram(entry: string | undefined, moduleUrl: string): boolean {
+  if (entry === undefined) {
+    return false;
+  }
+  if (pathToFileURL(entry).href === moduleUrl) {
+    return true;
+  }
+  try {
+    return pathToFileURL(realpathSync(entry)).href === moduleUrl;
+  } catch {
+    return false; // the entry does not exist on disk (e.g. an eval'd program)
+  }
+}
+
+if (isProgram(process.argv[1], import.meta.url)) {
   run(process.argv.slice(2))
     .then((code) => {
       process.exitCode = code;
