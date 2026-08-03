@@ -23,6 +23,7 @@ export type {
 } from './domain/policy.js';
 export { PERMISSIVE_POLICY } from './domain/policy.js';
 export type { Verdict } from './domain/verdict.js';
+export { protectedPathAffectedBy } from './domain/protected-path.js';
 export type { CapabilityRequest } from './domain/capability-request.js';
 export { RulePolicyEngine } from './domain/policy-engine.js';
 export type { PolicyEngine } from './domain/policy-engine.js';
@@ -79,6 +80,7 @@ export {
   OsInterceptor,
   SchedulerInterceptor,
 } from './adapters/interceptors/index.js';
+export type { FsInterceptorOptions } from './adapters/interceptors/index.js';
 export {
   ConsoleReporter,
   HtmlReporter,

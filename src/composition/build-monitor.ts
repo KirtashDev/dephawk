@@ -18,6 +18,12 @@ import { HtmlReporter } from '../adapters/reporting/html-reporter.js';
 
 export interface BuildMonitorOptions {
   readonly policy: Policy;
+  /**
+   * Paths belonging to dephawk itself, refused to every origin in every mode —
+   * see {@link import('../domain/protected-path.js')}. `guard` passes its
+   * shared event sink so a lifecycle script cannot erase the audit log.
+   */
+  readonly protectedPaths?: readonly string[];
   /** Defaults to the full interceptor set. */
   readonly interceptors?: readonly CapabilityInterceptor[];
   /** Defaults to console + HTML reporters. */
@@ -36,13 +42,14 @@ export interface BuildMonitorOptions {
  */
 export function buildMonitor(options: BuildMonitorOptions): Monitor {
   const { policy } = options;
+  const protectedPaths = options.protectedPaths ?? [];
   return new Monitor({
-    policyEngine: new RulePolicyEngine(policy),
+    policyEngine: new RulePolicyEngine(policy, protectedPaths),
     sink: options.sink ?? new InMemorySink(),
     clock: options.clock ?? new SystemClock(),
     attributor: options.attributor ?? new DeferredAttributor(new StackAttributor()),
     mode: policy.mode,
-    interceptors: options.interceptors ?? createInterceptors(),
+    interceptors: options.interceptors ?? createInterceptors({ protectedPaths }),
     reporters: options.reporters ?? [new ConsoleReporter(), new HtmlReporter()],
   });
 }

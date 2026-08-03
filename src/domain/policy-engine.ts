@@ -2,6 +2,7 @@ import type { CapabilityRequest } from './capability-request.js';
 import type { Policy, PackagePolicy } from './policy.js';
 import type { Verdict } from './verdict.js';
 import { isSensitiveEnv, isSensitivePath } from './sensitivity.js';
+import { protectedPathAffectedBy } from './protected-path.js';
 import { extractHost, hostMatchesAny } from './host.js';
 import { pathMatchesAny } from './path-glob.js';
 
@@ -27,16 +28,27 @@ export interface PolicyEngine {
  * - `unknown`     — attribution found no owner at all. Evaluated against the
  *   *default* bucket rather than trusted, so a dependency cannot buy itself a
  *   free pass by laundering a call until its frames fall off the stack.
+ *
+ * Ahead of all of that sits one rule that answers to nobody: filesystem access
+ * to dephawk's own {@link import('./protected-path.js') protected paths} is
+ * refused for every origin and in every mode.
  */
 export class RulePolicyEngine implements PolicyEngine {
   private readonly policy: Policy;
+  private readonly protectedPaths: readonly string[];
 
-  constructor(policy: Policy) {
+  constructor(policy: Policy, protectedPaths: readonly string[] = []) {
     this.policy = policy;
+    this.protectedPaths = protectedPaths;
   }
 
   evaluate(req: CapabilityRequest): Verdict {
     const sensitive = detectSensitive(req);
+
+    const tampering = this.detectTampering(req);
+    if (tampering !== null) {
+      return tampering;
+    }
 
     if (req.origin === 'application') {
       return { allowed: true, sensitive };
@@ -47,6 +59,30 @@ export class RulePolicyEngine implements PolicyEngine {
         ? this.policy.default
         : (this.policy.packages[req.package] ?? this.policy.default);
     return evaluateCapability(req, pkg, sensitive);
+  }
+
+  /**
+   * A verdict when the request targets one of dephawk's own files, or null.
+   *
+   * Reads are left alone — knowing the sink exists tells an attacker nothing it
+   * cannot learn from `DEPHAWK_SINK` anyway — but any write is refused
+   * outright, in observe mode as much as in enforce. This is not policy about
+   * the program; it is dephawk keeping its audit log intact.
+   */
+  private detectTampering(req: CapabilityRequest): Verdict | null {
+    if (req.capability !== 'fs.write' || this.protectedPaths.length === 0) {
+      return null;
+    }
+    const target = protectedPathAffectedBy(req.detail, this.protectedPaths);
+    if (target === null) {
+      return null;
+    }
+    return {
+      allowed: false,
+      sensitive: true,
+      mandatory: true,
+      reason: `${target} is dephawk's own audit log and cannot be modified`,
+    };
   }
 }
 

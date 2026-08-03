@@ -65,7 +65,11 @@ export class Monitor {
     };
 
     const verdict = this.deps.policyEngine.evaluate(request);
-    const blocked = this.deps.mode === 'enforce' && !verdict.allowed;
+    // Observe mode lets policy denials through — that is what it is for. A
+    // *mandatory* denial is different: it protects dephawk's own audit log,
+    // where recording the attempt and allowing it would destroy the record.
+    const blocked =
+      !verdict.allowed && (this.deps.mode === 'enforce' || verdict.mandatory === true);
 
     this.deps.sink.emit(
       createEvent({

@@ -20,6 +20,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   properties, so API hung off them (`setTimeout[util.promisify.custom]`,
   `fs.realpath.native`) keeps working while dephawk is active.
 
+- **Guard audit-log tampering (security).** The shared sink `dephawk guard`
+  writes to lives in the temp directory and its path is handed to every
+  monitored process in `DEPHAWK_SINK`, so a malicious lifecycle script could
+  `fs.truncateSync(process.env.DEPHAWK_SINK, 0)` and erase every event its
+  predecessors had recorded — the aggregated report then came back clean.
+  Writing to dephawk's own files is now refused for every origin and in **both**
+  modes, and dephawk writes the sink through a descriptor opened before the `fs`
+  surface is patched so it needs no exemption for itself. The sink also moved
+  into a `mkdtemp` 0700 directory: the old `dephawk-guard-<pid>-<now>.jsonl`
+  name was guessable enough to be pre-created as a symlink by a local attacker.
+  See [ADR 0005](docs/adr/0005-protecting-the-guard-audit-log.md).
+
 ### Added
 
 - `SchedulerInterceptor` — records the stack at the point a detached built-in is
@@ -29,12 +41,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   that armed them rather than merely denied as anonymous. Costs one `WeakSet`
   lookup per callback argument; stacks are captured only for the detached case.
 - Reports distinguish `(your code)` from `(unattributed)`.
+- `fs` interception now covers the destructive members — `unlink`, `rm`,
+  `rmdir`, `truncate`, `rename` and `copyFile` — as `fs.write`. Deleting a
+  sensitive file used to pass unseen.
 
 ### Changed
 
 - `Attribution`, `CapabilityRequest` and `DhEvent` carry an `origin`
   (`dependency` | `application` | `unknown`). Programmatic consumers that build
   these values directly must supply it.
+- `Verdict` carries an optional `mandatory` flag, meaning "deny regardless of
+  mode". Reserved for dephawk protecting its own audit log.
+- `JsonlSinkReporter`'s injectable `AppendFn` takes only the data now; the path
+  is bound when the sink is opened.
 
 ## [0.2.0] — 2026-07-25
 

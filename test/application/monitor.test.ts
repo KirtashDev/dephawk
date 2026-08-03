@@ -93,6 +93,35 @@ describe('Monitor.record', () => {
     expect(decision).toEqual({ allow: false, reason: 'not allowlisted' });
   });
 
+  it('honours a mandatory denial even in observe mode', () => {
+    // Reserved for dephawk's own audit log: merely recording the attempt would
+    // be pointless, because the record is what is under attack.
+    const { monitor, sink } = wire({
+      verdict: {
+        allowed: false,
+        sensitive: true,
+        mandatory: true,
+        reason: 'audit log',
+      },
+      mode: 'observe',
+    });
+
+    const decision = monitor.record(call);
+
+    expect(sink.events[0]!.blocked).toBe(true);
+    expect(decision).toEqual({ allow: false, reason: 'audit log' });
+  });
+
+  it('does not block an allowed action just because it is marked mandatory', () => {
+    const { monitor, sink } = wire({
+      verdict: { allowed: true, sensitive: false, mandatory: true },
+      mode: 'observe',
+    });
+
+    expect(monitor.record(call)).toEqual({ allow: true });
+    expect(sink.events[0]!.blocked).toBe(false);
+  });
+
   it('supplies a fallback reason when the verdict has none', () => {
     const { monitor } = wire({
       verdict: { allowed: false, sensitive: false },

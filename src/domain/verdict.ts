@@ -13,4 +13,12 @@ export interface Verdict {
   readonly sensitive: boolean;
   /** Human-readable justification when `allowed` is false. */
   readonly reason?: string;
+  /**
+   * Deny even in observe mode. Reserved for dephawk defending its own
+   * integrity — see {@link import('./protected-path.js')} — where merely
+   * *recording* the attempt would be useless, because the thing being attacked
+   * is the record itself. Ordinary policy denials are never mandatory: observe
+   * mode exists precisely to let them through.
+   */
+  readonly mandatory?: boolean;
 }

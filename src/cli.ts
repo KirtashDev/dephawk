@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync, unlinkSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -78,26 +78,44 @@ export async function run(argv: readonly string[]): Promise<number> {
   // In `guard` mode, every spawned process appends its events to one shared
   // JSONL file (via DEPHAWK_SINK, honoured by register.js) so the parent can
   // print a single aggregated report instead of each process reporting itself.
-  const sinkPath =
-    subcommand === 'guard'
-      ? join(tmpdir(), `dephawk-guard-${process.pid}-${Date.now()}.jsonl`)
-      : undefined;
+  const sink = subcommand === 'guard' ? createSink() : undefined;
 
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     ...(modeOverride === undefined ? {} : { DEPHAWK_MODE: modeOverride }),
     NODE_OPTIONS: nodeOptions,
     DEPHAWK_POLICY: JSON.stringify(policy),
-    ...(sinkPath === undefined ? {} : { DEPHAWK_SINK: sinkPath }),
+    ...(sink === undefined ? {} : { DEPHAWK_SINK: sink.path }),
   };
 
   const exitCode = await spawnMonitored(command, commandArgs, env);
 
-  if (sinkPath !== undefined) {
-    await reportAggregate(sinkPath);
+  if (sink !== undefined) {
+    await reportAggregate(sink);
   }
 
   return exitCode;
+}
+
+interface Sink {
+  readonly directory: string;
+  readonly path: string;
+}
+
+/**
+ * Create the shared event sink inside a fresh private directory.
+ *
+ * `mkdtemp` matters here. The old name — `dephawk-guard-<pid>-<now>.jsonl`
+ * directly in the world-writable temp directory — was guessable: the pid is
+ * public and the timestamp spans a few thousand candidates, so anyone with an
+ * account on the machine could pre-create every one of them as a symlink and
+ * have the guard append attacker-chosen content to a file of their choosing.
+ * `mkdtemp` returns an unguessable name and creates the directory 0700, so
+ * neither the directory nor the file inside it can be squatted.
+ */
+function createSink(): Sink {
+  const directory = mkdtempSync(join(tmpdir(), 'dephawk-guard-'));
+  return { directory, path: join(directory, 'events.jsonl') };
 }
 
 interface ParsedArgs {
@@ -158,20 +176,18 @@ function spawnMonitored(
   });
 }
 
-/** Read the shared sink, print one aggregated report, then remove the file. */
-async function reportAggregate(sinkPath: string): Promise<void> {
+/** Read the shared sink, print one aggregated report, then remove it. */
+async function reportAggregate(sink: Sink): Promise<void> {
   let events: DhEvent[] = [];
   try {
-    events = existsSync(sinkPath) ? parseSink(readFileSync(sinkPath, 'utf8')) : [];
+    events = existsSync(sink.path) ? parseSink(readFileSync(sink.path, 'utf8')) : [];
   } catch {
     events = [];
   } finally {
     try {
-      if (existsSync(sinkPath)) {
-        unlinkSync(sinkPath);
-      }
+      rmSync(sink.directory, { recursive: true, force: true });
     } catch {
-      // Best-effort cleanup of a temp file — never fail the command over it.
+      // Best-effort cleanup of a temp directory — never fail the command over it.
     }
   }
 

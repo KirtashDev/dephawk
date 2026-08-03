@@ -87,6 +87,53 @@ describe('RulePolicyEngine — unattributed calls', () => {
   });
 });
 
+describe('RulePolicyEngine — dephawk’s own audit log', () => {
+  const sink = '/tmp/dephawk-guard-a1b2/events.jsonl';
+  const guarded = new RulePolicyEngine(policy, [sink]);
+
+  it('refuses a write to the sink, mandatorily — even in observe mode', () => {
+    const v = guarded.evaluate(req({ capability: 'fs.write', detail: sink }));
+    expect(v.allowed).toBe(false);
+    expect(v.mandatory).toBe(true);
+    expect(v.reason).toContain('audit log');
+  });
+
+  it('refuses it for the application too — this is not policy about your code', () => {
+    const v = guarded.evaluate(
+      req({ capability: 'fs.write', package: null, origin: 'application', detail: sink }),
+    );
+    expect(v.allowed).toBe(false);
+    expect(v.mandatory).toBe(true);
+  });
+
+  it('refuses removing the directory that holds it', () => {
+    const v = guarded.evaluate(
+      req({ capability: 'fs.write', detail: '/tmp/dephawk-guard-a1b2' }),
+    );
+    expect(v.allowed).toBe(false);
+    expect(v.mandatory).toBe(true);
+  });
+
+  it('leaves reads alone — the path is in DEPHAWK_SINK anyway', () => {
+    const v = guarded.evaluate(req({ capability: 'fs.read', detail: sink }));
+    expect(v.allowed).toBe(true);
+  });
+
+  it('does not affect an engine with no protected paths', () => {
+    const v = engine.evaluate(req({ capability: 'fs.write', detail: sink }));
+    expect(v.allowed).toBe(true);
+    expect(v.mandatory).toBeUndefined();
+  });
+
+  it('leaves ordinary policy denials non-mandatory', () => {
+    const v = guarded.evaluate(
+      req({ capability: 'fs.write', detail: '/home/alice/.npmrc' }),
+    );
+    expect(v.allowed).toBe(false);
+    expect(v.mandatory).toBeUndefined();
+  });
+});
+
 describe('RulePolicyEngine — net.connect', () => {
   it('blocks connections not in the allowlist', () => {
     const v = engine.evaluate(

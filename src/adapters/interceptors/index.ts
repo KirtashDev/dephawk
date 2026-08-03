@@ -10,6 +10,9 @@ import { VmInterceptor } from './vm.interceptor.js';
 import { EnvInterceptor } from './env.interceptor.js';
 import { OsInterceptor } from './os.interceptor.js';
 import { SchedulerInterceptor } from './scheduler.interceptor.js';
+import type { FsInterceptorOptions } from './fs.interceptor.js';
+
+export type { FsInterceptorOptions } from './fs.interceptor.js';
 
 export { FsInterceptor } from './fs.interceptor.js';
 export { NetInterceptor } from './net.interceptor.js';
@@ -32,10 +35,12 @@ export { SchedulerInterceptor } from './scheduler.interceptor.js';
  * it keeps attribution alive across async boundaries so the others can name a
  * culprit for deferred calls.
  */
-export function createInterceptors(): CapabilityInterceptor[] {
+export function createInterceptors(
+  options: FsInterceptorOptions = {},
+): CapabilityInterceptor[] {
   return [
     new SchedulerInterceptor(),
-    new FsInterceptor(),
+    new FsInterceptor(options),
     new NetInterceptor(),
     new SocketInterceptor(),
     new DnsInterceptor(),

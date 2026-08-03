@@ -93,12 +93,19 @@ supply-chain attacks fire: a malicious `postinstall` reads your `~/.ssh` key or
 ever starts. Add `--enforce` to block it. (Under the hood, `run` monitors one
 process; `guard` aggregates across the whole spawned tree via a shared sink.)
 
+The sink is the one thing dephawk defends in **both** modes: a lifecycle script
+that tries to write to it — the obvious move for erasing its own tracks — is
+refused even under `observe`, and the attempt is reported. Everything the
+monitored program does to its _own_ files still merely gets recorded in observe
+mode. See
+[`docs/adr/0005`](docs/adr/0005-protecting-the-guard-audit-log.md).
+
 ## What it watches
 
 | Capability       | Examples caught                                                                 |
 | ---------------- | ------------------------------------------------------------------------------- |
 | `fs.read`        | reading `~/.ssh`, `~/.aws`, `~/.gnupg`, `.env`, `.npmrc`, `/etc/passwd`         |
-| `fs.write`       | overwriting `~/.npmrc`, `authorized_keys`, other secret files                   |
+| `fs.write`       | overwriting or **deleting** `~/.npmrc`, `authorized_keys`, other secret files   |
 | `net.connect`    | `http`/`https`/`fetch`, plus raw `net`/`tls` sockets and UDP (`dgram`)          |
 | `net.resolve`    | `dns.lookup`/`resolve*` — recon and DNS-tunnel exfil (no TCP to see)            |
 | `process.spawn`  | `child_process.exec`/`spawn`/`fork`, and `worker_threads` (the curl-pipe-sh)    |

@@ -66,8 +66,15 @@ function installGuardMode(
   sinkPath: string,
   policy: ReturnType<typeof resolveEnvPolicy>,
 ): void {
+  // Constructed before `start()`, so the sink's descriptor is opened while the
+  // fs surface is still unpatched — dephawk writes through the descriptor and
+  // the interceptors can then refuse the sink path to everyone, itself included.
   const reporter = new JsonlSinkReporter(sinkPath);
-  const monitor = buildMonitor({ policy, reporters: [reporter] });
+  const monitor = buildMonitor({
+    policy,
+    reporters: [reporter],
+    protectedPaths: [sinkPath],
+  });
   monitor.start();
 
   let flushed = false;

@@ -7,29 +7,36 @@ import { ev, mixed } from './events.js';
 
 describe('JsonlSinkReporter', () => {
   it('appends one JSON line per event, newline-terminated', () => {
-    const writes: Array<[string, string]> = [];
-    const reporter = new JsonlSinkReporter('/tmp/sink.jsonl', (p, d) =>
-      writes.push([p, d]),
-    );
+    const writes: string[] = [];
+    const reporter = new JsonlSinkReporter('/tmp/sink.jsonl', (d) => {
+      writes.push(d);
+    });
 
     reporter.report(mixed);
 
     expect(writes).toHaveLength(1);
-    expect(writes[0]?.[0]).toBe('/tmp/sink.jsonl');
-    const data = writes[0]?.[1] ?? '';
+    const data = writes[0] ?? '';
     expect(data.endsWith('\n')).toBe(true);
     expect(data.trim().split('\n')).toHaveLength(mixed.length);
   });
 
   it('writes nothing for an empty batch', () => {
     const writes: string[] = [];
-    new JsonlSinkReporter('/tmp/sink.jsonl', (_p, d) => writes.push(d)).report([]);
+    new JsonlSinkReporter('/tmp/sink.jsonl', (d) => writes.push(d)).report([]);
     expect(writes).toHaveLength(0);
+  });
+
+  it('does not touch the filesystem when an append function is injected', () => {
+    // The default appender opens the sink eagerly; an injected one must not,
+    // or every unit test would litter the disk.
+    expect(
+      () => new JsonlSinkReporter('/definitely/not/a/directory/sink.jsonl', () => {}),
+    ).not.toThrow();
   });
 
   it('round-trips through parseSink', () => {
     let buffer = '';
-    const reporter = new JsonlSinkReporter('/tmp/sink.jsonl', (_p, d) => {
+    const reporter = new JsonlSinkReporter('/tmp/sink.jsonl', (d) => {
       buffer += d;
     });
 

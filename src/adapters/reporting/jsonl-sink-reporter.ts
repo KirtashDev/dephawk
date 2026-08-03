@@ -1,13 +1,9 @@
-import { appendFileSync } from 'node:fs';
+import { openSync, writeSync } from 'node:fs';
 import type { DhEvent } from '../../domain/event.js';
 import type { Reporter } from '../../application/ports.js';
 
 /** The append operation the reporter needs — injectable for testing. */
-export type AppendFn = (path: string, data: string) => void;
-
-const defaultAppend: AppendFn = (path, data) => {
-  appendFileSync(path, data);
-};
+export type AppendFn = (data: string) => void;
 
 /**
  * Writes each collected event as one line of JSON (JSONL) to a shared file.
@@ -19,17 +15,23 @@ const defaultAppend: AppendFn = (path, data) => {
  * report — instead of each short-lived process clobbering its own console/HTML
  * output.
  *
- * The write is synchronous (`appendFileSync`, `O_APPEND`) so it completes before
- * the process exits from its `beforeExit` hook, and one line per event keeps
- * concurrent appends from interleaving in the common case. The reader parses
- * defensively and skips any partial line.
+ * The sink is opened **once, on construction** — which happens before the
+ * interceptors are installed and therefore before any untrusted code runs — and
+ * written through the resulting descriptor with `writeSync`. Two reasons:
+ *
+ * 1. It keeps dephawk's own writes off the patched `fs` surface, so the
+ *    interceptors can refuse *everyone* access to the sink without dephawk
+ *    having to exempt itself by name.
+ * 2. The descriptor is `O_APPEND`, so concurrent writes from the several
+ *    processes an install spawns land whole, one line per event.
+ *
+ * The write is synchronous so it completes before the process exits from its
+ * `exit` hook. The reader parses defensively and skips any partial line.
  */
 export class JsonlSinkReporter implements Reporter {
-  private readonly path: string;
   private readonly append: AppendFn;
 
-  constructor(path: string, append: AppendFn = defaultAppend) {
-    this.path = path;
+  constructor(path: string, append: AppendFn = openAppender(path)) {
     this.append = append;
   }
 
@@ -38,8 +40,35 @@ export class JsonlSinkReporter implements Reporter {
       return;
     }
     const lines = events.map((event) => JSON.stringify(event)).join('\n');
-    this.append(this.path, `${lines}\n`);
+    this.append(`${lines}\n`);
   }
+}
+
+/**
+ * Open `path` for appending and return a writer over the descriptor.
+ *
+ * A failure here must not take the install down with it: guard is a monitor,
+ * not a gate. We say so on stderr and carry on writing nothing, which surfaces
+ * as an empty report rather than a crashed `npm ci`.
+ */
+function openAppender(path: string): AppendFn {
+  let fd: number;
+  try {
+    fd = openSync(path, 'a');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`dephawk: cannot open the event sink (${message})\n`);
+    return () => undefined;
+  }
+
+  // The descriptor is deliberately never closed. Events are flushed from an
+  // `exit` handler, and `exit` listeners run in registration order — a close
+  // registered here would fire first and turn every flush into EBADF. The
+  // kernel closes it when the process goes, which is the only moment we would
+  // have wanted to anyway.
+  return (data) => {
+    writeSync(fd, data);
+  };
 }
 
 /** Parse a JSONL sink file's contents into events, skipping any malformed line. */

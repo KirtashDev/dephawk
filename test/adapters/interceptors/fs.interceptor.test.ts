@@ -66,3 +66,77 @@ describe('FsInterceptor', () => {
     expect(fs.readFileSync).toBe(before);
   });
 });
+
+describe('FsInterceptor — destructive members', () => {
+  // Erasing a file changes it as surely as rewriting it, and these are what an
+  // attacker reaches for to remove traces.
+  const cases: [string, () => unknown][] = [
+    ['unlinkSync', () => fs.unlinkSync(FAKE_SSH)],
+    ['rmSync', () => fs.rmSync(FAKE_SSH)],
+    ['truncateSync', () => fs.truncateSync(FAKE_SSH)],
+    ['renameSync', () => fs.renameSync(FAKE_SSH, '/tmp/elsewhere')],
+  ];
+
+  for (const [name, act] of cases) {
+    it(`catches ${name} as fs.write`, () => {
+      const spy = recordSpy();
+      spy.deny();
+      installed = new FsInterceptor().install(spy.record);
+
+      expect(act).toThrow(/dephawk: blocked/);
+      expect(spy.last?.capability).toBe('fs.write');
+      expect(spy.last?.detail).toContain('.ssh');
+    });
+  }
+
+  it('checks both paths of a rename, whichever one is sensitive', () => {
+    const spy = recordSpy();
+    spy.deny();
+    installed = new FsInterceptor().install(spy.record);
+
+    expect(() => fs.renameSync('/tmp/harmless-dephawk-test', FAKE_SSH)).toThrow(
+      /dephawk: blocked/,
+    );
+    expect(spy.last?.detail).toContain('.ssh');
+  });
+
+  it('records a copy as a read of the source and a write of the destination', () => {
+    const spy = recordSpy(); // allow, so both arguments are reached
+    installed = new FsInterceptor().install(spy.record);
+
+    expect(() => fs.copyFileSync(FAKE_SSH, '/home/nobody/.npmrc')).toThrow(/ENOENT/);
+    expect(spy.calls.map((c) => c.capability)).toEqual(['fs.read', 'fs.write']);
+  });
+});
+
+describe('FsInterceptor — dephawk’s own protected paths', () => {
+  const sink = '/tmp/dephawk-guard-test/events.jsonl';
+
+  it('reports a write to a protected path even though it is not sensitive', () => {
+    const spy = recordSpy();
+    spy.deny('dephawk audit log');
+    installed = new FsInterceptor({ protectedPaths: [sink] }).install(spy.record);
+
+    expect(() => fs.appendFileSync(sink, 'noise')).toThrow(/dephawk: blocked/);
+    expect(spy.last?.capability).toBe('fs.write');
+    expect(spy.last?.detail).toBe(sink);
+  });
+
+  it('reports an attempt to remove the directory holding it', () => {
+    const spy = recordSpy();
+    spy.deny('dephawk audit log');
+    installed = new FsInterceptor({ protectedPaths: [sink] }).install(spy.record);
+
+    expect(() => fs.rmSync('/tmp/dephawk-guard-test', { recursive: true })).toThrow(
+      /dephawk: blocked/,
+    );
+  });
+
+  it('leaves mundane paths alone when protected paths are configured', () => {
+    const spy = recordSpy();
+    installed = new FsInterceptor({ protectedPaths: [sink] }).install(spy.record);
+
+    fs.readFileSync(resolve('package.json'), 'utf8');
+    expect(spy.calls).toHaveLength(0);
+  });
+});
