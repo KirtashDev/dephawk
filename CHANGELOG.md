@@ -272,6 +272,7 @@ a `Monitor` through the programmatic API:
 - `dephawk run <cmd>` CLI and `--import dephawk/register` entrypoint.
 - Hexagonal architecture, zero runtime dependencies, ≥90% core coverage.
 
+[0.4.2]: https://github.com/KirtashDev/dephawk/releases/tag/v0.4.2
 [0.4.1]: https://github.com/KirtashDev/dephawk/releases/tag/v0.4.1
 [0.4.0]: https://github.com/KirtashDev/dephawk/releases/tag/v0.4.0
 [0.3.0]: https://github.com/KirtashDev/dephawk/releases/tag/v0.3.0

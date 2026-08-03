@@ -1,6 +1,6 @@
 {
   "name": "dephawk",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "A hawk-eyed watch on your npm dependencies: see — and block — what they do at runtime.",
   "keywords": [
     "security",
