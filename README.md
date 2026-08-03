@@ -235,6 +235,19 @@ is not guaranteed.
 - [ ] `--record`/`--replay` of dependency behavior for CI diffs
 - [ ] Baseline mode: snapshot normal behavior, alert only on _new_ capabilities
 
+## Releases
+
+Published from a tagged
+[release workflow](.github/workflows/release.yml) with
+[npm provenance](https://docs.npmjs.com/generating-provenance-statements): every
+tarball carries a signed attestation tying it to the commit and the workflow run
+that built it. A tool that asks you to distrust your dependencies should be
+checkable itself — so check it:
+
+```bash
+npm audit signatures
+```
+
 ## Contributing
 
 PRs welcome — especially new interceptors and real-world attack samples for the

@@ -3,6 +3,20 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+
+- Releases are published from a tagged GitHub Actions workflow with **npm
+  provenance** (`publishConfig.provenance`), so each tarball carries a signed
+  attestation linking it to the commit and workflow run that produced it;
+  `npm audit signatures` verifies it. The workflow re-runs the full check suite
+  against the tag rather than trusting `main`, and refuses to publish when the
+  tag disagrees with `package.json`.
+
+  Note that provenance requires a supported CI: `npm publish` from a laptop now
+  fails rather than shipping something unattested.
+
 ## [0.3.0] — 2026-08-03
 
 Three ways a dependency could get out from under dephawk, each reproduced end to

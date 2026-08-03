@@ -27,6 +27,9 @@
     "url": "https://github.com/KirtashDev/dephawk/issues"
   },
   "type": "module",
+  "publishConfig": {
+    "provenance": true
+  },
   "engines": {
     "node": ">=20"
   },
