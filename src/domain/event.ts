@@ -1,5 +1,6 @@
 import type { Capability } from './capability.js';
 import type { Origin } from './origin.js';
+import { redactSecrets } from './redact.js';
 
 /**
  * An immutable value object: one decided capability request.
@@ -40,13 +41,21 @@ export interface CreateEventInput {
   readonly timestamp: number;
 }
 
-/** Build a frozen {@link DhEvent}. `reason` is omitted when absent. */
+/**
+ * Build a frozen {@link DhEvent}. `reason` is omitted when absent.
+ *
+ * This is the single funnel every recorded event passes through, which makes it
+ * the one place to {@link redactSecrets redact} — after policy has evaluated the
+ * real request, and before any reporter, sink or SARIF file sees it. A spawn's
+ * detail is the whole command line, so without this a token passed as an
+ * argument would be written into the report dephawk asks you to publish.
+ */
 export function createEvent(input: CreateEventInput): DhEvent {
   const base = {
     capability: input.capability,
     package: input.package,
     origin: input.origin,
-    detail: input.detail,
+    detail: redactSecrets(input.detail),
     stack: Object.freeze([...input.stack]),
     sensitive: input.sensitive,
     allowed: input.allowed,
@@ -54,6 +63,6 @@ export function createEvent(input: CreateEventInput): DhEvent {
     timestamp: input.timestamp,
   };
   const event: DhEvent =
-    input.reason === undefined ? base : { ...base, reason: input.reason };
+    input.reason === undefined ? base : { ...base, reason: redactSecrets(input.reason) };
   return Object.freeze(event);
 }

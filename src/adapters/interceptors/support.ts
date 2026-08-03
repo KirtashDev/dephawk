@@ -1,5 +1,6 @@
 import type { Decision, InterceptedCall } from '../../application/ports.js';
 import type { Capability } from '../../domain/capability.js';
+import { redactSecrets } from '../../domain/redact.js';
 
 /** The record callback interceptors are wired to. */
 export type RecordFn = (call: InterceptedCall) => Decision;
@@ -172,7 +173,13 @@ export function inRuntimeInternals(): boolean {
   return runtimeDepth > 0;
 }
 
-/** Build a blocked-call error with a consistent, greppable prefix. */
+/**
+ * Build a blocked-call error with a consistent, greppable prefix.
+ *
+ * Redacted like the report is: this message reaches stderr, and under `guard`
+ * that stderr is a CI log. A blocked spawn's detail is the command line it was
+ * about to run, secrets and all.
+ */
 export function blockedError(detail: string, reason: string): Error {
-  return new Error(`dephawk: blocked ${detail} — ${reason}`);
+  return new Error(`dephawk: blocked ${redactSecrets(detail)} — ${reason}`);
 }

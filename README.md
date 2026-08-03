@@ -305,6 +305,12 @@ policy layer_, not an unbreakable sandbox:
 - Named imports captured before startup (`import { readFileSync } from 'fs'`)
   can slip past patching; namespace/`require` access is covered.
 - `process.env` interception is best-effort; some native reads slip through.
+- **The report is itself an artifact worth handling carefully.** It records what
+  was touched, not contents: env var _names_ (never values), paths, hosts, and a
+  spawn's full command line. Values that look like secrets are redacted
+  (`--token=***`, `Bearer ***`, `ghp_***`), by name and by known token shape —
+  a heuristic, so treat absolute paths, hostnames and stack frames in
+  `.dephawk/report.html`, the SARIF and the job summary as sensitive anyway.
 
 For a hardened boundary you'd combine it with OS-level isolation (containers,
 `node --permission`, seccomp). dephawk's job is to make the _common_ attacks loud

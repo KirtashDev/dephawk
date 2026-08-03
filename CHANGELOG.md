@@ -5,6 +5,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.4.2] — 2026-08-03
+
+### Security
+
+- **dephawk could leak a secret through its own report.** A `process.spawn`
+  event's detail is the entire command line, recorded verbatim — so
+  `exec('curl -H "Authorization: Bearer ghp_…"')` wrote that token into the
+  console report, `.dephawk/report.html`, the SARIF and the JSONL sink.
+  Reproduced with 0.4.1: the token appears twice in the SARIF and once in the
+  HTML. 0.4.0 made it worse by publishing those places — the GitHub Action puts
+  the report in the **job summary**, which is public on a public repository, and
+  `upload-sarif: true` puts it in code scanning. A tool whose whole claim is that
+  your secrets stay put must not be the thing that moves one.
+
+  Secret-looking values are now redacted out of every recorded `detail` and
+  `reason`, and out of the blocked-call error that reaches stderr: by name
+  (`--token=***`, `NPM_TOKEN=***`, `?access_token=***`, reusing the same
+  name heuristic as env detection), by credential syntax (`Bearer ***`,
+  `https://user:***@host`), and by known token shape (`ghp_***`,
+  `github_pat_***`, `npm_***`, `glpat-***`, `xoxb-***`, `sk-***`, `AKIA***`,
+  `eyJ***`). The prefix survives, because knowing _which_ kind of token was on
+  the command line is the part you can act on.
+
+  Redaction happens in `createEvent` — after policy has evaluated the real
+  request, so rules still match what actually happened, and before any reporter
+  sees it. Stack frames are left alone (paths and line numbers). It is a
+  heuristic like every other rule in `domain/`: it catches the common forms, and
+  the README now says plainly that the artifacts remain sensitive.
+
 ## [0.4.1] — 2026-08-03
 
 ### Fixed
