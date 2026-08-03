@@ -62,3 +62,59 @@ describe('formatConsoleReport', () => {
     expect(formatConsoleReport(mixed, { color: false })).not.toContain(ESC);
   });
 });
+
+describe('formatConsoleReport — the advice has to make sense', () => {
+  it('does not tell someone already enforcing to enforce', () => {
+    // Nothing was blocked because policy permitted everything; suggesting
+    // enforce mode to a run that is already in it read like a bug, and was one.
+    const out = formatConsoleReport([ev({ package: 'x', sensitive: true })], {
+      color: false,
+      mode: 'enforce',
+    });
+
+    expect(out).toContain('touched something sensitive');
+    expect(out).not.toContain('DEPHAWK_MODE=enforce');
+  });
+
+  it('still suggests it in observe mode', () => {
+    const out = formatConsoleReport([ev({ package: 'x', sensitive: true })], {
+      color: false,
+      mode: 'observe',
+    });
+
+    expect(out).toContain('DEPHAWK_MODE=enforce');
+  });
+
+  it('does not count your own code as a culprit package', () => {
+    // dephawk watches dependencies. Reading your own .env is not a finding
+    // against you, and "1 package touched something sensitive" pointing at
+    // `(your code)` was the loudest wrong number in the report.
+    const out = formatConsoleReport(
+      [
+        ev({
+          package: null,
+          origin: 'application',
+          detail: '/app/.env',
+          sensitive: true,
+        }),
+      ],
+      { color: false },
+    );
+
+    expect(out).not.toContain('1 package touched');
+    expect(out).toContain('your own code touched something');
+    // And it is still listed — silence would be worse than a wrong count.
+    expect(out).toContain('(your code)');
+    expect(out).toContain('/app/.env');
+  });
+
+  it('counts unattributed calls as culprits, because they are not yours', () => {
+    const out = formatConsoleReport(
+      [ev({ package: null, origin: 'unknown', detail: '/app/.env', sensitive: true })],
+      { color: false },
+    );
+
+    expect(out).toContain('1 package touched something sensitive');
+    expect(out).toContain('(unattributed)');
+  });
+});

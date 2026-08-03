@@ -1,5 +1,6 @@
 import { CAPABILITY_META } from '../../domain/capability.js';
 import type { DhEvent } from '../../domain/event.js';
+import type { Mode } from '../../domain/policy.js';
 import { createStyler, type StyleName } from './ansi.js';
 import { displayPackage, summarize, type Row, type Severity } from './report-model.js';
 
@@ -20,13 +21,22 @@ const COLOR: Record<Severity, StyleName> = {
 
 const MAX_DETAIL = 52;
 
+export interface ConsoleFormatOptions {
+  readonly color: boolean;
+  /**
+   * Active mode, when the caller knows it. Only used to decide whether
+   * suggesting enforce mode makes sense.
+   */
+  readonly mode?: Mode;
+}
+
 /**
  * Render the terminal report as a string (pure — no I/O), so it can be tested
  * deterministically and reused by any writer.
  */
 export function formatConsoleReport(
   events: readonly DhEvent[],
-  options: { readonly color: boolean } = { color: false },
+  options: ConsoleFormatOptions = { color: false },
 ): string {
   const style = createStyler(options.color);
   const title = style('bold', '🦅 dephawk report');
@@ -37,13 +47,17 @@ export function formatConsoleReport(
 
   const { flagged, normalCount, blockedCount, culprits } = summarize(events);
 
-  if (culprits === 0) {
+  if (flagged.length === 0) {
     return `${title} — nothing sensitive touched. ${normalCount} calls seen.\n`;
   }
 
   const lines: string[] = [];
   lines.push(
-    `${title} — ${style('bold', String(culprits))} package${culprits === 1 ? '' : 's'} touched something sensitive`,
+    // `culprits` counts dependencies only, so it can be 0 while rows are
+    // flagged: that is your own code, and saying "0 packages" would be a riddle.
+    culprits === 0
+      ? `${title} — nothing your dependencies did was sensitive; your own code touched something`
+      : `${title} — ${style('bold', String(culprits))} package${culprits === 1 ? '' : 's'} touched something sensitive`,
   );
   lines.push('');
 
@@ -66,7 +80,10 @@ export function formatConsoleReport(
     lines.push(
       `  ${style('red', String(blockedCount))} call${blockedCount === 1 ? '' : 's'} blocked by policy.`,
     );
-  } else {
+  } else if (options.mode !== 'enforce') {
+    // Advice, not a status line: in enforce mode nothing was blocked because
+    // policy permitted everything above, and telling someone already enforcing
+    // to enforce read like dephawk had lost track of what it was doing.
     lines.push(
       `  Run in enforce mode to block these →  ${style('bold', 'DEPHAWK_MODE=enforce')}`,
     );

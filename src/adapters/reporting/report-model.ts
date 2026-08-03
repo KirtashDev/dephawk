@@ -81,6 +81,12 @@ export interface ReportSummary {
   readonly noticeCount: number;
   readonly normalCount: number;
   readonly blockedCount: number;
+  /**
+   * Distinct **dependencies** with a flagged row — `(unattributed)` counts,
+   * `(your code)` does not. dephawk watches dependencies, so calling the user a
+   * culprit for reading their own `.env` was both wrong and the loudest number
+   * in the report.
+   */
   readonly culprits: number;
 }
 
@@ -97,6 +103,8 @@ export function summarize(events: readonly DhEvent[]): ReportSummary {
     noticeCount: sumWhere((r) => r.severity === 'notice'),
     normalCount: sumWhere((r) => r.severity === 'normal'),
     blockedCount: sumWhere((r) => r.blocked),
-    culprits: new Set(flagged.map(displayPackage)).size,
+    culprits: new Set(
+      flagged.filter((r) => r.origin !== 'application').map(displayPackage),
+    ).size,
   };
 }

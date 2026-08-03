@@ -12,15 +12,28 @@ import { OsInterceptor } from './os.interceptor.js';
 import { SchedulerInterceptor } from './scheduler.interceptor.js';
 import type { FsInterceptorOptions } from './fs.interceptor.js';
 import type { ChildProcessInterceptorOptions } from './child-process.interceptor.js';
+import type { WorkerInterceptorOptions } from './worker.interceptor.js';
 
 export type { FsInterceptorOptions } from './fs.interceptor.js';
 export type { ChildProcessInterceptorOptions } from './child-process.interceptor.js';
-export { captureMonitoringEnv, restoreMonitoring } from './monitored-env.js';
-export type { MonitoringEnv, RestoredEnv } from './monitored-env.js';
+export type { WorkerInterceptorOptions } from './worker.interceptor.js';
+export {
+  captureMonitoringEnv,
+  restoreMonitoring,
+  restoreWorkerOptions,
+} from './monitored-env.js';
+export type {
+  MonitoringEnv,
+  RestoredEnv,
+  RestoredWorkerOptions,
+} from './monitored-env.js';
 
 /** Everything {@link createInterceptors} can be told. */
 export interface InterceptorOptions
-  extends FsInterceptorOptions, ChildProcessInterceptorOptions {}
+  extends
+    FsInterceptorOptions,
+    ChildProcessInterceptorOptions,
+    WorkerInterceptorOptions {}
 
 export { FsInterceptor } from './fs.interceptor.js';
 export { NetInterceptor } from './net.interceptor.js';
@@ -53,7 +66,7 @@ export function createInterceptors(
     new SocketInterceptor(),
     new DnsInterceptor(),
     new ChildProcessInterceptor(options),
-    new WorkerInterceptor(),
+    new WorkerInterceptor(options),
     new NativeAddonInterceptor(),
     new VmInterceptor(),
     new EnvInterceptor(),

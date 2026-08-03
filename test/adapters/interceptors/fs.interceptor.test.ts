@@ -138,6 +138,57 @@ describe('FsInterceptor — recon members', () => {
     expect(fs.readdirSync(resolve('src'))).toContain('domain');
     expect(spy.calls).toHaveLength(0);
   });
+
+  it('catches a glob over a sensitive directory', () => {
+    const spy = recordSpy();
+    spy.deny('not allowed');
+    installed = new FsInterceptor().install(spy.record);
+
+    expect(() => fs.globSync(`${FAKE_SSH_DIR}/*`)).toThrow(/dephawk: blocked/);
+    expect(spy.last?.capability).toBe('fs.read');
+  });
+
+  it('checks every pattern in a glob list, not just the first', () => {
+    const spy = recordSpy();
+    spy.deny('not allowed');
+    installed = new FsInterceptor().install(spy.record);
+
+    // A list whose entries were never resolved would be a free pass.
+    expect(() => fs.globSync(['src/*.ts', `${FAKE_SSH_DIR}/*`])).toThrow(
+      /dephawk: blocked/,
+    );
+    expect(spy.last?.detail).toContain('.ssh');
+  });
+});
+
+describe('FsInterceptor — cp takes a whole tree in one call', () => {
+  // `cp(dir, dest, { recursive: true })` is a directory exfil primitive, and it
+  // does not route through the patched `copyFile`: before this it copied
+  // `~/.ssh` wholesale with the report saying "nothing sensitive touched" — in
+  // enforce mode.
+  it.each([
+    ['cpSync', () => fs.cpSync(FAKE_SSH, '/tmp/dephawk-loot', { recursive: true })],
+    [
+      'promises.cp',
+      () => fs.promises.cp(FAKE_SSH, '/tmp/dephawk-loot', { recursive: true }),
+    ],
+  ])('catches %s of a sensitive path as fs.read', (_name, act) => {
+    const spy = recordSpy();
+    spy.deny('not allowed');
+    installed = new FsInterceptor().install(spy.record);
+
+    expect(act).toThrow(/dephawk: blocked/);
+    expect(spy.last?.capability).toBe('fs.read');
+    expect(spy.last?.detail).toContain('.ssh');
+  });
+
+  it('records the source as a read and the destination as a write', () => {
+    const spy = recordSpy(); // allow, so both arguments are reached
+    installed = new FsInterceptor().install(spy.record);
+
+    expect(() => fs.cpSync(FAKE_SSH, '/home/nobody/.npmrc')).toThrow(/ENOENT/);
+    expect(spy.calls.map((c) => c.capability)).toEqual(['fs.read', 'fs.write']);
+  });
 });
 
 describe('FsInterceptor — dephawk’s own protected paths', () => {

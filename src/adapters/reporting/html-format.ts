@@ -18,6 +18,21 @@ const SEVERITY_LABEL: Record<Row['severity'], string> = {
  * all CSS inlined — safe to open from disk or drop into a GitHub comment as an
  * artifact. Pure function of its inputs for deterministic testing.
  */
+/**
+ * The one-line verdict. `culprits` counts dependencies only, so it can be 0
+ * while rows are flagged — that is the user's own code, and claiming nothing
+ * sensitive happened above a list of sensitive things would be a lie.
+ */
+function summaryLine(flaggedCount: number, culprits: number): string {
+  if (flaggedCount === 0) {
+    return 'Nothing sensitive was touched.';
+  }
+  if (culprits === 0) {
+    return 'Nothing your dependencies did was sensitive; your own code touched something.';
+  }
+  return `${culprits} package${culprits === 1 ? '' : 's'} touched something sensitive.`;
+}
+
 export function renderHtmlReport(
   events: readonly DhEvent[],
   meta: HtmlReportMeta,
@@ -70,7 +85,7 @@ export function renderHtmlReport(
 <body>
 <div class="wrap">
   <h1>🦅 dephawk report</h1>
-  <p class="sub">${culprits === 0 ? 'Nothing sensitive was touched.' : `${culprits} package${culprits === 1 ? '' : 's'} touched something sensitive.`} Generated ${esc(meta.generatedAt)}.</p>
+  <p class="sub">${summaryLine(flagged.length, culprits)} Generated ${esc(meta.generatedAt)}.</p>
 
   <div class="stats">
     <div class="stat crit"><b>${criticalCount}</b><span>violations</span></div>

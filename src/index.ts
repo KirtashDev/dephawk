@@ -95,13 +95,16 @@ export {
 export type {
   FsInterceptorOptions,
   ChildProcessInterceptorOptions,
+  WorkerInterceptorOptions,
   InterceptorOptions,
   MonitoringEnv,
   RestoredEnv,
+  RestoredWorkerOptions,
 } from './adapters/interceptors/index.js';
 export {
   captureMonitoringEnv,
   restoreMonitoring,
+  restoreWorkerOptions,
 } from './adapters/interceptors/index.js';
 export {
   ConsoleReporter,

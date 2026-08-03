@@ -48,6 +48,9 @@ const SINGLE_PATH: readonly FsMethod[] = [
   // read the key without ever naming its path.
   reads('readlink'),
   reads('readlinkSync'),
+  // `glob('~/.ssh/*')` is `readdir` with a filter — same recon, newer API.
+  reads('glob'),
+  reads('globSync'),
   writes('writeFile'),
   writes('writeFileSync'),
   writes('appendFile'),
@@ -97,6 +100,24 @@ const TWO_PATHS: readonly FsMethod[] = [
       { index: 1, capability: 'fs.write' },
     ],
   },
+  // `cp` is `copyFile`'s recursive successor, and the difference matters: one
+  // call — `cp('~/.ssh', '/tmp/loot', { recursive: true })` — takes the entire
+  // directory. It does not route through `copyFile`, so patching that one was
+  // not enough.
+  {
+    key: 'cp',
+    paths: [
+      { index: 0, capability: 'fs.read' },
+      { index: 1, capability: 'fs.write' },
+    ],
+  },
+  {
+    key: 'cpSync',
+    paths: [
+      { index: 0, capability: 'fs.read' },
+      { index: 1, capability: 'fs.write' },
+    ],
+  },
 ];
 
 const METHODS: readonly FsMethod[] = [...SINGLE_PATH, ...TWO_PATHS];
@@ -122,9 +143,10 @@ export interface FsInterceptorOptions {
  * Mundane paths pass through untouched with no stack capture, so the common
  * case (reading app/`node_modules` files) is not slowed. Covers the callback,
  * sync, stream, and `fs.promises` surfaces, including the reconnaissance members
- * (`readdir`, `opendir`, `readlink` — learning what a secret directory holds or
- * where a key really lives) and the destructive ones (`unlink`, `rm`,
- * `truncate`, `rename`) an attacker uses to remove traces.
+ * (`readdir`, `opendir`, `readlink`, `glob` — learning what a secret directory
+ * holds or where a key really lives), the bulk ones (`cp` takes a whole tree in
+ * one call) and the destructive ones (`unlink`, `rm`, `truncate`, `rename`) an
+ * attacker uses to remove traces.
  *
  * Limitation: file-descriptor-based calls (`read(fd, …)`), `realpath` (called
  * constantly by module resolution, so it would report far more than it caught),
@@ -164,7 +186,9 @@ export class FsInterceptor implements CapabilityInterceptor {
         (original) =>
           (...args: unknown[]): unknown => {
             for (const { index, capability } of method.paths) {
-              this.check(record, capability, resolvePath(args[index]));
+              for (const path of resolvePaths(args[index])) {
+                this.check(record, capability, path);
+              }
             }
             return original(...args);
           },
@@ -176,10 +200,7 @@ export class FsInterceptor implements CapabilityInterceptor {
   }
 
   /** Report a path worth reporting, and throw when the call is refused. */
-  private check(record: RecordFn, capability: Capability, path: string | null): void {
-    if (path === null) {
-      return;
-    }
+  private check(record: RecordFn, capability: Capability, path: string): void {
     const isProtected = protectedPathAffectedBy(path, this.protectedPaths) !== null;
     if (!isProtected && !isSensitivePath(path)) {
       return; // mundane: no stack capture, no event
@@ -189,6 +210,18 @@ export class FsInterceptor implements CapabilityInterceptor {
       throw blockedError(`${capability} of ${path}`, decision.reason);
     }
   }
+}
+
+/**
+ * Every path an argument names. Usually one — but `glob` takes a list of
+ * patterns, and a list whose entries were never looked at would be a free pass.
+ */
+function resolvePaths(arg: unknown): string[] {
+  if (Array.isArray(arg)) {
+    return arg.flatMap((entry) => resolvePaths(entry));
+  }
+  const single = resolvePath(arg);
+  return single === null ? [] : [single];
 }
 
 function resolvePath(arg: unknown): string | null {

@@ -5,6 +5,47 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.4.3] — 2026-08-03
+
+Two holes found by attacking dephawk rather than reading it. Both reproduced
+first, both closed with a regression test that fails without the fix.
+
+### Security
+
+- **`fs.cp` copied a whole secret directory, invisibly.** One call —
+  `fs.cpSync('~/.ssh', '/tmp/loot', { recursive: true })` — took the entire
+  directory while the report said "nothing sensitive touched", **in enforce
+  mode**. `copyFile`/`copyFileSync` were patched; `cp`/`cpSync`, their recursive
+  successors, were not, and `cp` does not route through `copyFile`, so patching
+  that one was never enough. Now covered on both arguments (read the source,
+  write the destination) across the sync, callback and `fs.promises` surfaces.
+  `glob`/`globSync` are covered too — `glob('~/.ssh/*')` is `readdir` with a
+  filter — including every pattern in a list, since a list whose entries were
+  never resolved would have been a free pass of its own.
+- **A worker thread could decline monitoring.** `new Worker(f, { execArgv: [] })`
+  ran completely unmonitored on the `node --import dephawk/register` path: the
+  worker was recorded as a spawn, and everything it then did — reading
+  `~/.ssh/id_rsa` included — was invisible. `{ env: {} }` did the same by
+  dropping `NODE_OPTIONS`. Both are now put back, with the same
+  restore-don't-refuse reasoning as
+  [ADR 0006](docs/adr/0006-re-attaching-monitoring-to-children.md) and the same
+  note on the report line (`[dephawk re-attached: execArgv]`). The CLI was never
+  affected — there `--import` travels in `NODE_OPTIONS`, which a worker inherits
+  whatever it does to `execArgv`.
+
+### Fixed
+
+- The report no longer tells you to enforce when you already are. "Run in enforce
+  mode to block these" was printed whenever nothing had been blocked, reading the
+  count instead of the mode — so an enforce run where policy happened to permit
+  everything advised itself.
+- **Your own code is no longer counted as a culprit package.** dephawk watches
+  dependencies, but reading your own `.env` still produced "1 package touched
+  something sensitive" pointing at `(your code)`. Culprits now count dependencies
+  and unattributed calls only; when the only flagged rows are yours, the report
+  says so instead of naming a package count. Your rows are still listed —
+  silence would be worse than a wrong number.
+
 ## [0.4.2] — 2026-08-03
 
 ### Security

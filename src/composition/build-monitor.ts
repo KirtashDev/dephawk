@@ -64,6 +64,9 @@ export function buildMonitor(options: BuildMonitorOptions): Monitor {
           ? {}
           : { registerUrl: options.registerUrl }),
       }),
-    reporters: options.reporters ?? [new ConsoleReporter(), new HtmlReporter()],
+    reporters: options.reporters ?? [
+      new ConsoleReporter({ mode: policy.mode }),
+      new HtmlReporter(),
+    ],
   });
 }

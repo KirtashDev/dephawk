@@ -80,8 +80,19 @@ A child that was given a deliberately minimal environment now also receives
 `NODE_OPTIONS` and `DEPHAWK_*`. For a Node child that is the point. For a
 non-Node child the variables are inert.
 
-**Still open.** `worker_threads` is recorded as `process.spawn` but workers are
-threads, not processes, and their `execArgv` handling is not covered here.
+**Extended to workers in 0.4.3.** A worker inherits `process.execArgv` and the
+environment, so it declined monitoring through two doors — `{ execArgv: [] }`
+dropped the `--import` and `{ env: {} }` dropped `NODE_OPTIONS` — and either one
+bought a completely unmonitored thread on the
+`node --import dephawk/register` path. (The CLI path was never affected: there the
+flag travels in `NODE_OPTIONS`, which a worker inherits regardless of
+`execArgv`.) `WorkerInterceptor` now restores both, with the same
+restore-don't-refuse reasoning and the same note on the report line. The merge is
+`restoreWorkerOptions` in `monitored-env.ts`, next to the child-process one;
+`--import` has to become a single `--import=<url>` element, because an argv array
+is not a `NODE_OPTIONS` string.
+
+**Still open.**
 Native code that forks via libuv or `posix_spawn` bypasses the `child_process`
 surface entirely, as ADR 0002 already notes. And a child can still _read_
 `DEPHAWK_SINK` — see [ADR 0005](0005-protecting-the-guard-audit-log.md) — it

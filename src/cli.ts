@@ -21,7 +21,7 @@ import {
   type FailureThreshold,
 } from './domain/failure-threshold.js';
 import { draftPolicy } from './domain/policy-draft.js';
-import { PERMISSIVE_POLICY } from './domain/policy.js';
+import { PERMISSIVE_POLICY, type Mode } from './domain/policy.js';
 import { FileConfigPolicyLoader } from './adapters/config/policy-loader.js';
 import { renderConfig } from './adapters/config/render-config.js';
 import { ConsoleReporter } from './adapters/reporting/console-reporter.js';
@@ -162,7 +162,11 @@ export async function run(argv: readonly string[]): Promise<number> {
     return exitCode;
   }
 
-  await reportAggregate(events, { installGuard: subcommand === 'guard', sarifPath });
+  await reportAggregate(events, {
+    installGuard: subcommand === 'guard',
+    sarifPath,
+    mode: policy.mode,
+  });
 
   // A command that failed on its own terms reports that, whatever dephawk saw:
   // its failure is the more immediate thing to fix, and masking it would be a
@@ -385,6 +389,8 @@ interface ReportOptions {
   /** Say so when the run covered an install rather than a plain command. */
   readonly installGuard: boolean;
   readonly sarifPath: string | undefined;
+  /** The mode the monitored tree ran in, so the report can advise accordingly. */
+  readonly mode: Mode;
 }
 
 /** Print one aggregated report, and write the artifacts. */
@@ -397,7 +403,7 @@ async function reportAggregate(
       '\ndephawk: install guard — aggregated across every process spawned:\n',
     );
   }
-  new ConsoleReporter().report(events);
+  new ConsoleReporter({ mode: options.mode }).report(events);
   await new HtmlReporter().report(events);
   if (options.sarifPath !== undefined) {
     await new SarifReporter({

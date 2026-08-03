@@ -99,6 +99,72 @@ export function missingMonitoring(
   return missing;
 }
 
+/** The outcome of putting monitoring back into a worker's options. */
+export interface RestoredWorkerOptions {
+  readonly options: Record<string, unknown>;
+  /** What was missing and had to be put back (`execArgv`, `NODE_OPTIONS`, …). */
+  readonly restored: readonly string[];
+}
+
+/**
+ * Return `options` with monitoring guaranteed for a `worker_threads.Worker`, and
+ * say what was put back. A copy — the caller's object is never mutated.
+ *
+ * A worker declines inheritance through two doors, and both had to be closed:
+ *
+ * ```js
+ * new Worker('payload.js', { execArgv: [] })   // no --import: unmonitored
+ * new Worker('payload.js', { env: {} })        // no NODE_OPTIONS: unmonitored
+ * ```
+ *
+ * Only an *explicit* value can be short of anything: no `execArgv` inherits
+ * `process.execArgv`, and no `env` (or `SHARE_ENV`) inherits the parent
+ * environment, both of which already carry monitoring.
+ */
+export function restoreWorkerOptions(
+  options: Record<string, unknown>,
+  monitoring: MonitoringEnv,
+): RestoredWorkerOptions {
+  const patched: Record<string, unknown> = { ...options };
+  const restored: string[] = [];
+
+  const execArgv = options['execArgv'];
+  if (Array.isArray(execArgv)) {
+    const present = execArgv.filter((arg): arg is string => typeof arg === 'string');
+    const missing = monitoring.imports
+      .map(asExecArgvFlag)
+      .filter((flag) => !present.some((arg) => arg.includes(importedUrl(flag))));
+    if (missing.length > 0) {
+      patched['execArgv'] = [...execArgv, ...missing];
+      restored.push('execArgv');
+    }
+  }
+
+  const env = options['env'];
+  if (typeof env === 'object' && env !== null && !Array.isArray(env)) {
+    const result = restoreMonitoring(env as NodeJS.ProcessEnv, monitoring);
+    if (result.restored.length > 0) {
+      patched['env'] = result.env;
+      restored.push(...result.restored);
+    }
+  }
+
+  return { options: patched, restored };
+}
+
+/**
+ * `--import <url>` as a single `execArgv` entry. `NODE_OPTIONS` is one string
+ * and tolerates the space-separated form; an argv array does not, because each
+ * element is exactly one argument.
+ */
+function asExecArgvFlag(fragment: string): string {
+  return `--import=${fragment.replace(/^--import(?:=|\s+)/, '')}`;
+}
+
+function importedUrl(flag: string): string {
+  return flag.slice('--import='.length);
+}
+
 /** The outcome of putting monitoring back into an environment. */
 export interface RestoredEnv {
   readonly env: NodeJS.ProcessEnv;

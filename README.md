@@ -173,17 +173,17 @@ this for you.)
 
 ## What it watches
 
-| Capability       | Examples caught                                                                  |
-| ---------------- | -------------------------------------------------------------------------------- |
-| `fs.read`        | reading, **listing** or resolving `~/.ssh`, `~/.aws`, keychains, wallets, `.env` |
-| `fs.write`       | overwriting or **deleting** `~/.npmrc`, `authorized_keys`, other secret files    |
-| `net.connect`    | `http`/`https`/`fetch`, plus raw `net`/`tls` sockets and UDP (`dgram`)           |
-| `net.resolve`    | `dns.lookup`/`resolve*` — recon and DNS-tunnel exfil (no TCP to see)             |
-| `process.spawn`  | `child_process.exec`/`spawn`/`fork`, and `worker_threads` (the curl-pipe-sh)     |
-| `process.native` | `process.dlopen` — loading a native addon (`.node`) that escapes the JS sandbox  |
-| `code.eval`      | `vm.runInThisContext`/`Script`/`compileFunction` — running staged payloads       |
-| `env.read`       | a dependency reading `NPM_TOKEN`, `AWS_SECRET_ACCESS_KEY`, …                     |
-| `os.info`        | `os.userInfo`/`networkInterfaces`/`hostname` host profiling                      |
+| Capability       | Examples caught                                                                    |
+| ---------------- | ---------------------------------------------------------------------------------- |
+| `fs.read`        | reading, **listing**, globbing or **copying** `~/.ssh`, keychains, wallets, `.env` |
+| `fs.write`       | overwriting or **deleting** `~/.npmrc`, `authorized_keys`, other secret files      |
+| `net.connect`    | `http`/`https`/`fetch`, plus raw `net`/`tls` sockets and UDP (`dgram`)             |
+| `net.resolve`    | `dns.lookup`/`resolve*` — recon and DNS-tunnel exfil (no TCP to see)               |
+| `process.spawn`  | `child_process.exec`/`spawn`/`fork`, and `worker_threads` (the curl-pipe-sh)       |
+| `process.native` | `process.dlopen` — loading a native addon (`.node`) that escapes the JS sandbox    |
+| `code.eval`      | `vm.runInThisContext`/`Script`/`compileFunction` — running staged payloads         |
+| `env.read`       | a dependency reading `NPM_TOKEN`, `AWS_SECRET_ACCESS_KEY`, …                       |
+| `os.info`        | `os.userInfo`/`networkInterfaces`/`hostname` host profiling                        |
 
 Each event is **attributed to the specific package** that triggered it, so you
 know exactly who's misbehaving.
@@ -278,7 +278,9 @@ the event. On exit it prints a summary and writes the HTML report.
 (`NODE_OPTIONS`, `DEPHAWK_*`), so a dependency could once blind dephawk for a
 whole subtree by spawning with those stripped out. dephawk now puts them back
 into every child it lets through, and the report notes when it had to
-— `node payload.js [dephawk re-attached: NODE_OPTIONS]`. See
+— `node payload.js [dephawk re-attached: NODE_OPTIONS]`. The same holds for
+**worker threads**, which declined monitoring through `{ execArgv: [] }` or
+`{ env: {} }` until 0.4.3. See
 [`docs/adr/0006`](docs/adr/0006-re-attaching-monitoring-to-children.md).
 
 **Deferred calls still count.** A dependency cannot shed responsibility by

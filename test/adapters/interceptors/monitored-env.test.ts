@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
+import { SHARE_ENV } from 'node:worker_threads';
 import {
   captureMonitoringEnv,
   restoreMonitoring,
+  restoreWorkerOptions,
 } from '../../../src/adapters/interceptors/monitored-env.js';
 
 const REGISTER = 'file:///app/node_modules/dephawk/dist/register.js';
@@ -105,5 +107,68 @@ describe('restoreMonitoring', () => {
 
     expect(env).toEqual({ PATH: '/usr/bin' });
     expect(restored).toEqual([]);
+  });
+});
+
+describe('restoreWorkerOptions', () => {
+  // A worker declines inheritance through two doors: an emptied `execArgv`
+  // (no --import) and an emptied `env` (no NODE_OPTIONS). Either one used to buy
+  // a completely unmonitored thread.
+  const monitoring = captureMonitoringEnv(started);
+
+  it('puts --import back into an emptied execArgv, as one argv element', () => {
+    const { options, restored } = restoreWorkerOptions({ execArgv: [] }, monitoring);
+
+    // `--import <url>` is legal in NODE_OPTIONS but not as a single argv entry.
+    expect(options['execArgv']).toEqual([`--import=${REGISTER}`]);
+    expect(restored).toEqual(['execArgv']);
+  });
+
+  it('keeps the caller’s own flags alongside it', () => {
+    const { options } = restoreWorkerOptions(
+      { execArgv: ['--trace-warnings'] },
+      monitoring,
+    );
+
+    expect(options['execArgv']).toEqual(['--trace-warnings', `--import=${REGISTER}`]);
+  });
+
+  it.each([
+    [[`--import=${REGISTER}`]],
+    // The two-element spelling names the same module and counts too.
+    [['--import', REGISTER]],
+  ])('adds nothing when execArgv already carries it: %s', (execArgv) => {
+    expect(restoreWorkerOptions({ execArgv }, monitoring).restored).toEqual([]);
+  });
+
+  it('restores monitoring in an emptied env', () => {
+    const { options, restored } = restoreWorkerOptions({ env: {} }, monitoring);
+
+    expect(options['env']).toEqual({
+      NODE_OPTIONS: `--import ${REGISTER}`,
+      DEPHAWK_POLICY: '{"mode":"observe"}',
+      DEPHAWK_SINK: '/tmp/dephawk-guard-x/events.jsonl',
+    });
+    expect(restored).toContain('NODE_OPTIONS');
+    expect(restored).toContain('DEPHAWK_SINK');
+  });
+
+  it('leaves inherited options alone: absent means inherit, and inheriting is fine', () => {
+    const { options, restored } = restoreWorkerOptions({ name: 'w1' }, monitoring);
+
+    expect(options).toEqual({ name: 'w1' });
+    expect(restored).toEqual([]);
+  });
+
+  it('does not treat SHARE_ENV as an environment to patch', () => {
+    // It is a symbol, and it shares the parent's environment — which is monitored.
+    const { restored } = restoreWorkerOptions({ env: SHARE_ENV }, monitoring);
+    expect(restored).toEqual([]);
+  });
+
+  it('does not mutate the options it was given', () => {
+    const original = { execArgv: [], env: {} };
+    restoreWorkerOptions(original, monitoring);
+    expect(original).toEqual({ execArgv: [], env: {} });
   });
 });
