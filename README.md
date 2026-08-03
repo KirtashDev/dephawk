@@ -143,6 +143,10 @@ export default {
   secret var names. Non-secret vars (e.g. `NODE_ENV`) are always allowed.
 - `fs` — `{ read: [...], write: [...] }` path prefixes for sensitive paths.
 
+The `default` bucket applies to any package not listed **and** to calls dephawk
+cannot attribute to anyone — so a deny-by-default `default` is what makes
+laundered calls fail closed.
+
 Your own application code is never flagged — dephawk watches dependencies, not you.
 
 ## How it works (and what it can't do)
@@ -154,11 +158,21 @@ Node built-ins — `fs`, `http`/`https`/`fetch`, raw `net`/`tls`/`dgram` sockets
 first `node_modules/<package>` frame, checks it against your policy, and records
 the event. On exit it prints a summary and writes the HTML report.
 
+**Deferred calls still count.** A dependency cannot shed responsibility by
+scheduling a built-in instead of calling it — `setTimeout(fs.readFileSync, 0,
+'~/.ssh/id_rsa')`. When the stack names nobody, the call is `(unattributed)` and
+held to your **default** policy rather than treated as your own code, and
+dephawk separately records where the call was scheduled so the report can still
+name the package that armed it. (Before 0.3 that pattern was allowed outright,
+even under `--enforce` — see
+[`docs/adr/0004`](docs/adr/0004-async-attribution-and-unknown-origin.md).)
+
 **This is an honest threat model.** dephawk is a high-signal _tripwire and
 policy layer_, not an unbreakable sandbox:
 
 - Attribution uses stack traces, which a determined attacker can obscure
-  (rewriting `Error.stack`, deferring work, running native code).
+  (rewriting `Error.stack`, running native code). Losing a frame no longer buys
+  trust, but it can still cost you the culprit's name.
 - Native addons run outside the JS sandbox: dephawk flags the `.node` _load_
   (`process.native`), but what the addon does afterwards is invisible.
 - `eval()` and `new Function()` are language primitives and can't be patched;

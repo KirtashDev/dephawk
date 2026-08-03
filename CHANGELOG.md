@@ -3,6 +3,39 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Fixed
+
+- **Attribution bypass (security).** A dependency could evade policy entirely —
+  including under `--enforce` — by deferring a sensitive call through a callback
+  it did not define, e.g. `setTimeout(fs.readFileSync, 0, '~/.ssh/id_rsa')` or
+  `.then(fs.readFileSync)`. No frame of the package survived to the moment of
+  the call, and the resulting `package: null` was indistinguishable from "your
+  own code", which policy allows unconditionally. Attribution now reports a
+  third origin, `unknown`, which is evaluated against the default policy bucket
+  instead of being trusted. See
+  [ADR 0004](docs/adr/0004-async-attribution-and-unknown-origin.md).
+- Wrappers installed over Node built-ins now inherit the original's own
+  properties, so API hung off them (`setTimeout[util.promisify.custom]`,
+  `fs.realpath.native`) keeps working while dephawk is active.
+
+### Added
+
+- `SchedulerInterceptor` — records the stack at the point a detached built-in is
+  scheduled (`setTimeout`/`setInterval`/`setImmediate`, `queueMicrotask`,
+  `process.nextTick`, `Promise.prototype.then`) and carries it through
+  `AsyncLocalStorage`, so deferred calls are still attributed to the package
+  that armed them rather than merely denied as anonymous. Costs one `WeakSet`
+  lookup per callback argument; stacks are captured only for the detached case.
+- Reports distinguish `(your code)` from `(unattributed)`.
+
+### Changed
+
+- `Attribution`, `CapabilityRequest` and `DhEvent` carry an `origin`
+  (`dependency` | `application` | `unknown`). Programmatic consumers that build
+  these values directly must supply it.
+
 ## [0.2.0] — 2026-07-25
 
 ### Added

@@ -1,7 +1,7 @@
 import { CAPABILITY_META } from '../../domain/capability.js';
 import type { DhEvent } from '../../domain/event.js';
 import { createStyler, type StyleName } from './ansi.js';
-import { summarize, type Row, type Severity } from './report-model.js';
+import { displayPackage, summarize, type Row, type Severity } from './report-model.js';
 
 export { severityOf } from './report-model.js';
 export type { Severity } from './report-model.js';
@@ -49,7 +49,7 @@ export function formatConsoleReport(
 
   const width = Math.min(
     28,
-    Math.max(...flagged.map((row) => (row.package ?? '(your code)').length)),
+    Math.max(...flagged.map((row) => displayPackage(row).length)),
   );
 
   for (const row of flagged) {
@@ -81,7 +81,7 @@ function formatRow(
   width: number,
   style: ReturnType<typeof createStyler>,
 ): string {
-  const name = (row.package ?? '(your code)').padEnd(width);
+  const name = displayPackage(row).padEnd(width);
   const label = CAPABILITY_META[row.capability].label.padEnd(7);
   const detail = truncate(row.detail, MAX_DETAIL);
   const suffix = row.count > 1 ? style('dim', ` (x${row.count})`) : '';

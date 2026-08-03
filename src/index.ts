@@ -11,6 +11,7 @@
 export { CAPABILITIES, CAPABILITY_META, isCapability } from './domain/capability.js';
 export type { Capability, CapabilityMeta } from './domain/capability.js';
 export type { DhEvent } from './domain/event.js';
+export type { Origin } from './domain/origin.js';
 export { createEvent } from './domain/event.js';
 export type {
   Policy,
@@ -44,6 +45,15 @@ export type {
 
 // Adapters
 export { StackAttributor } from './adapters/attribution/stack-attributor.js';
+export type { StackAttributorOptions } from './adapters/attribution/stack-attributor.js';
+export {
+  DeferredAttributor,
+  SCHEDULED_FROM,
+} from './adapters/attribution/deferred-attributor.js';
+export {
+  runScheduled,
+  schedulingStack,
+} from './adapters/attribution/scheduling-context.js';
 export { InMemorySink } from './adapters/sink/in-memory-sink.js';
 export { SystemClock } from './adapters/clock/system-clock.js';
 export {
@@ -67,6 +77,7 @@ export {
   VmInterceptor,
   EnvInterceptor,
   OsInterceptor,
+  SchedulerInterceptor,
 } from './adapters/interceptors/index.js';
 export {
   ConsoleReporter,
@@ -76,6 +87,7 @@ export {
   formatConsoleReport,
   renderHtmlReport,
 } from './adapters/reporting/index.js';
+export { displayPackage } from './adapters/reporting/report-model.js';
 
 // Composition
 export { buildMonitor } from './composition/build-monitor.js';

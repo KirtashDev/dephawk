@@ -4,6 +4,7 @@ import { createEvent } from '../../src/domain/event.js';
 const base = {
   capability: 'fs.read' as const,
   package: 'left-pad' as string | null,
+  origin: 'dependency' as const,
   detail: '/home/alice/.ssh/id_rsa',
   stack: ['at left-pad'],
   sensitive: true,

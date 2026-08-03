@@ -38,6 +38,7 @@ function wire(opts: {
     sink,
     attributor: new FakeAttributor({
       package: opts.pkg === undefined ? 'evil-pkg' : opts.pkg,
+      origin: opts.pkg === null ? 'application' : 'dependency',
       frames: ['at evil-pkg (node_modules/evil-pkg/index.js:1:1)'],
     }),
     clock: new FakeClock(500),

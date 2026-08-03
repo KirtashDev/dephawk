@@ -8,6 +8,7 @@ function req(
 ): CapabilityRequest {
   return {
     package: 'some-pkg',
+    origin: 'dependency',
     detail: '',
     stack: [],
     ...partial,
@@ -28,12 +29,61 @@ const policy: Policy = {
 const engine = new RulePolicyEngine(policy);
 
 describe('RulePolicyEngine — app code', () => {
-  it('always allows the user’s own code (package null)', () => {
+  it('always allows the user’s own code', () => {
     const v = engine.evaluate(
-      req({ capability: 'fs.read', package: null, detail: '/home/alice/.ssh/id_rsa' }),
+      req({
+        capability: 'fs.read',
+        package: null,
+        origin: 'application',
+        detail: '/home/alice/.ssh/id_rsa',
+      }),
     );
     expect(v.allowed).toBe(true);
     expect(v.sensitive).toBe(true);
+  });
+});
+
+describe('RulePolicyEngine — unattributed calls', () => {
+  // A call nobody owns is not the same as a call you own: it is what a
+  // dependency laundering itself across an async boundary looks like. It gets
+  // the default bucket, not the benefit of the doubt.
+  it('holds an unknown origin to the default policy instead of allowing it', () => {
+    const v = engine.evaluate(
+      req({
+        capability: 'fs.read',
+        package: null,
+        origin: 'unknown',
+        detail: '/home/alice/.ssh/id_rsa',
+      }),
+    );
+    expect(v.allowed).toBe(false);
+    expect(v.sensitive).toBe(true);
+    expect(v.reason).toContain('/home/alice/.ssh/id_rsa');
+  });
+
+  it('still allows mundane calls from an unknown origin', () => {
+    const v = engine.evaluate(
+      req({
+        capability: 'fs.read',
+        package: null,
+        origin: 'unknown',
+        detail: '/app/src/index.js',
+      }),
+    );
+    expect(v.allowed).toBe(true);
+    expect(v.sensitive).toBe(false);
+  });
+
+  it('denies an unattributed spawn, matching the default bucket', () => {
+    const v = engine.evaluate(
+      req({
+        capability: 'process.spawn',
+        package: null,
+        origin: 'unknown',
+        detail: 'sh',
+      }),
+    );
+    expect(v.allowed).toBe(false);
   });
 });
 

@@ -9,6 +9,7 @@ import type {
   Reporter,
 } from '../application/ports.js';
 import { StackAttributor } from '../adapters/attribution/stack-attributor.js';
+import { DeferredAttributor } from '../adapters/attribution/deferred-attributor.js';
 import { InMemorySink } from '../adapters/sink/in-memory-sink.js';
 import { SystemClock } from '../adapters/clock/system-clock.js';
 import { createInterceptors } from '../adapters/interceptors/index.js';
@@ -39,7 +40,7 @@ export function buildMonitor(options: BuildMonitorOptions): Monitor {
     policyEngine: new RulePolicyEngine(policy),
     sink: options.sink ?? new InMemorySink(),
     clock: options.clock ?? new SystemClock(),
-    attributor: options.attributor ?? new StackAttributor(),
+    attributor: options.attributor ?? new DeferredAttributor(new StackAttributor()),
     mode: policy.mode,
     interceptors: options.interceptors ?? createInterceptors(),
     reporters: options.reporters ?? [new ConsoleReporter(), new HtmlReporter()],

@@ -17,8 +17,10 @@ export type { Verdict } from '../domain/verdict.js';
 export type { PolicyEngine } from '../domain/policy-engine.js';
 export type { DhEvent } from '../domain/event.js';
 export type { Policy, PackagePolicy, Mode } from '../domain/policy.js';
+export type { Origin } from '../domain/origin.js';
 
 import type { DhEvent } from '../domain/event.js';
+import type { Origin } from '../domain/origin.js';
 import type { Policy } from '../domain/policy.js';
 
 /**
@@ -45,8 +47,14 @@ export interface Disposable {
 
 /** The outcome of attributing a raw stack to a package. */
 export interface Attribution {
-  /** The responsible package, or null for app/unknown code. */
+  /** The responsible package, or null when {@link origin} is not `dependency`. */
   readonly package: string | null;
+  /**
+   * Whether the call came from a dependency, the user's own code, or nowhere
+   * identifiable. Policy trusts `application` only — see
+   * {@link import('../domain/origin.js').Origin}.
+   */
+  readonly origin: Origin;
   /** The relevant stack frames, with dephawk's own frames removed. */
   readonly frames: readonly string[];
 }

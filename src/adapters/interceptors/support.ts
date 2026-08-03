@@ -33,6 +33,49 @@ export function report(
 export type AnyFn = (...args: any[]) => any;
 
 /**
+ * Every wrapper {@link patchMethod} installs, so we can recognise one later.
+ *
+ * A `WeakSet` rather than a marker property: it adds nothing observable to the
+ * built-ins we patch, and it cannot be forged by code that only holds the
+ * function. The
+ * {@link import('./scheduler.interceptor.js').SchedulerInterceptor} uses it to
+ * spot an intercepted built-in being handed straight to a scheduler, which is
+ * the shape of a call whose owner will have vanished by the time it runs.
+ */
+const wrappers = new WeakSet<AnyFn>();
+
+/** Whether `value` is a dephawk wrapper around a Node built-in. */
+export function isWrapper(value: unknown): value is AnyFn {
+  return typeof value === 'function' && wrappers.has(value as AnyFn);
+}
+
+/** Own properties that belong to the wrapper itself and must not be copied. */
+const INTRINSIC_PROPS = new Set(['length', 'name', 'prototype', 'arguments', 'caller']);
+
+/**
+ * Carry the original's own properties onto the wrapper. Node hangs real API on
+ * some built-ins — `setTimeout[util.promisify.custom]`, `fs.realpath.native` —
+ * and dropping it would break callers that never asked to be monitored.
+ */
+function inheritProps(original: AnyFn, wrapped: AnyFn): void {
+  for (const key of Reflect.ownKeys(original)) {
+    if (typeof key === 'string' && INTRINSIC_PROPS.has(key)) {
+      continue;
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(original, key);
+    if (descriptor === undefined) {
+      continue;
+    }
+    try {
+      Object.defineProperty(wrapped, key, descriptor);
+    } catch {
+      // Non-configurable on the wrapper — nothing we can do, and not worth
+      // failing the whole install over.
+    }
+  }
+}
+
+/**
  * Replace `target[key]` with `wrap(original)`, returning a restore function.
  * If the member is not a function (missing on this runtime), returns null so
  * the caller can degrade gracefully rather than crash.
@@ -47,6 +90,8 @@ export function patchMethod<T extends Record<string, any>>(
     return null;
   }
   const wrapped = wrap(original as AnyFn);
+  inheritProps(original as AnyFn, wrapped);
+  wrappers.add(wrapped);
   Object.defineProperty(target, key, {
     value: wrapped,
     writable: true,

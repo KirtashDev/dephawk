@@ -1,4 +1,5 @@
 import type { DhEvent } from '../../domain/event.js';
+import type { Origin } from '../../domain/origin.js';
 
 export type Severity = 'critical' | 'notice' | 'normal';
 
@@ -17,10 +18,24 @@ export function severityOf(event: DhEvent): Severity {
 export interface Row {
   readonly severity: Severity;
   readonly package: string | null;
+  readonly origin: Origin;
   readonly capability: DhEvent['capability'];
   readonly detail: string;
   readonly blocked: boolean;
   count: number;
+}
+
+/**
+ * What to print in the "who did this" column. The two nameless origins must not
+ * read the same: `(your code)` is a statement that the call was yours, while
+ * `(unattributed)` says dephawk could not tell — and, unlike your code, it was
+ * held to the default policy.
+ */
+export function displayPackage(row: Pick<Row, 'package' | 'origin'>): string {
+  if (row.package !== null) {
+    return row.package;
+  }
+  return row.origin === 'application' ? '(your code)' : '(unattributed)';
 }
 
 const ORDER: Record<Severity, number> = { critical: 0, notice: 1, normal: 2 };
@@ -30,7 +45,7 @@ export function aggregate(events: readonly DhEvent[]): Row[] {
   const byKey = new Map<string, Row>();
   for (const event of events) {
     const severity = severityOf(event);
-    const key = `${severity}|${event.package ?? ''}|${event.capability}|${event.detail}|${event.blocked}`;
+    const key = `${severity}|${event.package ?? ''}|${event.origin}|${event.capability}|${event.detail}|${event.blocked}`;
     const existing = byKey.get(key);
     if (existing) {
       existing.count += 1;
@@ -38,6 +53,7 @@ export function aggregate(events: readonly DhEvent[]): Row[] {
       byKey.set(key, {
         severity,
         package: event.package,
+        origin: event.origin,
         capability: event.capability,
         detail: event.detail,
         blocked: event.blocked,
@@ -72,6 +88,6 @@ export function summarize(events: readonly DhEvent[]): ReportSummary {
     noticeCount: sumWhere((r) => r.severity === 'notice'),
     normalCount: sumWhere((r) => r.severity === 'normal'),
     blockedCount: sumWhere((r) => r.blocked),
-    culprits: new Set(flagged.map((r) => r.package ?? '(your code)')).size,
+    culprits: new Set(flagged.map(displayPackage)).size,
   };
 }

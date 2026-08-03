@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { StackAttributor } from '../../src/adapters/attribution/stack-attributor.js';
 
-const attributor = new StackAttributor();
+// selfRoot is pinned to null so these fixtures are judged only on their own
+// content — the default (this module's directory) is irrelevant to /proj paths.
+const attributor = new StackAttributor({ selfRoot: null });
 
 describe('StackAttributor', () => {
   it('attributes to the first node_modules package, skipping dephawk', () => {
@@ -15,6 +17,7 @@ describe('StackAttributor', () => {
 
     const result = attributor.attribute(stack);
     expect(result.package).toBe('evil-pkg');
+    expect(result.origin).toBe('dependency');
     // dephawk frame is stripped from the display frames
     expect(result.frames.some((f) => f.includes('dephawk'))).toBe(false);
     expect(result.frames.some((f) => f.includes('evil-pkg'))).toBe(true);
@@ -30,10 +33,11 @@ describe('StackAttributor', () => {
     expect(attributor.attribute(stack).package).toBe('b');
   });
 
-  it('returns null for app code with no node_modules frame', () => {
+  it('returns application origin for app code with no node_modules frame', () => {
     const stack = ['Error', '    at main (/proj/app.js:1:1)'].join('\n');
     const result = attributor.attribute(stack);
     expect(result.package).toBeNull();
+    expect(result.origin).toBe('application');
     expect(result.frames).toEqual(['at main (/proj/app.js:1:1)']);
   });
 
@@ -44,11 +48,14 @@ describe('StackAttributor', () => {
 
   it('ignores malformed scoped paths', () => {
     const stack = '    at q (/p/node_modules/@scope)';
-    expect(attributor.attribute(stack).package).toBeNull();
+    const result = attributor.attribute(stack);
+    expect(result.package).toBeNull();
+    // Under node_modules but unattributable — emphatically not "your code".
+    expect(result.origin).toBe('unknown');
   });
 
   it('respects maxFrames', () => {
-    const limited = new StackAttributor({ maxFrames: 2 });
+    const limited = new StackAttributor({ maxFrames: 2, selfRoot: null });
     const stack = [
       '    at a (/p/node_modules/x/i.js:1:1)',
       '    at b (/p/app1.js:1:1)',
@@ -58,12 +65,70 @@ describe('StackAttributor', () => {
     expect(limited.attribute(stack).frames).toHaveLength(2);
   });
 
+  it('keeps looking for an owner past maxFrames', () => {
+    const limited = new StackAttributor({ maxFrames: 1, selfRoot: null });
+    const stack = [
+      '    at a (node:internal/timers:1:1)',
+      '    at b (node:internal/process:1:1)',
+      '    at c (/p/node_modules/deep-pkg/i.js:1:1)',
+    ].join('\n');
+    const result = limited.attribute(stack);
+    expect(result.package).toBe('deep-pkg');
+    expect(result.frames).toHaveLength(1);
+  });
+
   it('honours a custom self package name', () => {
-    const custom = new StackAttributor({ selfPackage: 'my-guard' });
+    const custom = new StackAttributor({ selfPackage: 'my-guard', selfRoot: null });
     const stack = [
       '    at g (/p/node_modules/my-guard/index.js:1:1)',
       '    at h (/p/node_modules/real-pkg/index.js:1:1)',
     ].join('\n');
     expect(custom.attribute(stack).package).toBe('real-pkg');
+  });
+});
+
+describe('StackAttributor — unknown origin', () => {
+  // This is the shape of a deferred, detached call: the scheduler's frames are
+  // gone and only the runtime is left holding the bag.
+  it('reports unknown when only runtime internals are on the stack', () => {
+    const stack = [
+      'Error',
+      '    at listOnTimeout (node:internal/timers:581:17)',
+      '    at process.processTimers (node:internal/timers:519:7)',
+    ].join('\n');
+    const result = attributor.attribute(stack);
+    expect(result.package).toBeNull();
+    expect(result.origin).toBe('unknown');
+  });
+
+  it('reports unknown for native and anonymous frames', () => {
+    const stack = ['    at Array.forEach (<anonymous>)', '    at native'].join('\n');
+    expect(attributor.attribute(stack).origin).toBe('unknown');
+  });
+
+  it('reports unknown for an empty stack', () => {
+    expect(attributor.attribute('').origin).toBe('unknown');
+  });
+
+  it('treats dephawk’s own directory as self, not as application code', () => {
+    const rooted = new StackAttributor({ selfRoot: '/opt/dephawk/dist/' });
+    const stack = [
+      'Error',
+      '    at wrapped (/opt/dephawk/dist/register.js:120:9)',
+      '    at listOnTimeout (node:internal/timers:581:17)',
+    ].join('\n');
+    const result = rooted.attribute(stack);
+    expect(result.origin).toBe('unknown');
+    expect(result.frames).toEqual(['at listOnTimeout (node:internal/timers:581:17)']);
+  });
+
+  it('finds the file inside an eval frame', () => {
+    const stack =
+      '    at eval (eval at run (/p/node_modules/staged/i.js:3:9), <anonymous>:1:1)';
+    expect(attributor.attribute(stack).package).toBe('staged');
+  });
+
+  it('recognises a bare filename location as application code', () => {
+    expect(attributor.attribute('    at run (bundle.js:1:1)').origin).toBe('application');
   });
 });

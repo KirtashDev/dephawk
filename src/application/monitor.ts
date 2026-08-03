@@ -59,6 +59,7 @@ export class Monitor {
     const request: CapabilityRequest = {
       capability: call.capability,
       package: attribution.package,
+      origin: attribution.origin,
       detail: call.detail,
       stack: attribution.frames,
     };
@@ -70,6 +71,7 @@ export class Monitor {
       createEvent({
         capability: request.capability,
         package: request.package,
+        origin: request.origin,
         detail: request.detail,
         stack: request.stack,
         sensitive: verdict.sensitive,

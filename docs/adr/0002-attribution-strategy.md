@@ -1,6 +1,6 @@
 # 2. Attribution by stack trace, and its limits
 
-- Status: accepted
+- Status: accepted, amended by [ADR 0004](0004-async-attribution-and-unknown-origin.md)
 - Date: 2026-07-24
 
 ## Context
@@ -44,9 +44,13 @@ Attribution is **high-signal, not tamper-proof**. A determined attacker can:
 - run in a worker/native addon with no JS frame;
 - ship code that isn't under a `node_modules/<pkg>` path.
 
-Async gaps can also drop the originating frame, yielding `package: null`
-(attributed to "your code"). We accept these limits and state them plainly in
-the README. dephawk is a tripwire and policy layer; for a hard boundary, combine
+Async gaps can also drop the originating frame. This ADR originally accepted
+that as a reporting loss; it was in fact a policy bypass, because `package:
+null` also meant "the user's own code" and was allowed unconditionally.
+[ADR 0004](0004-async-attribution-and-unknown-origin.md) splits that value into
+`application` and `unknown`, trusts only the former, and restores the name via
+scheduling context. The remaining limits above stand, and we state them plainly
+in the README. dephawk is a tripwire and policy layer; for a hard boundary, combine
 it with OS-level isolation. The interceptor pre-filter (only capturing stacks for
 sensitive paths/secret env vars) keeps overhead low, at the cost of not counting
 mundane calls — an intentional trade for a quiet, fast hot path.

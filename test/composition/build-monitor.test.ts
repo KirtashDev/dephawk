@@ -31,7 +31,11 @@ describe('buildMonitor', () => {
       policy,
       sink,
       clock: new FakeClock(1),
-      attributor: new FakeAttributor({ package: 'evil', frames: ['at evil'] }),
+      attributor: new FakeAttributor({
+        package: 'evil',
+        origin: 'dependency',
+        frames: ['at evil'],
+      }),
       interceptors: [interceptor],
       reporters: [reporter],
     });

@@ -6,6 +6,7 @@ export function ev(partial: Partial<CreateEventInput> = {}): DhEvent {
   return createEvent({
     capability: 'fs.read',
     package: 'p',
+    origin: 'dependency',
     detail: 'd',
     stack: [],
     sensitive: false,

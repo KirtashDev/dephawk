@@ -16,8 +16,17 @@ export interface PolicyEngine {
 /**
  * The default {@link PolicyEngine}: mundane actions pass, sensitive ones must be
  * allowlisted per package. Network is allowlist-only regardless of sensitivity
- * (a dependency phoning home is the whole point). The user's own code
- * (`package === null`) is always allowed — dephawk watches dependencies, not you.
+ * (a dependency phoning home is the whole point).
+ *
+ * Trust follows {@link import('./origin.js').Origin}, not the package name:
+ *
+ * - `application` — the user's own code, always allowed. dephawk watches
+ *   dependencies, not you.
+ * - `dependency`  — evaluated against that package's rules, falling back to the
+ *   default bucket.
+ * - `unknown`     — attribution found no owner at all. Evaluated against the
+ *   *default* bucket rather than trusted, so a dependency cannot buy itself a
+ *   free pass by laundering a call until its frames fall off the stack.
  */
 export class RulePolicyEngine implements PolicyEngine {
   private readonly policy: Policy;
@@ -29,11 +38,14 @@ export class RulePolicyEngine implements PolicyEngine {
   evaluate(req: CapabilityRequest): Verdict {
     const sensitive = detectSensitive(req);
 
-    if (req.package === null) {
+    if (req.origin === 'application') {
       return { allowed: true, sensitive };
     }
 
-    const pkg = this.policy.packages[req.package] ?? this.policy.default;
+    const pkg =
+      req.package === null
+        ? this.policy.default
+        : (this.policy.packages[req.package] ?? this.policy.default);
     return evaluateCapability(req, pkg, sensitive);
   }
 }

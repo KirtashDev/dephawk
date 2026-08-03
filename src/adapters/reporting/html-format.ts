@@ -1,6 +1,6 @@
 import { CAPABILITY_META } from '../../domain/capability.js';
 import type { DhEvent } from '../../domain/event.js';
-import { summarize, type Row } from './report-model.js';
+import { displayPackage, summarize, type Row } from './report-model.js';
 
 export interface HtmlReportMeta {
   /** ISO timestamp string for "generated at". */
@@ -92,7 +92,7 @@ export function renderHtmlReport(
 
 function renderRow(row: Row): string {
   const icon = row.severity === 'critical' ? '🚨' : '⚠️';
-  const pkg = esc(row.package ?? '(your code)');
+  const pkg = esc(displayPackage(row));
   const label = esc(CAPABILITY_META[row.capability].label);
   const detail = esc(row.detail);
   const tags = [

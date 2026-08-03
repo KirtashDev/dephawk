@@ -7,6 +7,7 @@ function anEvent(detail: string) {
   return createEvent({
     capability: 'fs.read',
     package: 'p',
+    origin: 'dependency',
     detail,
     stack: [],
     sensitive: false,

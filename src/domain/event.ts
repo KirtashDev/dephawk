@@ -1,4 +1,5 @@
 import type { Capability } from './capability.js';
+import type { Origin } from './origin.js';
 
 /**
  * An immutable value object: one decided capability request.
@@ -10,8 +11,10 @@ import type { Capability } from './capability.js';
  */
 export interface DhEvent {
   readonly capability: Capability;
-  /** Attributed package, or null for app/unknown code. */
+  /** Attributed package, or null when {@link origin} is not `dependency`. */
   readonly package: string | null;
+  /** Who made the call: a dependency, the user's own code, or nobody known. */
+  readonly origin: Origin;
   /** Path, host, command, or env var name — the subject of the action. */
   readonly detail: string;
   /** Attributed stack frames (dephawk frames stripped). */
@@ -27,6 +30,7 @@ export interface DhEvent {
 export interface CreateEventInput {
   readonly capability: Capability;
   readonly package: string | null;
+  readonly origin: Origin;
   readonly detail: string;
   readonly stack: readonly string[];
   readonly sensitive: boolean;
@@ -41,6 +45,7 @@ export function createEvent(input: CreateEventInput): DhEvent {
   const base = {
     capability: input.capability,
     package: input.package,
+    origin: input.origin,
     detail: input.detail,
     stack: Object.freeze([...input.stack]),
     sensitive: input.sensitive,

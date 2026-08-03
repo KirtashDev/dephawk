@@ -9,6 +9,7 @@ import { NativeAddonInterceptor } from './native.interceptor.js';
 import { VmInterceptor } from './vm.interceptor.js';
 import { EnvInterceptor } from './env.interceptor.js';
 import { OsInterceptor } from './os.interceptor.js';
+import { SchedulerInterceptor } from './scheduler.interceptor.js';
 
 export { FsInterceptor } from './fs.interceptor.js';
 export { NetInterceptor } from './net.interceptor.js';
@@ -20,14 +21,20 @@ export { NativeAddonInterceptor } from './native.interceptor.js';
 export { VmInterceptor } from './vm.interceptor.js';
 export { EnvInterceptor } from './env.interceptor.js';
 export { OsInterceptor } from './os.interceptor.js';
+export { SchedulerInterceptor } from './scheduler.interceptor.js';
 
 /**
  * The default interceptor set, in install order. Adding a capability means
  * adding one class here — the Monitor and the rest of the core never change
  * (open for extension, closed for modification).
+ *
+ * The scheduler interceptor comes first and records no capability of its own:
+ * it keeps attribution alive across async boundaries so the others can name a
+ * culprit for deferred calls.
  */
 export function createInterceptors(): CapabilityInterceptor[] {
   return [
+    new SchedulerInterceptor(),
     new FsInterceptor(),
     new NetInterceptor(),
     new SocketInterceptor(),
