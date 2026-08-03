@@ -3,7 +3,10 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.5.0] — 2026-08-03
+
+Dependency changes become reviewable: dephawk can now say what a package started
+doing, not only whether it was allowed to.
 
 ### Added
 
