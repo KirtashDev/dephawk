@@ -36,6 +36,18 @@ const SINGLE_PATH: readonly FsMethod[] = [
   reads('createReadStream'),
   reads('open'),
   reads('openSync'),
+  // Listing is reading: `readdir('~/.ssh')` names every key on the machine and
+  // every host in `known_hosts` without opening one of them, which is exactly
+  // the reconnaissance step that precedes the theft.
+  reads('readdir'),
+  reads('readdirSync'),
+  reads('opendir'),
+  reads('opendirSync'),
+  // Same shape, one level down: a symlink's target is content. `~/.ssh/id_rsa`
+  // often points at the real key elsewhere, and following it by hand is how you
+  // read the key without ever naming its path.
+  reads('readlink'),
+  reads('readlinkSync'),
   writes('writeFile'),
   writes('writeFileSync'),
   writes('appendFile'),
@@ -109,11 +121,14 @@ export interface FsInterceptorOptions {
  * `.npmrc`, `.env`, `/etc/passwd`, …) and to dephawk's own protected paths.
  * Mundane paths pass through untouched with no stack capture, so the common
  * case (reading app/`node_modules` files) is not slowed. Covers the callback,
- * sync, stream, and `fs.promises` surfaces, including the destructive members
- * (`unlink`, `rm`, `truncate`, `rename`) an attacker uses to remove traces.
+ * sync, stream, and `fs.promises` surfaces, including the reconnaissance members
+ * (`readdir`, `opendir`, `readlink` — learning what a secret directory holds or
+ * where a key really lives) and the destructive ones (`unlink`, `rm`,
+ * `truncate`, `rename`) an attacker uses to remove traces.
  *
- * Limitation: file-descriptor-based calls (`read(fd, …)`), native addons, and
- * named bindings captured before install are not covered.
+ * Limitation: file-descriptor-based calls (`read(fd, …)`), `realpath` (called
+ * constantly by module resolution, so it would report far more than it caught),
+ * native addons, and named bindings captured before install are not covered.
  */
 export class FsInterceptor implements CapabilityInterceptor {
   readonly name = 'fs';

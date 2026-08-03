@@ -109,6 +109,37 @@ describe('FsInterceptor — destructive members', () => {
   });
 });
 
+describe('FsInterceptor — recon members', () => {
+  const FAKE_SSH_DIR = '/home/nobody/.ssh';
+
+  it.each([
+    ['readdirSync', () => fs.readdirSync(FAKE_SSH_DIR)],
+    ['opendirSync', () => fs.opendirSync(FAKE_SSH_DIR)],
+    // The promises surface is patched too. The wrapper refuses *before* calling
+    // the original, so it throws synchronously rather than rejecting.
+    ['promises.readdir', () => fs.promises.readdir(FAKE_SSH_DIR)],
+    // Where the key really lives is content too.
+    ['readlinkSync', () => fs.readlinkSync(FAKE_SSH)],
+    ['promises.readlink', () => fs.promises.readlink(FAKE_SSH)],
+  ])('catches %s of a sensitive path as fs.read', (_name, act) => {
+    const spy = recordSpy();
+    spy.deny('not allowed');
+    installed = new FsInterceptor().install(spy.record);
+
+    expect(act).toThrow(/dephawk: blocked/);
+    expect(spy.last?.capability).toBe('fs.read');
+    expect(spy.last?.detail).toContain('.ssh');
+  });
+
+  it('does NOT flag listing an ordinary directory', () => {
+    const spy = recordSpy();
+    installed = new FsInterceptor().install(spy.record);
+
+    expect(fs.readdirSync(resolve('src'))).toContain('domain');
+    expect(spy.calls).toHaveLength(0);
+  });
+});
+
 describe('FsInterceptor — dephawk’s own protected paths', () => {
   const sink = '/tmp/dephawk-guard-test/events.jsonl';
 

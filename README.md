@@ -141,20 +141,32 @@ annotations appear on the pull request that caused them.
 
 ## What it watches
 
-| Capability       | Examples caught                                                                 |
-| ---------------- | ------------------------------------------------------------------------------- |
-| `fs.read`        | reading `~/.ssh`, `~/.aws`, `~/.gnupg`, `.env`, `.npmrc`, `/etc/passwd`         |
-| `fs.write`       | overwriting or **deleting** `~/.npmrc`, `authorized_keys`, other secret files   |
-| `net.connect`    | `http`/`https`/`fetch`, plus raw `net`/`tls` sockets and UDP (`dgram`)          |
-| `net.resolve`    | `dns.lookup`/`resolve*` — recon and DNS-tunnel exfil (no TCP to see)            |
-| `process.spawn`  | `child_process.exec`/`spawn`/`fork`, and `worker_threads` (the curl-pipe-sh)    |
-| `process.native` | `process.dlopen` — loading a native addon (`.node`) that escapes the JS sandbox |
-| `code.eval`      | `vm.runInThisContext`/`Script`/`compileFunction` — running staged payloads      |
-| `env.read`       | a dependency reading `NPM_TOKEN`, `AWS_SECRET_ACCESS_KEY`, …                    |
-| `os.info`        | `os.userInfo`/`networkInterfaces`/`hostname` host profiling                     |
+| Capability       | Examples caught                                                                  |
+| ---------------- | -------------------------------------------------------------------------------- |
+| `fs.read`        | reading, **listing** or resolving `~/.ssh`, `~/.aws`, keychains, wallets, `.env` |
+| `fs.write`       | overwriting or **deleting** `~/.npmrc`, `authorized_keys`, other secret files    |
+| `net.connect`    | `http`/`https`/`fetch`, plus raw `net`/`tls` sockets and UDP (`dgram`)           |
+| `net.resolve`    | `dns.lookup`/`resolve*` — recon and DNS-tunnel exfil (no TCP to see)             |
+| `process.spawn`  | `child_process.exec`/`spawn`/`fork`, and `worker_threads` (the curl-pipe-sh)     |
+| `process.native` | `process.dlopen` — loading a native addon (`.node`) that escapes the JS sandbox  |
+| `code.eval`      | `vm.runInThisContext`/`Script`/`compileFunction` — running staged payloads       |
+| `env.read`       | a dependency reading `NPM_TOKEN`, `AWS_SECRET_ACCESS_KEY`, …                     |
+| `os.info`        | `os.userInfo`/`networkInterfaces`/`hostname` host profiling                      |
 
 Each event is **attributed to the specific package** that triggered it, so you
 know exactly who's misbehaving.
+
+**What counts as sensitive** — credentials and key material, by location and by
+name: `~/.ssh`, `~/.aws`, `~/.azure`, `~/.gnupg`, `~/.kube`, `~/.docker`,
+`~/.config/gcloud`, `~/.config/gh` (a GitHub token in `hosts.yml`), OS credential
+stores (macOS keychains, GNOME Keyring, Windows DPAPI), **crypto wallets** (geth
+keystores, Electrum, Solana, NEAR, Exodus, `wallet.dat`, browser-extension
+vaults — the payload of choice in recent npm compromises), `.npmrc`, `.netrc`,
+`.env*`, `.git-credentials`, `.pypirc`, `*.pem`/`*.key`/`*.p12`/`*.kdbx` outside
+`node_modules`, `/etc/passwd`, and `/proc/*/environ` (every env var in one read).
+Matching is case-insensitive, and **listing** one of those directories counts as
+reading it — `readdir('~/.ssh')` names every key on the machine without opening
+one, and `readlink` says where a key really lives.
 
 ## Getting a policy without writing one
 

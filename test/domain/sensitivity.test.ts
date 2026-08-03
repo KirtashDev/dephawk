@@ -35,6 +35,84 @@ describe('isSensitivePath', () => {
   });
 });
 
+describe('isSensitivePath — the directory itself, not just its contents', () => {
+  // Listing `~/.ssh` names every key and every host without reading a byte.
+  // Until the rules matched a bare directory, that recon was invisible.
+  it.each([
+    '/home/alice/.ssh',
+    '/home/alice/.ssh/',
+    '/Users/bob/.aws',
+    '/Users/bob/Library/Keychains',
+    'C:\\Users\\bob\\.gnupg',
+  ])('flags the sensitive directory %s', (path) => {
+    expect(isSensitivePath(path)).toBe(true);
+  });
+
+  it('does not flag a file that merely ends in a sensitive directory name', () => {
+    expect(isSensitivePath('/home/alice/notes.ssh')).toBe(false);
+    expect(isSensitivePath('/home/alice/backup-aws')).toBe(false);
+  });
+});
+
+describe('isSensitivePath — 2024-25 threat coverage', () => {
+  it.each([
+    // Plaintext git credentials, and the GitHub CLI's token.
+    '/home/alice/.git-credentials',
+    '/home/alice/.config/gh/hosts.yml',
+    // Key material by extension.
+    '/home/alice/certs/server.pem',
+    '/home/alice/certs/server.key',
+    '/srv/app/keystore.p12',
+    '/home/alice/Passwords.kdbx',
+    // OS credential stores.
+    '/Users/bob/Library/Keychains/login.keychain-db',
+    '/home/alice/.local/share/keyrings/login.keyring',
+    'C:\\Users\\bob\\AppData\\Roaming\\Microsoft\\Protect\\S-1-5-21\\masterkey',
+    // Crypto wallets — the payload of choice in recent npm compromises.
+    '/home/alice/.ethereum/keystore/UTC--2025-01-01--abc',
+    '/home/alice/.electrum/wallets/default_wallet',
+    '/home/alice/.config/solana/id.json',
+    '/home/alice/.near-credentials/mainnet/alice.json',
+    '/home/alice/.bitcoin/wallet.dat',
+    '/Users/bob/Library/Application Support/exodus/exodus.wallet/seed.seco',
+    '/Users/bob/Library/Application Support/Google/Chrome/Default/Local Extension Settings/nkbihfbeogaeaoehlefnkodbefgpgknn/000003.log',
+    // Cloud and registry credentials.
+    '/home/alice/.azure/accessTokens.json',
+    '/home/alice/.pypirc',
+    // Every environment variable in one read, bypassing the env interceptor.
+    '/proc/self/environ',
+    '/proc/1417/environ',
+    // Per-environment dotenv files, not just `.env`.
+    '/srv/app/.env.production',
+  ])('flags %s', (path) => {
+    expect(isSensitivePath(path)).toBe(true);
+  });
+
+  it('matches case-insensitively, so casing is not a bypass', () => {
+    expect(isSensitivePath('/Users/bob/library/keychains/login.keychain-db')).toBe(true);
+    expect(isSensitivePath('/home/alice/.SSH/id_rsa')).toBe(true);
+  });
+
+  it('does not treat key material inside node_modules as your secret', () => {
+    // A `.pem` shipped with a package is a CA bundle or a test fixture. Flagging
+    // those would make every TLS-using dependency noisy enough to be ignored.
+    expect(isSensitivePath('/srv/app/node_modules/agent/test/fixtures/server.pem')).toBe(
+      false,
+    );
+    // Location-based rules still bite there: no package ships your SSH key.
+    expect(isSensitivePath('/srv/app/node_modules/evil/.ssh/id_rsa')).toBe(true);
+  });
+
+  it.each([
+    '/home/alice/project/.environment',
+    '/home/alice/project/environ',
+    '/home/alice/project/public.crt',
+    '/home/alice/project/monkey.json',
+  ])('still does not flag mundane path %s', (path) => {
+    expect(isSensitivePath(path)).toBe(false);
+  });
+});
+
 describe('isSensitiveEnv', () => {
   it.each([
     'NPM_TOKEN',

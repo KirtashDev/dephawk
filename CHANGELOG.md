@@ -46,6 +46,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   Both mechanisms require a supported CI, so `npm publish` from a laptop now
   fails rather than shipping something unattested.
 
+- **Reconnaissance is now watched** as `fs.read`: directory listing (`readdir`,
+  `opendir`) and symlink targets (`readlink`), in their sync, callback and
+  `fs.promises` forms. Listing `~/.ssh` names every key on the machine and every
+  host in `known_hosts` without opening one of them — the step before the theft,
+  and previously invisible on two counts: the members were not patched, and the
+  sensitivity rules only matched paths _inside_ a secret directory, never the
+  directory itself. `realpath` stays uncovered on purpose: module resolution
+  calls it constantly, so it would report far more than it caught.
+
+### Changed
+
+- **Sensitivity rules cover what recent npm attacks actually go for.** New:
+  `.git-credentials`, `~/.config/gh/hosts.yml` (a GitHub token), `~/.azure`,
+  `.pypirc`, key material by extension (`*.pem`, `*.key`, `*.p12`, `*.pfx`,
+  `*.jks`, `*.keystore`, `*.ppk`, `*.kdbx`), OS credential stores (macOS
+  keychains, GNOME Keyring, Windows Credential Manager and DPAPI master keys),
+  **crypto wallets** (geth keystores, Electrum, Monero, Solana, NEAR, Exodus,
+  `wallet.dat`, and browser-extension vaults such as MetaMask and Phantom),
+  `/proc/*/environ` (every environment variable in one read, without touching
+  `process.env`), per-environment dotenv files (`.env.production`, not just
+  `.env`), and the remaining SSH key names (`id_dsa`, `id_ecdsa`). `~/.kube` and
+  `~/.docker` are now sensitive as directories rather than only through one file
+  each.
+
+  Matching is now **case-insensitive**: macOS and Windows filesystems are, so
+  `~/library/keychains/…` opened the same file as `~/Library/Keychains/…` and a
+  case-sensitive list handed anyone a one-character bypass.
+
+  The extension tier deliberately does **not** apply inside `node_modules`: a
+  `.pem` shipped with a package is a CA bundle or a test fixture, not your
+  secret, and flagging those would make every TLS-using dependency noisy enough
+  to be ignored. Location-based rules still apply there — no package ships your
+  SSH key.
+
 ## [0.3.0] — 2026-08-03
 
 Three ways a dependency could get out from under dephawk, each reproduced end to
