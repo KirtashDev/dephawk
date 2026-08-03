@@ -359,6 +359,11 @@ For a hardened boundary you'd combine it with OS-level isolation (containers,
 and cheap to catch. That's what stops most real-world incidents. See
 [`docs/adr/0002`](docs/adr/0002-attribution-strategy.md) for the full analysis.
 
+We went looking for these rather than waiting to be told: **[Three ways out of a
+runtime supply-chain monitor](docs/attacking-dephawk.md)** is the write-up of
+attacking dephawk with its own threat model in hand — a one-line attribution
+bypass, a writable audit log, and monitoring that could simply be declined.
+
 ## Programmatic API
 
 ```ts
