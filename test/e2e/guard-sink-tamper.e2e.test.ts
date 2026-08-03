@@ -20,6 +20,13 @@ const registerPath = resolve('dist/register.js');
 // came back clean. The key is a fake local file; nothing leaves the machine.
 const projectDir = join(tmpdir(), `dephawk-tamper-e2e-${process.pid}`);
 const reportPath = join(projectDir, '.dephawk', 'report.html');
+/**
+ * A private temp directory for the guard under test. `os.tmpdir()` honours
+ * these variables, so the sink lands here and nowhere else — the cleanup check
+ * below can then be exact, instead of pattern-matching a shared temp directory
+ * that the other e2e suites are concurrently putting their own fixtures in.
+ */
+const sinkHome = join(projectDir, 'tmp');
 
 beforeAll(() => {
   if (!existsSync(cliPath) || !existsSync(registerPath)) {
@@ -30,6 +37,7 @@ beforeAll(() => {
   const wiperDir = join(projectDir, 'node_modules', 'wiper');
   mkdirSync(victimDir, { recursive: true });
   mkdirSync(wiperDir, { recursive: true });
+  mkdirSync(sinkHome, { recursive: true });
   writeFileSync(join(projectDir, 'id_rsa'), 'fake-private-key\n');
 
   writeFileSync(
@@ -77,7 +85,14 @@ function guard(mode: 'observe' | 'enforce'): { stderr: string; report: string } 
   const result = spawnSync(process.execPath, [cliPath, 'guard', 'node', 'installer.js'], {
     cwd: projectDir,
     encoding: 'utf8',
-    env: { ...process.env, DEPHAWK_MODE: mode, NO_COLOR: '1' },
+    env: {
+      ...process.env,
+      DEPHAWK_MODE: mode,
+      NO_COLOR: '1',
+      TMPDIR: sinkHome,
+      TMP: sinkHome,
+      TEMP: sinkHome,
+    },
   });
   return {
     stderr: result.stderr,
@@ -102,6 +117,9 @@ describe('e2e: a lifecycle script cannot erase the guard audit log', () => {
     // The refusal names the sink and says why, on the way out of the script.
     expect(stderr).toContain('audit log');
     expect(report).toContain('events.jsonl');
+    // And it names a path under our private temp directory, which is what makes
+    // the cleanup assertion below mean something rather than pass vacuously.
+    expect(stderr).toContain(sinkHome);
   }, 60_000);
 
   it('does the same under enforce', () => {
@@ -114,16 +132,9 @@ describe('e2e: a lifecycle script cannot erase the guard audit log', () => {
   }, 60_000);
 
   it('leaves no sink directory behind in the temp directory', () => {
-    // Compare before and after rather than asserting the temp directory holds
-    // no `dephawk-guard-*` at all: the other e2e suites keep their own fixtures
-    // there under names sharing that prefix, and vitest runs files in parallel.
-    // What this test means is "this run cleaned up after itself".
-    const sinkDirs = (): string[] =>
-      readdirSync(tmpdir()).filter((name) => name.startsWith('dephawk-guard-'));
-    const before = new Set(sinkDirs());
-
     guard('observe');
 
-    expect(sinkDirs().filter((name) => !before.has(name))).toEqual([]);
+    // Nothing at all, because this temp directory belongs to this run alone.
+    expect(readdirSync(sinkHome)).toEqual([]);
   }, 60_000);
 });

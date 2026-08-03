@@ -10,7 +10,7 @@ const registerPath = resolve('dist/register.js');
 // A throwaway project: an "installer" that spawns a dependency's lifecycle
 // script, which reads an SSH key — the classic install-time attack. Everything
 // is simulated: the key is a fake local file, nothing leaves the machine.
-const projectDir = join(tmpdir(), `dephawk-guard-e2e-${process.pid}`);
+const projectDir = join(tmpdir(), `dephawk-install-e2e-${process.pid}`);
 const reportPath = join(projectDir, '.dephawk', 'report.html');
 
 beforeAll(() => {
