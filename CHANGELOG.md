@@ -7,6 +7,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- **`--fail-on <level>`** — dephawk can now fail a command on what it found,
+  which it previously could not do at all: `run` returned only the child's exit
+  code, so an observe-mode run that watched a dependency read `~/.ssh/id_rsa`
+  still exited 0. Levels are `none` (default), `blocked`, `violation` and
+  `sensitive`; findings at or above the level exit **2**, while a command that
+  failed on its own terms keeps its own exit code. `violation` is the one for
+  CI: it fires on what _would_ be blocked, so a pull request fails on the
+  finding without enforcement having to break the build first.
+- **`--sarif <path>`** — SARIF 2.1.0 output for GitHub code scanning, so
+  findings become annotations on the pull request instead of something to go and
+  read in a log. Results carry the offending dependency's file and line where
+  that file is inside the project, and stable fingerprints so a finding is not
+  reopened on every run. Validated against the SARIF multitool.
+
 - Releases are published from a tagged GitHub Actions workflow using npm
   **trusted publishing** (OIDC) and **provenance**
   (`publishConfig.provenance`). There is no npm token anywhere — not in a
@@ -78,7 +92,13 @@ anything, upgrade.
 
 ### Changed
 
-Nothing changes for `dephawk run`/`guard` users. These affect code that composes
+- `dephawk run` now aggregates the whole monitored tree and reports **once**,
+  from the CLI, the way `guard` already did. Previously every monitored process
+  printed its own report over the others, and — more to the point — the CLI
+  never saw the events, so it could not decide an exit code or write SARIF. A
+  command that never starts no longer produces an empty report.
+
+Nothing else changes for `dephawk run`/`guard` users. These affect code that composes
 a `Monitor` through the programmatic API:
 
 - **Breaking.** `Attribution`, `CapabilityRequest` and `DhEvent` carry an

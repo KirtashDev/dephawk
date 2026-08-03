@@ -23,6 +23,13 @@ export type {
 } from './domain/policy.js';
 export { PERMISSIVE_POLICY } from './domain/policy.js';
 export type { Verdict } from './domain/verdict.js';
+export {
+  FAILURE_THRESHOLDS,
+  isFailureThreshold,
+  failsThreshold,
+  describeFailure,
+} from './domain/failure-threshold.js';
+export type { FailureThreshold } from './domain/failure-threshold.js';
 export { protectedPathAffectedBy } from './domain/protected-path.js';
 export type { CapabilityRequest } from './domain/capability-request.js';
 export { RulePolicyEngine } from './domain/policy-engine.js';
@@ -98,6 +105,13 @@ export {
   parseSink,
   formatConsoleReport,
   renderHtmlReport,
+  SarifReporter,
+  renderSarifReport,
+} from './adapters/reporting/index.js';
+export type {
+  SarifReporterOptions,
+  SarifWriter,
+  SarifMeta,
 } from './adapters/reporting/index.js';
 export { displayPackage } from './adapters/reporting/report-model.js';
 

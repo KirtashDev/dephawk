@@ -1,32 +1,58 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { DhEvent } from './domain/event.js';
+import {
+  describeFailure,
+  failsThreshold,
+  isFailureThreshold,
+  FAILURE_THRESHOLDS,
+  type FailureThreshold,
+} from './domain/failure-threshold.js';
 import { FileConfigPolicyLoader } from './adapters/config/policy-loader.js';
 import { ConsoleReporter } from './adapters/reporting/console-reporter.js';
 import { HtmlReporter } from './adapters/reporting/html-reporter.js';
+import { SarifReporter } from './adapters/reporting/sarif-reporter.js';
 import { parseSink } from './adapters/reporting/jsonl-sink-reporter.js';
+
+/** Exit code when findings meet the `--fail-on` threshold. */
+const FINDINGS_EXIT_CODE = 2;
 
 const USAGE = `🦅 dephawk — watch what your dependencies do at runtime
 
 Usage:
-  dephawk run   [--config <path>] [--observe|--enforce] <command> [args...]
-  dephawk guard [--config <path>] [--observe|--enforce] <command> [args...]
+  dephawk run   [options] <command> [args...]
+  dephawk guard [options] <command> [args...]
 
 Commands:
-  run     Monitor a single command (e.g. your app or test run).
-  guard   Monitor an install (e.g. \`npm ci\`) and every Node process it
-          spawns — including dependency lifecycle scripts (pre/post-install) —
-          then print ONE aggregated report. Catches attacks that run at
-          install time, before your own code ever executes.
+  run     Monitor a command (e.g. your app or test run) and everything it
+          spawns, then print ONE aggregated report.
+  guard   The same, framed for an install (e.g. \`npm ci\`): it covers the
+          dependency lifecycle scripts (pre/post-install) that run before your
+          own code ever executes, which is where many real attacks fire.
 
 Modes:
   --observe (default)    record only, block nothing
   --enforce              block anything not permitted by policy
   (or set DEPHAWK_MODE=observe|enforce)
+
+Options:
+  --config <path>        policy file (default: dephawk.config.{js,mjs,cjs})
+  --fail-on <level>      exit ${String(FINDINGS_EXIT_CODE)} when findings reach <level>:
+                           none       never (default)
+                           blocked    a call was actually prevented
+                           violation  policy denied a call, blocked or not
+                           sensitive  anything sensitive was touched
+  --sarif <path>         also write SARIF 2.1.0 for GitHub code scanning
+
+Exit codes:
+  0   clean, or below the --fail-on level
+  ${String(FINDINGS_EXIT_CODE)}   findings reached --fail-on
+  *   the command's own exit code, when it failed (that comes first)
 
 Config:
   Looks for dephawk.config.{js,mjs,cjs} in the current directory,
@@ -35,6 +61,7 @@ Config:
 Examples:
   dephawk run npm test
   dephawk guard npm ci
+  dephawk run --fail-on violation --sarif dephawk.sarif npm test
   DEPHAWK_MODE=enforce dephawk guard npm install
 `;
 
@@ -55,7 +82,8 @@ export async function run(argv: readonly string[]): Promise<number> {
   if (parsed === null) {
     return 1;
   }
-  const { command, commandArgs, configOverride, modeOverride } = parsed;
+  const { command, commandArgs, configOverride, modeOverride, failOn, sarifPath } =
+    parsed;
 
   const configPath = configOverride ?? discoverConfig(process.cwd(), process.env);
   // A --enforce/--observe flag takes precedence over the ambient DEPHAWK_MODE.
@@ -75,26 +103,45 @@ export async function run(argv: readonly string[]): Promise<number> {
     .filter((part) => part !== undefined && part.length > 0)
     .join(' ');
 
-  // In `guard` mode, every spawned process appends its events to one shared
-  // JSONL file (via DEPHAWK_SINK, honoured by register.js) so the parent can
-  // print a single aggregated report instead of each process reporting itself.
-  const sink = subcommand === 'guard' ? createSink() : undefined;
+  // Every monitored process appends its events to one shared JSONL file (via
+  // DEPHAWK_SINK, honoured by register.js) and the parent reports once, instead
+  // of each process in the tree printing over the others. The parent holding
+  // the events is also what lets it decide an exit code and write SARIF — the
+  // command cannot gate anything it never sees.
+  const sink = createSink();
 
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     ...(modeOverride === undefined ? {} : { DEPHAWK_MODE: modeOverride }),
     NODE_OPTIONS: nodeOptions,
     DEPHAWK_POLICY: JSON.stringify(policy),
-    ...(sink === undefined ? {} : { DEPHAWK_SINK: sink.path }),
+    DEPHAWK_SINK: sink.path,
   };
 
-  const exitCode = await spawnMonitored(command, commandArgs, env);
+  const { code: exitCode, started } = await spawnMonitored(command, commandArgs, env);
+  const events = drainSink(sink);
 
-  if (sink !== undefined) {
-    await reportAggregate(sink);
+  // Nothing ran, so there is nothing to report on. Writing an empty report for
+  // a command that never started would only be misleading.
+  if (!started) {
+    return exitCode;
   }
 
-  return exitCode;
+  await reportAggregate(events, { installGuard: subcommand === 'guard', sarifPath });
+
+  // A command that failed on its own terms reports that, whatever dephawk saw:
+  // its failure is the more immediate thing to fix, and masking it would be a
+  // lie about what happened.
+  if (exitCode !== 0) {
+    return exitCode;
+  }
+  if (failsThreshold(events, failOn)) {
+    process.stderr.write(
+      `\ndephawk: failing — ${describeFailure(events, failOn)} (--fail-on ${failOn})\n`,
+    );
+    return FINDINGS_EXIT_CODE;
+  }
+  return 0;
 }
 
 interface Sink {
@@ -123,6 +170,8 @@ interface ParsedArgs {
   readonly commandArgs: string[];
   readonly configOverride: string | null;
   readonly modeOverride: string | undefined;
+  readonly failOn: FailureThreshold;
+  readonly sarifPath: string | undefined;
 }
 
 /** Parse `[flags...] <command> [args...]`, or null (after printing an error). */
@@ -130,6 +179,8 @@ function parseArgs(input: readonly string[]): ParsedArgs | null {
   let args = [...input];
   let configOverride: string | null = null;
   let modeOverride: string | undefined;
+  let failOn: FailureThreshold = 'none';
+  let sarifPath: string | undefined;
   while (args[0] !== undefined && args[0].startsWith('--')) {
     const flag = args[0];
     if (flag === '--') {
@@ -146,6 +197,28 @@ function parseArgs(input: readonly string[]): ParsedArgs | null {
       args = args.slice(1);
       continue;
     }
+    if (flag === '--fail-on') {
+      const level = args[1];
+      if (level === undefined || !isFailureThreshold(level)) {
+        process.stderr.write(
+          `dephawk: --fail-on expects one of ${FAILURE_THRESHOLDS.join(', ')}\n`,
+        );
+        return null;
+      }
+      failOn = level;
+      args = args.slice(2);
+      continue;
+    }
+    if (flag === '--sarif') {
+      const path = args[1];
+      if (path === undefined || path.startsWith('--')) {
+        process.stderr.write('dephawk: --sarif expects a path\n');
+        return null;
+      }
+      sarifPath = path;
+      args = args.slice(2);
+      continue;
+    }
     process.stderr.write(`dephawk: unknown option ${flag}\n\n${USAGE}`);
     return null;
   }
@@ -155,7 +228,21 @@ function parseArgs(input: readonly string[]): ParsedArgs | null {
     process.stderr.write(`dephawk: no command given\n\n${USAGE}`);
     return null;
   }
-  return { command, commandArgs: args.slice(1), configOverride, modeOverride };
+  return {
+    command,
+    commandArgs: args.slice(1),
+    configOverride,
+    modeOverride,
+    failOn,
+    sarifPath,
+  };
+}
+
+/** The outcome of trying to run the monitored command. */
+interface SpawnOutcome {
+  readonly code: number;
+  /** False when the command could not be started at all. */
+  readonly started: boolean;
 }
 
 /** Spawn the command with the monitored environment, resolving its exit code. */
@@ -163,26 +250,25 @@ function spawnMonitored(
   command: string,
   commandArgs: readonly string[],
   env: NodeJS.ProcessEnv,
-): Promise<number> {
+): Promise<SpawnOutcome> {
   const child = spawn(command, commandArgs, { stdio: 'inherit', env });
-  return new Promise<number>((resolveCode) => {
+  return new Promise<SpawnOutcome>((resolveOutcome) => {
     child.on('error', (error: Error) => {
       process.stderr.write(`dephawk: failed to start "${command}": ${error.message}\n`);
-      resolveCode(127);
+      resolveOutcome({ code: 127, started: false });
     });
     child.on('exit', (code, signal) => {
-      resolveCode(signal !== null ? 1 : (code ?? 0));
+      resolveOutcome({ code: signal !== null ? 1 : (code ?? 0), started: true });
     });
   });
 }
 
-/** Read the shared sink, print one aggregated report, then remove it. */
-async function reportAggregate(sink: Sink): Promise<void> {
-  let events: DhEvent[] = [];
+/** Read every event the monitored tree recorded, then remove the sink. */
+function drainSink(sink: Sink): DhEvent[] {
   try {
-    events = existsSync(sink.path) ? parseSink(readFileSync(sink.path, 'utf8')) : [];
+    return existsSync(sink.path) ? parseSink(readFileSync(sink.path, 'utf8')) : [];
   } catch {
-    events = [];
+    return [];
   } finally {
     try {
       rmSync(sink.directory, { recursive: true, force: true });
@@ -190,12 +276,43 @@ async function reportAggregate(sink: Sink): Promise<void> {
       // Best-effort cleanup of a temp directory — never fail the command over it.
     }
   }
+}
 
-  process.stderr.write(
-    '\ndephawk: install guard — aggregated across every process spawned:\n',
-  );
+interface ReportOptions {
+  /** Say so when the run covered an install rather than a plain command. */
+  readonly installGuard: boolean;
+  readonly sarifPath: string | undefined;
+}
+
+/** Print one aggregated report, and write the artifacts. */
+async function reportAggregate(
+  events: readonly DhEvent[],
+  options: ReportOptions,
+): Promise<void> {
+  if (options.installGuard) {
+    process.stderr.write(
+      '\ndephawk: install guard — aggregated across every process spawned:\n',
+    );
+  }
   new ConsoleReporter().report(events);
   await new HtmlReporter().report(events);
+  if (options.sarifPath !== undefined) {
+    await new SarifReporter({
+      outputPath: options.sarifPath,
+      toolVersion: toolVersion(),
+    }).report(events);
+  }
+}
+
+/** dephawk's own version, for the SARIF tool driver. Best-effort. */
+function toolVersion(): string {
+  try {
+    const require = createRequire(import.meta.url);
+    const pkg = require('../package.json') as { version?: string };
+    return pkg.version ?? '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
 }
 
 function discoverConfig(cwd: string, env: NodeJS.ProcessEnv): string | null {

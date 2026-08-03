@@ -22,6 +22,12 @@ export interface Row {
   readonly capability: DhEvent['capability'];
   readonly detail: string;
   readonly blocked: boolean;
+  /** Whether policy permitted it, independent of observe/enforce. */
+  readonly allowed: boolean;
+  /** Why policy refused, when it did. */
+  readonly reason: string | undefined;
+  /** The stack of the first event in the group — enough to point at a file. */
+  readonly stack: readonly string[];
   count: number;
 }
 
@@ -57,6 +63,9 @@ export function aggregate(events: readonly DhEvent[]): Row[] {
         capability: event.capability,
         detail: event.detail,
         blocked: event.blocked,
+        allowed: event.allowed,
+        reason: event.reason,
+        stack: event.stack,
         count: 1,
       });
     }

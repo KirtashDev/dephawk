@@ -100,6 +100,45 @@ monitored program does to its _own_ files still merely gets recorded in observe
 mode. See
 [`docs/adr/0005`](docs/adr/0005-protecting-the-guard-audit-log.md).
 
+## In CI
+
+Observe mode records everything and blocks nothing — which used to mean it could
+never fail a build. `--fail-on` gives it a verdict, and `--sarif` turns the
+findings into annotations on the pull request:
+
+```bash
+npx dephawk run --fail-on violation --sarif dephawk.sarif npm test
+```
+
+`--fail-on violation` fails when policy denied anything, **whether or not the
+call was actually blocked** — so a pull request that introduces a dependency
+reading `~/.ssh` goes red without you having to enforce (and break) the build
+first. Levels, loosest last:
+
+| `--fail-on`      | fails when                                        |
+| ---------------- | ------------------------------------------------- |
+| `none` (default) | never; the exit code is the command's own         |
+| `blocked`        | a call was actually prevented (enforce mode only) |
+| `violation`      | policy denied a call, blocked or not              |
+| `sensitive`      | anything sensitive was touched, even if permitted |
+
+Exit code **2** means findings reached the threshold. If the command itself
+failed, its own exit code is returned instead — that is the more immediate thing
+to fix.
+
+Wire the SARIF into GitHub code scanning:
+
+```yaml
+- run: npx dephawk run --fail-on violation --sarif dephawk.sarif npm test
+  continue-on-error: true
+- uses: github/codeql-action/upload-sarif@v3
+  with:
+    sarif_file: dephawk.sarif
+```
+
+`continue-on-error` lets the upload run even when dephawk fails the job, so the
+annotations appear on the pull request that caused them.
+
 ## What it watches
 
 | Capability       | Examples caught                                                                 |
@@ -232,6 +271,7 @@ is not guaranteed.
       `vm` code-eval (`code.eval`) and `worker_threads` interception
 - [x] `postinstall` script guard (`dephawk guard` — catch install-time attacks
       before your code even runs)
+- [x] CI gating: `--fail-on` exit codes and SARIF output for code scanning
 - [ ] `--record`/`--replay` of dependency behavior for CI diffs
 - [ ] Baseline mode: snapshot normal behavior, alert only on _new_ capabilities
 

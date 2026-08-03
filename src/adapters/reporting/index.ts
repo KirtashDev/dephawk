@@ -7,3 +7,7 @@ export type { AppendFn } from './jsonl-sink-reporter.js';
 export { formatConsoleReport } from './console-format.js';
 export { renderHtmlReport } from './html-format.js';
 export type { HtmlReportMeta } from './html-format.js';
+export { SarifReporter } from './sarif-reporter.js';
+export type { SarifReporterOptions, SarifWriter } from './sarif-reporter.js';
+export { renderSarifReport } from './sarif-format.js';
+export type { SarifMeta } from './sarif-format.js';
