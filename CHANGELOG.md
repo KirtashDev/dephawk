@@ -32,6 +32,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   name was guessable enough to be pre-created as a symlink by a local attacker.
   See [ADR 0005](docs/adr/0005-protecting-the-guard-audit-log.md).
 
+- **Spawning out of monitoring (security).** dephawk reaches a process tree by
+  inheritance, so a dependency could leave a whole subtree unwatched by spawning
+  with `NODE_OPTIONS` and `DEPHAWK_*` deleted — from the child's environment, or
+  from `process.env` before spawning with none. The spawn was recorded and
+  everything the child then did was invisible. Monitoring is now restored into
+  every child that is allowed to start, preserving whatever else the caller set,
+  and the spawn's report line names what had to be put back. See
+  [ADR 0006](docs/adr/0006-re-attaching-monitoring-to-children.md).
+
 ### Added
 
 - `SchedulerInterceptor` — records the stack at the point a detached built-in is
@@ -54,6 +63,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   mode". Reserved for dephawk protecting its own audit log.
 - `JsonlSinkReporter`'s injectable `AppendFn` takes only the data now; the path
   is bound when the sink is opened.
+- `createInterceptors` accepts options (`protectedPaths`, `registerUrl`), and
+  `buildMonitor` forwards them.
 
 ## [0.2.0] — 2026-07-25
 

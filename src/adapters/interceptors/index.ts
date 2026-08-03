@@ -11,8 +11,16 @@ import { EnvInterceptor } from './env.interceptor.js';
 import { OsInterceptor } from './os.interceptor.js';
 import { SchedulerInterceptor } from './scheduler.interceptor.js';
 import type { FsInterceptorOptions } from './fs.interceptor.js';
+import type { ChildProcessInterceptorOptions } from './child-process.interceptor.js';
 
 export type { FsInterceptorOptions } from './fs.interceptor.js';
+export type { ChildProcessInterceptorOptions } from './child-process.interceptor.js';
+export { captureMonitoringEnv, restoreMonitoring } from './monitored-env.js';
+export type { MonitoringEnv, RestoredEnv } from './monitored-env.js';
+
+/** Everything {@link createInterceptors} can be told. */
+export interface InterceptorOptions
+  extends FsInterceptorOptions, ChildProcessInterceptorOptions {}
 
 export { FsInterceptor } from './fs.interceptor.js';
 export { NetInterceptor } from './net.interceptor.js';
@@ -36,7 +44,7 @@ export { SchedulerInterceptor } from './scheduler.interceptor.js';
  * culprit for deferred calls.
  */
 export function createInterceptors(
-  options: FsInterceptorOptions = {},
+  options: InterceptorOptions = {},
 ): CapabilityInterceptor[] {
   return [
     new SchedulerInterceptor(),
@@ -44,7 +52,7 @@ export function createInterceptors(
     new NetInterceptor(),
     new SocketInterceptor(),
     new DnsInterceptor(),
-    new ChildProcessInterceptor(),
+    new ChildProcessInterceptor(options),
     new WorkerInterceptor(),
     new NativeAddonInterceptor(),
     new VmInterceptor(),

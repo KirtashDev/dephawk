@@ -165,6 +165,13 @@ Node built-ins — `fs`, `http`/`https`/`fetch`, raw `net`/`tls`/`dgram` sockets
 first `node_modules/<package>` frame, checks it against your policy, and records
 the event. On exit it prints a summary and writes the HTML report.
 
+**Children stay monitored.** Monitoring reaches a process tree by inheritance
+(`NODE_OPTIONS`, `DEPHAWK_*`), so a dependency could once blind dephawk for a
+whole subtree by spawning with those stripped out. dephawk now puts them back
+into every child it lets through, and the report notes when it had to
+— `node payload.js [dephawk re-attached: NODE_OPTIONS]`. See
+[`docs/adr/0006`](docs/adr/0006-re-attaching-monitoring-to-children.md).
+
 **Deferred calls still count.** A dependency cannot shed responsibility by
 scheduling a built-in instead of calling it — `setTimeout(fs.readFileSync, 0,
 '~/.ssh/id_rsa')`. When the stack names nobody, the call is `(unattributed)` and

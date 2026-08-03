@@ -24,6 +24,13 @@ export interface BuildMonitorOptions {
    * shared event sink so a lifecycle script cannot erase the audit log.
    */
   readonly protectedPaths?: readonly string[];
+  /**
+   * URL of dephawk's register entrypoint, used to re-attach monitoring to
+   * spawned children when `--import` came from the command line rather than
+   * `NODE_OPTIONS`. See
+   * {@link import('../adapters/interceptors/monitored-env.js')}.
+   */
+  readonly registerUrl?: string;
   /** Defaults to the full interceptor set. */
   readonly interceptors?: readonly CapabilityInterceptor[];
   /** Defaults to console + HTML reporters. */
@@ -49,7 +56,14 @@ export function buildMonitor(options: BuildMonitorOptions): Monitor {
     clock: options.clock ?? new SystemClock(),
     attributor: options.attributor ?? new DeferredAttributor(new StackAttributor()),
     mode: policy.mode,
-    interceptors: options.interceptors ?? createInterceptors({ protectedPaths }),
+    interceptors:
+      options.interceptors ??
+      createInterceptors({
+        protectedPaths,
+        ...(options.registerUrl === undefined
+          ? {}
+          : { registerUrl: options.registerUrl }),
+      }),
     reporters: options.reporters ?? [new ConsoleReporter(), new HtmlReporter()],
   });
 }

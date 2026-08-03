@@ -11,6 +11,12 @@ import { JsonlSinkReporter } from './adapters/reporting/jsonl-sink-reporter.js';
  * which is why no async config import happens here — see docs/adr/0003.
  */
 const INSTALLED = Symbol.for('dephawk.installed');
+/**
+ * This module's own URL — the thing `--import` points at. Passed down so the
+ * child-process interceptor can put it back into a child's environment when a
+ * dependency strips monitoring out on the way past.
+ */
+const REGISTER_URL = import.meta.url;
 const globals = globalThis as Record<symbol, unknown>;
 
 if (globals[INSTALLED] !== true) {
@@ -31,7 +37,7 @@ if (globals[INSTALLED] !== true) {
  * These are async (HTML writes a file), so we drain on `beforeExit`.
  */
 function installStandaloneMode(policy: ReturnType<typeof resolveEnvPolicy>): void {
-  const monitor = buildMonitor({ policy });
+  const monitor = buildMonitor({ policy, registerUrl: REGISTER_URL });
   monitor.start();
 
   let finished = false;
@@ -74,6 +80,7 @@ function installGuardMode(
     policy,
     reporters: [reporter],
     protectedPaths: [sinkPath],
+    registerUrl: REGISTER_URL,
   });
   monitor.start();
 

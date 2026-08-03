@@ -80,7 +80,17 @@ export {
   OsInterceptor,
   SchedulerInterceptor,
 } from './adapters/interceptors/index.js';
-export type { FsInterceptorOptions } from './adapters/interceptors/index.js';
+export type {
+  FsInterceptorOptions,
+  ChildProcessInterceptorOptions,
+  InterceptorOptions,
+  MonitoringEnv,
+  RestoredEnv,
+} from './adapters/interceptors/index.js';
+export {
+  captureMonitoringEnv,
+  restoreMonitoring,
+} from './adapters/interceptors/index.js';
 export {
   ConsoleReporter,
   HtmlReporter,
