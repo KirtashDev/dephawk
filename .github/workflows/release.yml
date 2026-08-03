@@ -1,10 +1,13 @@
 name: Release
 
-# Publishing happens from here and nowhere else. `publishConfig.provenance` in
-# package.json makes npm attach a signed provenance attestation linking the
-# tarball on npm back to this workflow run and this commit — which is only
-# possible in a supported CI with an OIDC token, so a local `npm publish` will
-# refuse rather than quietly ship something unattested.
+# Publishing happens from here and nowhere else, and without a credential.
+#
+# npm is configured to trust this repository and this workflow file directly
+# (trusted publishing, OIDC), so there is no long-lived npm token to store, leak
+# or rotate — the runner proves who it is per run. `publishConfig.provenance` in
+# package.json then attaches a signed attestation linking the tarball on npm
+# back to this run and this commit. Both need a supported CI, so a local
+# `npm publish` refuses rather than quietly shipping something unattested.
 on:
   push:
     tags: ['v*']
@@ -29,8 +32,12 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          # Points npm at the public registry and wires NODE_AUTH_TOKEN in.
+          # Points npm at the public registry.
           registry-url: https://registry.npmjs.org
+
+      # Trusted publishing needs a newer npm than Node 22 ships with.
+      - name: Use a recent npm
+        run: npm install --global npm@latest
 
       - run: npm ci
 
@@ -63,10 +70,10 @@ jobs:
           fi
           echo "publishing $pkg"
 
+      # No token: authentication is the OIDC exchange npm does with the
+      # `id-token` permission above.
       - name: Publish
         run: npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish the GitHub release
         env:

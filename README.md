@@ -239,10 +239,12 @@ is not guaranteed.
 
 Published from a tagged
 [release workflow](.github/workflows/release.yml) with
-[npm provenance](https://docs.npmjs.com/generating-provenance-statements): every
-tarball carries a signed attestation tying it to the commit and the workflow run
-that built it. A tool that asks you to distrust your dependencies should be
-checkable itself — so check it:
+[npm provenance](https://docs.npmjs.com/generating-provenance-statements), and
+with no publishing credential in existence: npm trusts the repository and that
+workflow file directly over OIDC, so there is no token to leak. Every tarball
+carries a signed attestation tying it to the commit and the workflow run that
+built it. A tool that asks you to distrust your dependencies should be checkable
+itself — so check it:
 
 ```bash
 npm audit signatures

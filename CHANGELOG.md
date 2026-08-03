@@ -7,14 +7,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
-- Releases are published from a tagged GitHub Actions workflow with **npm
-  provenance** (`publishConfig.provenance`), so each tarball carries a signed
-  attestation linking it to the commit and workflow run that produced it;
-  `npm audit signatures` verifies it. The workflow re-runs the full check suite
-  against the tag rather than trusting `main`, and refuses to publish when the
-  tag disagrees with `package.json`.
+- Releases are published from a tagged GitHub Actions workflow using npm
+  **trusted publishing** (OIDC) and **provenance**
+  (`publishConfig.provenance`). There is no npm token anywhere — not in a
+  secret, not on a laptop: npm trusts this repository and this workflow file
+  directly, and the runner proves who it is on each run. Every tarball carries a
+  signed attestation linking it to the commit and workflow run that produced it,
+  which `npm audit signatures` verifies. The workflow re-runs the full check
+  suite against the tag rather than trusting `main`, and refuses to publish when
+  the tag disagrees with `package.json`.
 
-  Note that provenance requires a supported CI: `npm publish` from a laptop now
+  Both mechanisms require a supported CI, so `npm publish` from a laptop now
   fails rather than shipping something unattested.
 
 ## [0.3.0] — 2026-08-03
