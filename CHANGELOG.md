@@ -5,6 +5,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-08-03
+
+Adoption. 0.3.0 closed the holes; this release is about the tool being reachable:
+two lines to gate a pull request, a policy dephawk drafts for you instead of a
+blank file, and coverage for the recon step and the credential stores recent npm
+attacks actually go for.
+
 ### Added
 
 - **A published GitHub Action.** Adopting dephawk in CI is now two lines —
@@ -222,6 +229,8 @@ a `Monitor` through the programmatic API:
 - `dephawk run <cmd>` CLI and `--import dephawk/register` entrypoint.
 - Hexagonal architecture, zero runtime dependencies, ≥90% core coverage.
 
+[0.4.0]: https://github.com/KirtashDev/dephawk/releases/tag/v0.4.0
+[0.3.0]: https://github.com/KirtashDev/dephawk/releases/tag/v0.3.0
 [0.2.0]: https://github.com/KirtashDev/dephawk/releases/tag/v0.2.0
 [0.1.1]: https://github.com/KirtashDev/dephawk/releases/tag/v0.1.1
 [0.1.0]: https://github.com/KirtashDev/dephawk/releases/tag/v0.1.0
