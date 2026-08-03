@@ -106,7 +106,7 @@ Two lines, and every install in the repository is watched:
 
 ```yaml
 - uses: actions/checkout@v4
-- uses: KirtashDev/dephawk@v0.4.2
+- uses: KirtashDev/dephawk@v0.4.3
 ```
 
 That runs `dephawk guard npm ci`, attributes anything sensitive to the
@@ -117,7 +117,7 @@ default `fail-on` is `blocked`, which observe mode never triggers.
 When you want a gate, add the two inputs that make one:
 
 ```yaml
-- uses: KirtashDev/dephawk@v0.4.2
+- uses: KirtashDev/dephawk@v0.4.3
   with:
     command: npm ci # or: npm test, with subcommand: run
     fail-on: violation # fail on what policy denies, blocked or not
@@ -128,7 +128,7 @@ When you want a gate, add the two inputs that make one:
 is why it is opt-in. Every input, including `mode: enforce`, a `config` path and
 a `working-directory`, is documented in [`action.yml`](action.yml); the reasoning
 is in [`docs/adr/0007`](docs/adr/0007-a-published-github-action.md). The action
-runs the dephawk release its own tag names (`@v0.4.2` → `dephawk@0.4.2`), so
+runs the dephawk release its own tag names (`@v0.4.3` → `dephawk@0.4.3`), so
 pinning the action pins the tool.
 
 ### Or wire the CLI up yourself
