@@ -7,6 +7,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- **A published GitHub Action.** Adopting dephawk in CI is now two lines —
+  `uses: actions/checkout@v4` and `uses: KirtashDev/dephawk@vX.Y.Z` — instead of
+  a hand-written `npx` step plus the `continue-on-error` dance needed to make the
+  SARIF upload survive a failing gate. The action captures dephawk's exit code,
+  writes the report to the **job summary** (no permissions required), optionally
+  uploads the SARIF to code scanning, and only then fails the job. Its defaults
+  cannot turn a passing build red: `fail-on` starts at `blocked`, which observe
+  mode never triggers. The dephawk version comes from the action reference
+  (`@v1.2.3` runs `dephawk@1.2.3`), so pinning the action pins the tool. See
+  [ADR 0007](docs/adr/0007-a-published-github-action.md).
 - **`dephawk init <command>`** — watches a run and writes the
   `dephawk.config.js` that would have let it pass. Enforcing was easy to
   describe and miserable to start: every dependency that legitimately reaches

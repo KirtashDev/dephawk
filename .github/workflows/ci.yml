@@ -41,3 +41,65 @@ jobs:
 
       - name: Test (with coverage)
         run: npm run test:coverage
+
+  # The action's own wiring — input parsing, the run-then-report-then-fail
+  # ordering, SARIF, the job summary — is YAML and shell that no unit test can
+  # reach. `bin` points the action at the build from this commit, so this checks
+  # the action itself and needs nothing from the npm registry.
+  action:
+    name: GitHub Action
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Stays quiet when there is nothing to report
+        uses: ./
+        with:
+          bin: node ${{ github.workspace }}/dist/cli.js
+          subcommand: run
+          command: node --version
+          fail-on: sensitive
+          sarif: ''
+
+      - name: Fails the step on the demo's malicious dependency
+        id: gate
+        continue-on-error: true
+        uses: ./
+        with:
+          bin: node ${{ github.workspace }}/dist/cli.js
+          subcommand: run
+          command: node examples/demo/index.js
+          config: examples/demo/dephawk.config.js
+          fail-on: violation
+
+      - name: Check the gate fired, and that the SARIF survived it
+        env:
+          OUTCOME: ${{ steps.gate.outcome }}
+          CODE: ${{ steps.gate.outputs.exit-code }}
+        run: |
+          [ "$OUTCOME" = failure ] || {
+            echo "::error::the action did not fail the step"
+            exit 1
+          }
+          # Written before the action failed the job, which is the whole point of
+          # doing the run and the verdict in separate steps.
+          [ -s dephawk.sarif ] || {
+            echo "::error::no SARIF written"
+            exit 1
+          }
+          # Checked only when it came through: GitHub does not always propagate a
+          # composite action's outputs once the action has failed.
+          if [ -n "$CODE" ] && [ "$CODE" != 2 ]; then
+            echo "::error::expected dephawk to exit 2, got '$CODE'"
+            exit 1
+          fi

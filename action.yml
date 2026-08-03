@@ -1,0 +1,133 @@
+name: dephawk
+description: See — and block — what your npm dependencies do at runtime, in CI.
+author: KirtashDev
+
+branding:
+  icon: eye
+  color: purple
+
+inputs:
+  command:
+    description: >
+      The command to monitor. Defaults to the install, because that is where
+      lifecycle-script attacks fire — before any of your own code runs.
+    required: false
+    default: npm ci
+  subcommand:
+    description: >
+      Which dephawk subcommand to use — `guard` for an install (it aggregates
+      every process the install spawns, lifecycle scripts included) or `run` for
+      any other command, e.g. your test suite.
+    required: false
+    default: guard
+  mode:
+    description: '`observe` records only; `enforce` blocks what policy denies.'
+    required: false
+    default: observe
+  fail-on:
+    description: >
+      Fail the job when findings reach this level — `none`, `blocked`,
+      `violation` or `sensitive`. The default (`blocked`) cannot fire in observe
+      mode, so adding this action never turns a green build red on its own. Move
+      to `violation` once you have a policy: it fails on what *would* be
+      blocked, without enforcement having to break the build first.
+    required: false
+    default: blocked
+  config:
+    description: >
+      Policy file to load. Defaults to dephawk's own discovery —
+      dephawk.config.{js,mjs,cjs} in the working directory.
+    required: false
+    default: ''
+  sarif:
+    description: >
+      Where to write SARIF 2.1.0, relative to `working-directory`. Empty to skip
+      it.
+    required: false
+    default: dephawk.sarif
+  upload-sarif:
+    description: >
+      Upload that SARIF to GitHub code scanning, so each finding becomes an
+      annotation on the pull request. Opt-in: it needs `security-events: write`
+      in the job's `permissions` and code scanning enabled on the repository.
+    required: false
+    default: 'false'
+  summary:
+    description: Write dephawk's report to the job summary.
+    required: false
+    default: 'true'
+  working-directory:
+    description: Directory to run in.
+    required: false
+    default: '.'
+  version:
+    description: >
+      Version of dephawk to run. Defaults to the version this action reference
+      names (`@v1.2.3` runs dephawk 1.2.3), falling back to `latest` when the
+      reference is a branch or a commit SHA.
+    required: false
+    default: ''
+  bin:
+    description: >
+      Advanced: run this executable instead of `npx dephawk@<version>` — a
+      dephawk already installed on a locked-down runner, or a local build.
+    required: false
+    default: ''
+
+# The artifacts are written before the job is failed, so they are always on disk
+# — but GitHub does not always propagate a composite action's outputs once the
+# action has failed the job. Fall back to the paths themselves
+# (`.dephawk/report.html`, whatever `sarif` was set to) when reading these from a
+# step guarded by `if: always()`.
+outputs:
+  exit-code:
+    description: >
+      dephawk's exit code — 0 clean, 2 findings reached `fail-on`, anything else
+      the monitored command's own failure.
+    value: ${{ steps.dephawk.outputs.exit-code }}
+  sarif-file:
+    description: Absolute path to the SARIF file, empty when none was written.
+    value: ${{ steps.dephawk.outputs.sarif-file }}
+  report-file:
+    description: Absolute path to the HTML report, empty when none was written.
+    value: ${{ steps.dephawk.outputs.report-file }}
+
+runs:
+  using: composite
+  steps:
+    # Runs the command and records the verdict; never fails the job itself, so
+    # the SARIF upload and the summary below still happen on a finding.
+    - name: Run dephawk
+      id: dephawk
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        IN_SUBCOMMAND: ${{ inputs.subcommand }}
+        IN_COMMAND: ${{ inputs.command }}
+        IN_MODE: ${{ inputs.mode }}
+        IN_FAIL_ON: ${{ inputs.fail-on }}
+        IN_CONFIG: ${{ inputs.config }}
+        IN_SARIF: ${{ inputs.sarif }}
+        IN_SUMMARY: ${{ inputs.summary }}
+        IN_VERSION: ${{ inputs.version }}
+        IN_BIN: ${{ inputs.bin }}
+      run: bash "$GITHUB_ACTION_PATH/action/run.sh"
+
+    - name: Upload SARIF to code scanning
+      if: ${{ inputs.upload-sarif == 'true' && steps.dephawk.outputs.sarif-file != '' }}
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ steps.dephawk.outputs.sarif-file }}
+
+    - name: Fail the job when dephawk did
+      if: ${{ steps.dephawk.outputs.exit-code != '0' }}
+      shell: bash
+      env:
+        CODE: ${{ steps.dephawk.outputs.exit-code }}
+      run: |
+        if [ "$CODE" = 2 ]; then
+          echo "::error::dephawk: findings reached the --fail-on threshold — see the job summary."
+        else
+          echo "::error::dephawk: the monitored command failed with exit code $CODE."
+        fi
+        exit "$CODE"

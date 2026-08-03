@@ -8,9 +8,13 @@ name: Release
 # package.json then attaches a signed attestation linking the tarball on npm
 # back to this run and this commit. Both need a supported CI, so a local
 # `npm publish` refuses rather than quietly shipping something unattested.
+#
+# Matching full versions only (`v0.4.0`), not `v*`: the GitHub Action in this
+# repository is consumed by tag, so a floating `v0`/`v1` tag may be moved onto a
+# release at any time, and that must not try to publish a version called "1".
 on:
   push:
-    tags: ['v*']
+    tags: ['v*.*.*']
 
 permissions:
   contents: read

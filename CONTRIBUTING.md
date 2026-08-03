@@ -30,6 +30,8 @@ src/
   composition/   the wiring (composition root)
   register.ts    the --import entrypoint
   cli.ts         the `dephawk run` / `dephawk guard` CLI
+action.yml       the GitHub Action (composite; must stay at the repo root)
+action/run.sh    its body, so the logic is readable and runnable outside Actions
 ```
 
 ## The rules that keep this trustworthy
@@ -54,6 +56,26 @@ src/
    `restorer`). Restore originals on `dispose`.
 3. Register it in `src/adapters/interceptors/index.ts`. Nothing in the core
    changes.
+
+## Changing the GitHub Action
+
+`action.yml`'s inputs are a public API: renaming one breaks other people's
+workflows silently. The `action` job in CI runs the action against the build from
+the current commit (via the `bin` input), which is the only test that covers the
+YAML and the shell — run it by pushing, and keep it green. Reasoning behind the
+defaults is in
+[`docs/adr/0007`](docs/adr/0007-a-published-github-action.md).
+
+Two things the release workflow cannot do for you:
+
+- **Marketplace.** Publishing a release to the GitHub Marketplace is a checkbox
+  on the release in the web UI; `gh release create` has no equivalent.
+- **The floating tag.** If you keep a `v0`/`v1` tag pointing at the newest
+  release, move it by hand. The release workflow deliberately triggers on
+  `v*.*.*` so moving it does not attempt a publish.
+
+The action does not pin a dephawk version — it derives one from its own
+reference — so there is nothing to bump here when you release.
 
 ## Before you push
 

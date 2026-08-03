@@ -102,6 +102,37 @@ mode. See
 
 ## In CI
 
+Two lines, and every install in the repository is watched:
+
+```yaml
+- uses: actions/checkout@v4
+- uses: KirtashDev/dephawk@v0.4.0
+```
+
+That runs `dephawk guard npm ci`, attributes anything sensitive to the
+dependency that did it, and writes the report to the **job summary** — no
+permissions, no extra steps. It cannot turn a passing build red on its own: the
+default `fail-on` is `blocked`, which observe mode never triggers.
+
+When you want a gate, add the two inputs that make one:
+
+```yaml
+- uses: KirtashDev/dephawk@v0.4.0
+  with:
+    command: npm ci # or: npm test, with subcommand: run
+    fail-on: violation # fail on what policy denies, blocked or not
+    upload-sarif: true # annotations on the pull request
+```
+
+`upload-sarif` needs `permissions: { security-events: write }` on the job, which
+is why it is opt-in. Every input, including `mode: enforce`, a `config` path and
+a `working-directory`, is documented in [`action.yml`](action.yml); the reasoning
+is in [`docs/adr/0007`](docs/adr/0007-a-published-github-action.md). The action
+runs the dephawk release its own tag names (`@v0.4.0` → `dephawk@0.4.0`), so
+pinning the action pins the tool.
+
+### Or wire the CLI up yourself
+
 Observe mode records everything and blocks nothing — which used to mean it could
 never fail a build. `--fail-on` gives it a verdict, and `--sarif` turns the
 findings into annotations on the pull request:
@@ -137,7 +168,8 @@ Wire the SARIF into GitHub code scanning:
 ```
 
 `continue-on-error` lets the upload run even when dephawk fails the job, so the
-annotations appear on the pull request that caused them.
+annotations appear on the pull request that caused them. (The action above does
+this for you.)
 
 ## What it watches
 
@@ -310,6 +342,7 @@ is not guaranteed.
 - [x] `postinstall` script guard (`dephawk guard` — catch install-time attacks
       before your code even runs)
 - [x] CI gating: `--fail-on` exit codes and SARIF output for code scanning
+- [x] A published GitHub Action, so adopting it in CI is two lines
 - [ ] `--record`/`--replay` of dependency behavior for CI diffs
 - [x] Policy bootstrap (`dephawk init`) — draft a policy from an observed run,
       so enforcing does not start with a wall of hand-written denials
