@@ -114,11 +114,16 @@ describe('e2e: a lifecycle script cannot erase the guard audit log', () => {
   }, 60_000);
 
   it('leaves no sink directory behind in the temp directory', () => {
+    // Compare before and after rather than asserting the temp directory holds
+    // no `dephawk-guard-*` at all: the other e2e suites keep their own fixtures
+    // there under names sharing that prefix, and vitest runs files in parallel.
+    // What this test means is "this run cleaned up after itself".
+    const sinkDirs = (): string[] =>
+      readdirSync(tmpdir()).filter((name) => name.startsWith('dephawk-guard-'));
+    const before = new Set(sinkDirs());
+
     guard('observe');
 
-    const leftovers = readdirSync(tmpdir()).filter((name) =>
-      name.startsWith('dephawk-guard-'),
-    );
-    expect(leftovers).toEqual([]);
+    expect(sinkDirs().filter((name) => !before.has(name))).toEqual([]);
   }, 60_000);
 });
