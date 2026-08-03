@@ -91,15 +91,14 @@ jobs:
             echo "::error::the action did not fail the step"
             exit 1
           }
-          # Written before the action failed the job, which is the whole point of
-          # doing the run and the verdict in separate steps.
+          # Both of these outlived the failure, which is the whole point of doing
+          # the run and the verdict in separate steps: the artifact is on disk and
+          # the outputs are still readable after the gate has failed the job.
           [ -s dephawk.sarif ] || {
             echo "::error::no SARIF written"
             exit 1
           }
-          # Checked only when it came through: GitHub does not always propagate a
-          # composite action's outputs once the action has failed.
-          if [ -n "$CODE" ] && [ "$CODE" != 2 ]; then
+          [ "$CODE" = 2 ] || {
             echo "::error::expected dephawk to exit 2, got '$CODE'"
             exit 1
-          fi
+          }

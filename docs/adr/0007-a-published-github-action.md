@@ -91,6 +91,12 @@ Adopting dephawk in CI is `uses:` plus a checkout, and the default configuration
 cannot turn a passing build red. The upgrade path to an actual gate is two
 documented inputs.
 
+Because the verdict is a separate step, a failing gate leaves everything behind
+it intact: the SARIF and the HTML report are on disk, and the action's outputs
+are still readable from a later `if: always()` step. The CI job asserts both
+after a deliberately failed gate, since that is the case a workflow author is
+most likely to depend on and least likely to test.
+
 The action is a fourth public surface to keep honest alongside the CLI, the
 `--import` entrypoint and the programmatic API: inputs are an API, and renaming
 one breaks workflows silently. The CI job covers the wiring, not every input.
@@ -99,7 +105,3 @@ one breaks workflows silently. The CI job covers the wiring, not every input.
 a release in the web UI, which `gh release create` cannot do — so the release
 workflow cannot own it. The action assumes Node on the runner (every
 GitHub-hosted image has it) and says so with a clear error when it is missing.
-And GitHub does not reliably propagate a composite action's outputs once the
-action has failed the job, so a workflow that wants the report after a failing
-gate should read the path rather than the output — the file is written either
-way, which is what the separate verdict step buys.

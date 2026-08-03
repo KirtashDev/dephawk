@@ -74,11 +74,9 @@ inputs:
     required: false
     default: ''
 
-# The artifacts are written before the job is failed, so they are always on disk
-# — but GitHub does not always propagate a composite action's outputs once the
-# action has failed the job. Fall back to the paths themselves
-# (`.dephawk/report.html`, whatever `sarif` was set to) when reading these from a
-# step guarded by `if: always()`.
+# Set by the run step, which precedes the verdict — so they are still readable
+# from a later `if: always()` step when the gate failed the job, and the files
+# they point at are already on disk. CI asserts exactly that.
 outputs:
   exit-code:
     description: >
