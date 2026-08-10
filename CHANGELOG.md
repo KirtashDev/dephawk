@@ -3,6 +3,33 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.7] — 2026-08-10
+
+### Security
+
+- **A symlink no longer hides a sensitive path.** Paths were matched as written,
+  and `path.resolve` does not follow links, so `readFileSync('notes.txt')` where
+  that name pointed at `~/.ssh/id_rsa` read the key with **no event recorded at
+  all** — invisible even under `--enforce` with a deny-by-default policy. A path
+  that looks mundane is now resolved and judged by what it actually points at.
+  Writes are covered too: when the file does not exist yet the parent is
+  resolved instead, so creating `assets/authorized_keys` inside a directory that
+  links to `~/.ssh` is caught.
+
+  The reported detail stays the **real** path, and stays a bare path: the policy
+  engine matches `detail` against the sensitivity rules and the per-package
+  allowlists, so annotating it would have broken allowlisting and, worse, made
+  the sensitivity test miss.
+
+  0.6.4 deferred this on the grounds that resolving every path would cost ~16 µs
+  a call. That estimate was right about the price and wrong about the quantity:
+  Node resolves modules through internal bindings rather than the public `fs`
+  API, so this interceptor sees **hundreds** of calls where the syscall count is
+  millions — measured at 637 for a real `npm ci` and 96 for a `tsup` build. The
+  resolution only runs for paths that already look mundane, and `guard npm ci`
+  is unchanged at ~1.3 s. Assuming the cost instead of measuring it left a
+  critical hole open for three releases.
+
 ## [0.6.6] — 2026-08-10
 
 ### Fixed
@@ -98,10 +125,8 @@ forging its _own_ innocence; these two let it hand the blame to someone else.
 ### Known, not yet fixed
 
 - A **symlink** at a mundane path pointing to a secret is still read with no
-  event recorded: paths are resolved with `path.resolve`, which does not follow
-  links. Resolving on every call costs ~16 µs (measured), against a design where
-  mundane paths cost nothing, so the fix needs a cheaper shape than "realpath
-  everything" — likely intercepting link _creation_. Tracked for a later release.
+  event recorded. Fixed in 0.6.7, once the cost was measured rather than
+  assumed; the reasoning as written at the time is kept above.
 
 ## [0.6.3] — 2026-08-10
 
@@ -577,6 +602,7 @@ a `Monitor` through the programmatic API:
 - `dephawk run <cmd>` CLI and `--import dephawk/register` entrypoint.
 - Hexagonal architecture, zero runtime dependencies, ≥90% core coverage.
 
+[0.6.7]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.7
 [0.6.6]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.6
 [0.6.5]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.5
 [0.6.4]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.4
