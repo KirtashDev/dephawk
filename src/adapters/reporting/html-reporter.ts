@@ -1,4 +1,13 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { loadBuiltin } from '../interceptors/support.js';
+
+// `require`, not `import`: importing `node:fs/promises` builds its ESM facade,
+// snapshotting the *original* functions before dephawk patches `fs.promises` —
+// which used to let an ESM dependency read a secret with
+// `import { readFile } from 'node:fs/promises'`. See {@link loadBuiltin}.
+const { mkdir, writeFile } = loadBuiltin('node:fs/promises') as {
+  mkdir: (path: string, options: { recursive: boolean }) => Promise<unknown>;
+  writeFile: (path: string, data: string, encoding?: string) => Promise<void>;
+};
 import { dirname, resolve } from 'node:path';
 import type { DhEvent } from '../../domain/event.js';
 import type { Reporter } from '../../application/ports.js';
