@@ -93,15 +93,19 @@ Two notes on releasing it:
   nothing lost. (It would be a checkbox on the release in the web UI, which
   `gh release create` cannot set anyway.)
 - **The floating tag.** `v0` points at the newest release and the README tells
-  people to use it, so **move it by hand after every release** or they stop
-  receiving fixes:
+  people to use it, so **move it by hand after every release** or they keep
+  running the action body from an old commit:
 
   ```bash
-  git tag -f v0 v0.6.1 && git push origin v0 --force
+  git tag -f v0 v0.6.3 && git push origin v0 --force
   ```
 
   The release workflow deliberately triggers on `v*.*.*`, so moving `v0` never
-  attempts a publish.
+  attempts a publish. At 1.0, cut a **new** `v1` tag rather than moving `v0`
+  onto it: `action/run.sh` turns a major tag into the npm range of the same
+  major (`@v0` → `dephawk@0`), so `v0` users stay on 0.x by design — that is the
+  whole point of it, and it is covered by
+  `test/e2e/action-version.e2e.test.ts`.
 
 The action does not pin a dephawk version — it derives one from its own
 reference — so there is nothing to bump here when you release.
