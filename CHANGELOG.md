@@ -3,6 +3,28 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.2] — 2026-08-10
+
+Documentation only — no behaviour changes.
+
+### Fixed
+
+- **The CI examples told you to pin a version from before the 0.6.0 security
+  fixes.** They still read `uses: KirtashDev/dephawk@v0.4.3`, and because the
+  action runs the dephawk release its own tag names, copying them pinned the
+  tool to 0.4.3 — keeping every bypass that 0.6.0 closed. They now use the
+  floating **`v0`** tag, which moves to each release, and the surrounding text
+  explains when an exact pin is the right choice instead.
+
+### Changed
+
+- `CONTRIBUTING.md` documents how work lands on `main`: trunk-based with
+  short-lived `feat/`/`fix/`/`docs/` branches, squash-merged, rather than
+  GitFlow — which exists to coordinate several supported versions and several
+  people, and this project has one of each. It also records that `main`'s
+  protection now applies to the maintainer, that `format:check` is a separate
+  gate from `lint`, and that `v0` has to be moved by hand after a release.
+
 ## [0.6.1] — 2026-08-10
 
 Housekeeping only — no behaviour changes.
@@ -437,6 +459,7 @@ a `Monitor` through the programmatic API:
 - `dephawk run <cmd>` CLI and `--import dephawk/register` entrypoint.
 - Hexagonal architecture, zero runtime dependencies, ≥90% core coverage.
 
+[0.6.2]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.2
 [0.6.1]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.1
 [0.6.0]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.0
 [0.5.0]: https://github.com/KirtashDev/dephawk/releases/tag/v0.5.0

@@ -117,7 +117,7 @@ Two lines, and every install in the repository is watched:
 
 ```yaml
 - uses: actions/checkout@v4
-- uses: KirtashDev/dephawk@v0.4.3
+- uses: KirtashDev/dephawk@v0
 ```
 
 That runs `dephawk guard npm ci`, attributes anything sensitive to the
@@ -128,7 +128,7 @@ default `fail-on` is `blocked`, which observe mode never triggers.
 When you want a gate, add the two inputs that make one:
 
 ```yaml
-- uses: KirtashDev/dephawk@v0.4.3
+- uses: KirtashDev/dephawk@v0
   with:
     command: npm ci # or: npm test, with subcommand: run
     fail-on: violation # fail on what policy denies, blocked or not
@@ -138,9 +138,14 @@ When you want a gate, add the two inputs that make one:
 `upload-sarif` needs `permissions: { security-events: write }` on the job, which
 is why it is opt-in. Every input, including `mode: enforce`, a `config` path and
 a `working-directory`, is documented in [`action.yml`](action.yml); the reasoning
-is in [`docs/adr/0007`](docs/adr/0007-a-published-github-action.md). The action
-runs the dephawk release its own tag names (`@v0.4.3` → `dephawk@0.4.3`), so
-pinning the action pins the tool.
+is in [`docs/adr/0007`](docs/adr/0007-a-published-github-action.md).
+
+**On pinning.** The action runs the dephawk release its own tag names, so the
+reference you choose picks the tool version too. `@v0` is a floating tag moved
+to each new release, which is what you want here: this is a security tool, and
+an exact pin means you keep the bypasses a later version fixed. Pin exactly
+(`@v0.6.1` → `dephawk@0.6.1`) only when you need a reproducible build, and then
+treat it like any other dependency — something to update, not to forget.
 
 ### Or wire the CLI up yourself
 
