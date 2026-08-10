@@ -3,6 +3,27 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.11] — 2026-08-10
+
+### Security
+
+- **The behaviour baseline is now protected from the program it monitors.**
+  `--replay` reads `.dephawk/baseline.json` back after the run to decide
+  `--fail-on new`, so a dependency that overwrote it mid-run — adding the very
+  host or path it had just started touching — hid its own change from the diff.
+  Reproduced: a dependency resolved a new host, rewrote the baseline to include
+  it, and the gate passed (exit 0). The resolved baseline path now travels to
+  the whole process tree and writing it is refused for every origin in both
+  modes, exactly like the config file and the guard sink. `--record` writes the
+  baseline from the un-monitored parent after the run, so recording is
+  unaffected.
+
+  The report (`.dephawk/report.html`) and the SARIF file need no such
+  protection: the parent writes them from the authoritative event stream after
+  the run, overwriting whatever a dependency might have left, so poisoning them
+  achieves nothing. Only an artifact that is _read back_ to make a decision — the
+  baseline — was exploitable, and it is the last of them.
+
 ## [0.6.10] — 2026-08-10
 
 ### Security
@@ -681,6 +702,7 @@ a `Monitor` through the programmatic API:
 - `dephawk run <cmd>` CLI and `--import dephawk/register` entrypoint.
 - Hexagonal architecture, zero runtime dependencies, ≥90% core coverage.
 
+[0.6.11]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.11
 [0.6.10]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.10
 [0.6.9]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.9
 [0.6.8]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.8

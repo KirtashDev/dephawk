@@ -173,6 +173,12 @@ export async function run(argv: readonly string[]): Promise<number> {
   // command cannot gate anything it never sees.
   const sink = createSink();
 
+  // The one baseline file this run touches — `--record` and `--replay` are
+  // mutually exclusive (checked above) — resolved to an absolute path so the
+  // interceptor's absolute paths match it.
+  const baselineRaw = recordPath ?? replayPath;
+  const baselinePath = baselineRaw === undefined ? null : resolve(baselineRaw);
+
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     ...(modeOverride === undefined ? {} : { DEPHAWK_MODE: modeOverride }),
@@ -185,6 +191,12 @@ export async function run(argv: readonly string[]): Promise<number> {
     // whatever it likes on the next run. Not while drafting — `init` is about to
     // write that file itself.
     ...(configPath !== null && !drafting ? { DEPHAWK_CONFIG: configPath } : {}),
+    // The behaviour baseline, protected the same way. `--replay` reads it back
+    // after the run to decide `--fail-on new`, so a dependency that overwrites
+    // it mid-run — to add the very behaviour it just introduced — would hide
+    // its own change from the diff. Reproduced: the gate passed on a poisoned
+    // baseline. Covers `--record` too, so the file cannot be pre-seeded.
+    ...(baselinePath === null ? {} : { DEPHAWK_BASELINE: baselinePath }),
   };
 
   const { code: exitCode, started } = await spawnMonitored(command, commandArgs, env);
