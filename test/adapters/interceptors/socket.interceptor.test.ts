@@ -45,13 +45,38 @@ describe('SocketInterceptor', () => {
     expect(spy.last?.detail).toBe('no-port.host');
   });
 
-  it('covers tls.connect', () => {
+  it('covers tls.connect (it delegates to Socket.prototype.connect)', () => {
     const spy = recordSpy();
     spy.deny();
     installed = new SocketInterceptor().install(spy.record);
     expect(() => tls.connect(443, 'secure.host')).toThrow(/blocked/);
     expect(spy.last?.capability).toBe('net.connect');
     expect(spy.last?.detail).toBe('secure.host:443');
+  });
+
+  it('covers a bare new net.Socket().connect() to an IP — the raw-egress gap', () => {
+    const spy = recordSpy();
+    spy.deny('no raw egress');
+    installed = new SocketInterceptor().install(spy.record);
+
+    const socket = new net.Socket();
+    // A hardcoded IP means no DNS lookup to catch it in passing: the connect
+    // itself must be seen. Denied before the handshake, so nothing is dialed.
+    expect(() => socket.connect(4444, '93.184.216.34')).toThrow(/dephawk: blocked/);
+    expect(spy.last?.capability).toBe('net.connect');
+    expect(spy.last?.detail).toBe('93.184.216.34:4444');
+    socket.destroy();
+  });
+
+  it('covers Socket.prototype.connect with an options object', () => {
+    const spy = recordSpy();
+    spy.deny();
+    installed = new SocketInterceptor().install(spy.record);
+
+    const socket = new net.Socket();
+    expect(() => socket.connect({ port: 4444, host: '10.0.0.5' })).toThrow(/blocked/);
+    expect(spy.last?.detail).toBe('10.0.0.5:4444');
+    socket.destroy();
   });
 
   it('covers UDP dgram send with a parseable udp:// detail', () => {
@@ -120,10 +145,10 @@ describe('SocketInterceptor', () => {
   });
 
   it('restores originals on dispose', () => {
-    const before = net.connect;
+    const before = net.Socket.prototype.connect;
     const local = new SocketInterceptor().install(recordSpy().record);
-    expect(net.connect).not.toBe(before);
+    expect(net.Socket.prototype.connect).not.toBe(before);
     local.dispose();
-    expect(net.connect).toBe(before);
+    expect(net.Socket.prototype.connect).toBe(before);
   });
 });

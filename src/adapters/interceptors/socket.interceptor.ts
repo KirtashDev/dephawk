@@ -1,5 +1,4 @@
 import net from 'node:net';
-import tls from 'node:tls';
 import dgram from 'node:dgram';
 import type { CapabilityInterceptor, Disposable } from '../../application/ports.js';
 import {
@@ -13,23 +12,24 @@ import {
 
 /**
  * Intercepts raw transport-level egress that bypasses the `http`/`https`/`fetch`
- * entrypoints: `net.connect`/`net.createConnection` (TCP), `tls.connect`
- * (direct TLS), and `dgram.Socket` `send`/`connect` (UDP). Recorded as
- * `net.connect` with `host:port` as the detail, so raw sockets are gated by the
- * same per-package host allowlist as HTTP.
+ * entrypoints, at the one chokepoint they all funnel through:
+ * `net.Socket.prototype.connect` (TCP, and TLS — `tls.connect` and `TLSSocket`
+ * connect their underlying socket through it), plus `dgram.Socket`
+ * `send`/`connect` (UDP). Recorded as `net.connect` with `host:port` as the
+ * detail, so raw sockets are gated by the same per-package host allowlist as
+ * HTTP.
  *
- * This closes the gap the net interceptor calls out: a package that opens a
- * plain socket to a C2 endpoint — or streams data out over UDP — never touches
- * `http`, and would otherwise be invisible.
+ * Patching the prototype rather than the module-level `net.connect`/
+ * `net.createConnection`/`tls.connect` is deliberate: those all delegate to
+ * `Socket.prototype.connect`, so this covers them *and* the case they missed —
+ * `new net.Socket().connect(port, ip)`, a plain socket to a hardcoded C2 IP,
+ * which was invisible while only the module functions were patched (a hostname
+ * was caught by DNS in passing, but a bare IP literal was not).
  *
- * Limitations:
- * - `http`/`https` build on TCP internally, so a normal HTTP request can
- *   surface both a `net.connect` (from the http interceptor) and another
- *   `net.connect` here for the same action; identical rows collapse in the
- *   report. Over-reporting is preferred to missing a raw socket.
- * - Only the module-level entrypoints are patched, not
- *   `net.Socket.prototype.connect`; code that news a bare `Socket` and calls
- *   `.connect()` on it directly is not covered.
+ * Limitation: `http`/`https` build on TCP internally, so a normal HTTP request
+ * can surface both a `net.connect` from the http interceptor and another here
+ * for the same action; identical rows collapse in the report. Over-reporting is
+ * preferred to missing a raw socket.
  */
 export class SocketInterceptor implements CapabilityInterceptor {
   readonly name = 'socket';
@@ -37,22 +37,13 @@ export class SocketInterceptor implements CapabilityInterceptor {
   install(record: RecordFn): Disposable {
     const restores: (() => void)[] = [];
 
-    for (const key of ['connect', 'createConnection'] as const) {
-      this.patch(
-        net as unknown as Record<string, unknown>,
-        key,
-        describeStream,
-        record,
-        restores,
-      );
+    // The single TCP/TLS egress chokepoint. `net.connect`, `net.createConnection`
+    // and `tls.connect` all construct a socket and delegate to this, and so does
+    // a bare `new net.Socket().connect(...)`.
+    const streamProto = prototypeOf((net as unknown as { Socket?: unknown }).Socket);
+    if (streamProto) {
+      this.patch(streamProto, 'connect', describeStream, record, restores);
     }
-    this.patch(
-      tls as unknown as Record<string, unknown>,
-      'connect',
-      describeStream,
-      record,
-      restores,
-    );
 
     const proto = prototypeOf((dgram as unknown as { Socket?: unknown }).Socket);
     if (proto) {
@@ -89,12 +80,16 @@ export class SocketInterceptor implements CapabilityInterceptor {
   }
 }
 
-/** Describe a `net.connect`/`tls.connect` target from its polymorphic args. */
+/** Describe a `Socket.prototype.connect` target from its polymorphic args. */
 function describeStream(args: readonly unknown[]): string {
-  const first = args[0];
+  // `net.connect`/`net.createConnection`/`tls.connect` delegate here with the
+  // arguments already normalised into a single `[options, callback]` array;
+  // a direct `socket.connect(...)` arrives with the raw positional args.
+  const normalised = Array.isArray(args[0]) ? (args[0] as readonly unknown[]) : args;
+  const first = normalised[0];
   if (typeof first === 'number') {
     const host =
-      args.slice(1).find((a): a is string => typeof a === 'string') ?? 'localhost';
+      normalised.slice(1).find((a): a is string => typeof a === 'string') ?? 'localhost';
     return `${host}:${first}`;
   }
   if (typeof first === 'string') {

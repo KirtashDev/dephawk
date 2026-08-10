@@ -2,6 +2,7 @@ import dns from 'node:dns';
 import type { CapabilityInterceptor, Disposable } from '../../application/ports.js';
 import {
   blockedError,
+  inRuntimeInternals,
   patchMethod,
   prototypeOf,
   report,
@@ -94,6 +95,13 @@ export class DnsInterceptor implements CapabilityInterceptor {
         key,
         (original) =>
           function (this: unknown, ...args: unknown[]): unknown {
+            // Skip lookups made by another built-in's own implementation — see
+            // `inRuntimeInternals`. `server.listen(0, '127.0.0.1')` resolves its
+            // bind address on the way through, which is the runtime's plumbing,
+            // not a resolve the caller decided to make.
+            if (inRuntimeInternals()) {
+              return (original as (...a: unknown[]) => unknown).apply(this, args);
+            }
             const host = firstString(args) ?? 'unknown';
             const decision = report(record, 'net.resolve', host);
             if (!decision.allow) {

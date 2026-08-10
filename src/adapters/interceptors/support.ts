@@ -6,19 +6,75 @@ import { redactSecrets } from '../../domain/redact.js';
 export type RecordFn = (call: InterceptedCall) => Decision;
 
 /**
+ * Frame budget used while capturing a stack for attribution. Generous, because
+ * the attributor scans every frame for the first `node_modules/<pkg>` owner —
+ * truncating the stack could drop the culprit and misread the call as the
+ * application's. Restored immediately after each capture.
+ */
+const STACK_CAPTURE_LIMIT = 100;
+
+/**
  * Capture the current stack as a string, excluding this helper's own frame.
  * Uses V8's `Error.captureStackTrace` when available (fast, no Error object
  * exposed) and degrades to `new Error().stack` elsewhere (Bun/Deno).
+ *
+ * Both `Error.prepareStackTrace` and `Error.stackTraceLimit` are globals a
+ * dependency can write. Left alone, a dependency can **forge attribution**: set
+ * `Error.prepareStackTrace` to a function returning a stack string with a fake
+ * application frame, and every laundered call reads as the user's own code and
+ * is allowed unconditionally — reproduced reading `/etc/passwd` under enforce
+ * with a deny-by-default policy. Setting `stackTraceLimit = 0` instead blinds
+ * the capture (a weaker attack: the call then reads as `unknown` and is held to
+ * the default bucket, not trusted). So for the duration of the capture — and
+ * only that — we force V8's own default formatter and a sane frame budget, then
+ * restore the dependency's values so its legitimate error handling (source
+ * maps, error monitors) is untouched. The set/restore is guarded: a dependency
+ * that has frozen these as non-configurable cannot be neutralised, but that is
+ * a far narrower and more conspicuous move than a plain assignment.
  */
 export function captureStack(): string {
   const capture = Error.captureStackTrace as
     ((target: object, ctor?: (...args: never[]) => unknown) => void) | undefined;
-  if (typeof capture === 'function') {
-    const holder: { stack?: string } = {};
-    capture(holder, captureStack);
-    return holder.stack ?? '';
+
+  // Typed loosely: we deliberately set `prepareStackTrace` to `undefined` (the
+  // signal for V8's default formatter), which its declared type forbids.
+  const errorGlobal = Error as unknown as {
+    prepareStackTrace?: unknown;
+    stackTraceLimit?: number | undefined;
+  };
+  const savedPrepare = errorGlobal.prepareStackTrace;
+  const savedLimit = errorGlobal.stackTraceLimit;
+  try {
+    errorGlobal.prepareStackTrace = undefined;
+  } catch {
+    // Frozen by a dependency — best effort; fall through with what's there.
   }
-  return new Error().stack ?? '';
+  if (typeof savedLimit !== 'number' || savedLimit < STACK_CAPTURE_LIMIT) {
+    try {
+      errorGlobal.stackTraceLimit = STACK_CAPTURE_LIMIT;
+    } catch {
+      // Frozen — same.
+    }
+  }
+  try {
+    if (typeof capture === 'function') {
+      const holder: { stack?: string } = {};
+      capture(holder, captureStack);
+      return holder.stack ?? '';
+    }
+    return new Error().stack ?? '';
+  } finally {
+    try {
+      errorGlobal.prepareStackTrace = savedPrepare;
+    } catch {
+      /* frozen — nothing to restore */
+    }
+    try {
+      errorGlobal.stackTraceLimit = savedLimit;
+    } catch {
+      /* frozen */
+    }
+  }
 }
 
 /** Emit a record for a capability and return the decision. */
@@ -28,6 +84,43 @@ export function report(
   detail: string,
 ): Decision {
   return record({ capability, detail, rawStack: captureStack() });
+}
+
+/**
+ * The source location of the frame that called `boundary` — the immediate
+ * external caller of a wrapper, with `boundary` and everything above it removed
+ * (`at fn (LOC)` → `LOC`). Empty string when it cannot be determined.
+ *
+ * Used to tell a capability the *runtime itself* exercises apart from the same
+ * capability reached by a dependency: they differ only in who the direct caller
+ * is. Node compiles its bundled undici/llhttp parser through
+ * `WebAssembly.instantiate`, and blocking that would break `fetch` and invent a
+ * finding for Node's own plumbing — see the
+ * {@link import('./wasm.interceptor.js').WasmInterceptor}.
+ */
+export function callerLocation(boundary: (...args: never[]) => unknown): string {
+  const capture = Error.captureStackTrace as
+    ((target: object, ctor?: (...args: never[]) => unknown) => void) | undefined;
+  let stack: string;
+  if (typeof capture === 'function') {
+    const holder: { stack?: string } = {};
+    capture(holder, boundary);
+    stack = holder.stack ?? '';
+  } else {
+    stack = new Error().stack ?? '';
+  }
+  for (const line of stack.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('at ')) {
+      const open = trimmed.indexOf('(');
+      const location =
+        open !== -1 && trimmed.endsWith(')')
+          ? trimmed.slice(open + 1, -1)
+          : trimmed.slice('at '.length);
+      return location.replace(/\\/g, '/');
+    }
+  }
+  return '';
 }
 
 /** A loosely-typed function, used only at the Node monkey-patch boundary. */

@@ -47,6 +47,44 @@ describe('FsInterceptor', () => {
     expect(spy.calls.every((c) => c.capability === 'fs.read')).toBe(true);
   });
 
+  it('catches fs.openAsBlob of a sensitive path as fs.read', async () => {
+    const spy = recordSpy();
+    spy.deny('no blobs');
+    installed = new FsInterceptor().install(spy.record);
+
+    const openAsBlob = (fs as unknown as { openAsBlob?: unknown }).openAsBlob;
+    if (typeof openAsBlob !== 'function') {
+      return; // not on this runtime
+    }
+    // Denied synchronously before a Blob is ever created.
+    expect(() =>
+      (fs as unknown as { openAsBlob: (p: string) => unknown }).openAsBlob(FAKE_SSH),
+    ).toThrow(/dephawk: blocked/);
+    expect(spy.last?.capability).toBe('fs.read');
+    expect(spy.last?.detail).toContain('.ssh');
+  });
+
+  it('catches watching a sensitive path as fs.read (recon over time)', () => {
+    const spy = recordSpy();
+    spy.deny('no watching');
+    installed = new FsInterceptor().install(spy.record);
+
+    // Denied before a real watcher is created, so nothing is left open.
+    expect(() => fs.watch(FAKE_SSH, () => {})).toThrow(/dephawk: blocked/);
+    expect(spy.last?.capability).toBe('fs.read');
+    expect(spy.last?.detail).toContain('.ssh');
+  });
+
+  it('does NOT flag watching an ordinary path', () => {
+    const spy = recordSpy();
+    spy.deny();
+    installed = new FsInterceptor().install(spy.record);
+
+    const watcher = fs.watch(resolve('package.json'), () => {});
+    watcher.close();
+    expect(spy.calls).toHaveLength(0);
+  });
+
   it('catches sensitive writes as fs.write', () => {
     const spy = recordSpy();
     spy.deny();

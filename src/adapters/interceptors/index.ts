@@ -6,7 +6,11 @@ import { DnsInterceptor } from './dns.interceptor.js';
 import { ChildProcessInterceptor } from './child-process.interceptor.js';
 import { WorkerInterceptor } from './worker.interceptor.js';
 import { NativeAddonInterceptor } from './native.interceptor.js';
+import { BindingInterceptor } from './binding.interceptor.js';
 import { VmInterceptor } from './vm.interceptor.js';
+import { WasmInterceptor } from './wasm.interceptor.js';
+import { InspectorInterceptor } from './inspector.interceptor.js';
+import { ListenInterceptor } from './listen.interceptor.js';
 import { EnvInterceptor } from './env.interceptor.js';
 import { OsInterceptor } from './os.interceptor.js';
 import { SchedulerInterceptor } from './scheduler.interceptor.js';
@@ -42,7 +46,11 @@ export { DnsInterceptor } from './dns.interceptor.js';
 export { ChildProcessInterceptor } from './child-process.interceptor.js';
 export { WorkerInterceptor } from './worker.interceptor.js';
 export { NativeAddonInterceptor } from './native.interceptor.js';
+export { BindingInterceptor } from './binding.interceptor.js';
 export { VmInterceptor } from './vm.interceptor.js';
+export { WasmInterceptor } from './wasm.interceptor.js';
+export { InspectorInterceptor } from './inspector.interceptor.js';
+export { ListenInterceptor } from './listen.interceptor.js';
 export { EnvInterceptor } from './env.interceptor.js';
 export { OsInterceptor } from './os.interceptor.js';
 export { SchedulerInterceptor } from './scheduler.interceptor.js';
@@ -65,10 +73,14 @@ export function createInterceptors(
     new NetInterceptor(),
     new SocketInterceptor(),
     new DnsInterceptor(),
+    new ListenInterceptor(),
     new ChildProcessInterceptor(options),
     new WorkerInterceptor(options),
     new NativeAddonInterceptor(),
+    new BindingInterceptor(),
     new VmInterceptor(),
+    new WasmInterceptor(),
+    new InspectorInterceptor(),
     new EnvInterceptor(),
     new OsInterceptor(),
   ];

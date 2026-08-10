@@ -10,6 +10,7 @@ export const CAPABILITIES = [
   'fs.write',
   'net.connect',
   'net.resolve',
+  'net.listen',
   'process.spawn',
   'process.native',
   'code.eval',
@@ -51,6 +52,11 @@ export const CAPABILITY_META: Readonly<Record<Capability, CapabilityMeta>> = {
   'net.resolve': {
     label: 'dns',
     description: 'Resolve a hostname via DNS (a connection precursor or exfil channel).',
+    detailCanBeSensitive: false,
+  },
+  'net.listen': {
+    label: 'listen',
+    description: 'Open an inbound listener/bind (a backdoor or C2 channel).',
     detailCanBeSensitive: false,
   },
   'process.spawn': {

@@ -33,6 +33,14 @@ export interface NetPolicy {
    * it too, with no separate configuration.
    */
   readonly connect?: readonly string[];
+  /**
+   * Whether the package may open an inbound listener (`server.listen`,
+   * `dgram.bind`). Defaults to false: a dependency binding a port is opening a
+   * backdoor/C2 channel, which almost nothing legitimate does. It is a boolean
+   * rather than a port allowlist because ports are usually ephemeral (`:0`) and
+   * the meaningful decision is "may this package listen at all".
+   */
+  readonly listen?: boolean;
 }
 
 /** The effective policy for a single package (or the default bucket). */

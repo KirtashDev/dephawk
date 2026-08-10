@@ -111,8 +111,15 @@ function normalizeNet(input: unknown): NetPolicy | undefined {
   if (!isRecord(input)) {
     return undefined;
   }
+  const net: { connect?: readonly string[]; listen?: boolean } = {};
   const connect = asStringArray(input['connect']);
-  return connect === undefined ? {} : { connect };
+  if (connect !== undefined) {
+    net.connect = connect;
+  }
+  if (typeof input['listen'] === 'boolean') {
+    net.listen = input['listen'];
+  }
+  return net;
 }
 
 function normalizeFs(input: unknown, home: string): FsPolicy | undefined {

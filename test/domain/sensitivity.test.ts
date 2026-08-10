@@ -113,6 +113,32 @@ describe('isSensitivePath — 2024-25 threat coverage', () => {
   });
 });
 
+describe('isSensitivePath — browser credential theft (the 2025-26 npm stealers)', () => {
+  it.each([
+    // Chromium saved-password DB and the key that decrypts it — a stealer needs
+    // both — whatever the OS or profile the path lands on.
+    '/Users/bob/Library/Application Support/Google/Chrome/Default/Login Data',
+    '/home/alice/.config/google-chrome/Default/Local State',
+    '/Users/bob/Library/Application Support/BraveSoftware/Brave-Browser/Default/Login Data',
+    'C:\\Users\\bob\\AppData\\Local\\Google\\Chrome\\User Data\\Default\\Web Data',
+    // Firefox equivalents.
+    '/home/alice/.mozilla/firefox/abc.default-release/logins.json',
+    '/home/alice/.mozilla/firefox/abc.default-release/key4.db',
+    '/home/alice/.mozilla/firefox/abc.default-release/cookies.sqlite',
+    // Listing the profile directory is recon in its own right.
+    '/home/alice/.config/google-chrome',
+    '/home/alice/.mozilla/firefox',
+    '/Users/bob/Library/Application Support/Google/Chrome',
+  ])('flags %s', (path) => {
+    expect(isSensitivePath(path)).toBe(true);
+  });
+
+  it('does not flag a mundane file that merely says state or data', () => {
+    expect(isSensitivePath('/home/alice/project/global state.json')).toBe(false);
+    expect(isSensitivePath('/home/alice/project/user data.txt')).toBe(false);
+  });
+});
+
 describe('isSensitiveEnv', () => {
   it.each([
     'NPM_TOKEN',

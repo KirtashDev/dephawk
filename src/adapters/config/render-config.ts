@@ -81,7 +81,11 @@ function renderInline(policy: PackagePolicy): string {
   const parts: string[] = [];
 
   if (policy.net !== undefined) {
-    parts.push(`net: { connect: ${renderArray(policy.net.connect ?? [])} }`);
+    const net: string[] = [`connect: ${renderArray(policy.net.connect ?? [])}`];
+    if (policy.net.listen !== undefined) {
+      net.push(`listen: ${String(policy.net.listen)}`);
+    }
+    parts.push(`net: { ${net.join(', ')} }`);
   }
   if (policy.fs !== undefined) {
     const fs: string[] = [];

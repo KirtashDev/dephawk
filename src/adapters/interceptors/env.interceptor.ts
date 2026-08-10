@@ -11,6 +11,17 @@ import { blockedError, inRuntimeInternals, report, type RecordFn } from './suppo
  * keeps overhead negligible on the hot path. In enforce mode a disallowed read
  * throws before the value is returned.
  *
+ * Two read paths are covered. The `get` trap catches `process.env.SECRET`,
+ * destructuring, spread and `Object.entries`/`values` (all of which invoke
+ * `[[Get]]` per key). `Object.getOwnPropertyDescriptor(process.env, 'SECRET')`
+ * does **not** invoke `[[Get]]` — it reads the value straight out of the
+ * descriptor, which was a way to lift a secret past the `get` trap entirely. So
+ * the `getOwnPropertyDescriptor` trap hands back an *accessor* descriptor for a
+ * sensitive variable instead of its data descriptor: enumerating names
+ * (`Object.keys`, `for…in`, which only read `enumerable`) reports nothing, but
+ * pulling the value out means calling the getter, which funnels through the
+ * same report/deny path as a plain read.
+ *
  * Limitation: code that destructures `process.env` at module-load time reads
  * the value once and escapes later interception. This is best-effort by design.
  */
@@ -20,17 +31,47 @@ export class EnvInterceptor implements CapabilityInterceptor {
   install(record: RecordFn): Disposable {
     const original = process.env;
 
+    const guard = (prop: string): void => {
+      // Skip reads made by another built-in's own implementation — see
+      // `inRuntimeInternals`. Those are plumbing, not anyone's decision.
+      if (isSensitiveEnv(prop) && !inRuntimeInternals()) {
+        const decision = report(record, 'env.read', prop);
+        if (!decision.allow) {
+          throw blockedError(`env read of ${prop}`, decision.reason);
+        }
+      }
+    };
+
     const proxy = new Proxy(original, {
       get(target, prop, receiver): unknown {
-        // Skip reads made by another built-in's own implementation — see
-        // `inRuntimeInternals`. Those are plumbing, not anyone's decision.
-        if (typeof prop === 'string' && isSensitiveEnv(prop) && !inRuntimeInternals()) {
-          const decision = report(record, 'env.read', prop);
-          if (!decision.allow) {
-            throw blockedError(`env read of ${prop}`, decision.reason);
-          }
+        if (typeof prop === 'string') {
+          guard(prop);
         }
         return Reflect.get(target, prop, receiver);
+      },
+      getOwnPropertyDescriptor(target, prop): PropertyDescriptor | undefined {
+        const real = Reflect.getOwnPropertyDescriptor(target, prop);
+        if (
+          real === undefined ||
+          typeof prop !== 'string' ||
+          !isSensitiveEnv(prop) ||
+          real.configurable === false ||
+          inRuntimeInternals()
+        ) {
+          return real;
+        }
+        // Hide the value behind a getter so the descriptor cannot leak it.
+        return {
+          enumerable: real.enumerable ?? true,
+          configurable: true,
+          get(): unknown {
+            guard(prop);
+            return Reflect.get(target, prop);
+          },
+          set(value: unknown): void {
+            Reflect.set(target, prop, value);
+          },
+        };
       },
     });
 

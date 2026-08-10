@@ -48,9 +48,25 @@ const SENSITIVE_DIRECTORIES: readonly string[] = [
   '/.near-credentials',
   '/exodus.wallet',
   // Browser-extension storage: MetaMask, Phantom, Keplr and friends keep their
-  // encrypted vaults here, keyed by extension id. A Node build step has no
-  // business in any of them, so the whole directory is the rule.
+  // encrypted vaults here, keyed by extension id (MetaMask's `.ldb` files under
+  // `nkbihfbeogaeaoehlefnkodbefgpgknn` hold the seed phrase). A Node build step
+  // has no business in any of them, so the whole directory is the rule.
   '/local extension settings',
+  // Browser profile directories. The npm stealers of 2025-2026 (NodeCordRAT,
+  // TrapDoor, the dYdX/Polymarket drainers) go for the saved-password and
+  // cookie databases inside these — `Login Data`, `Local State`, `key4.db` — so
+  // both listing the profile and reading a file in it are worth catching. The
+  // distinctive file names are also matched as basenames below, to catch a
+  // read whatever the profile path (`Default`, `Profile 1`, …) turns out to be.
+  '/.mozilla/firefox',
+  '/.config/google-chrome',
+  '/.config/chromium',
+  '/.config/bravesoftware',
+  '/.config/microsoft-edge',
+  '/library/application support/firefox',
+  '/library/application support/google/chrome',
+  '/library/application support/bravesoftware',
+  '/library/application support/microsoft edge',
 ];
 
 /** Exact basenames that are sensitive wherever they appear. */
@@ -69,6 +85,19 @@ const SENSITIVE_BASENAMES: readonly string[] = [
   'credentials',
   // Bitcoin Core and the many wallets that forked it.
   'wallet.dat',
+  // Browser credential and cookie stores, by their distinctive file names, so a
+  // read is caught whatever the profile path. Chromium (Chrome/Brave/Edge and
+  // Electron apps): `Login Data` is the saved-password SQLite DB and `Local
+  // State` holds the AES key that decrypts it — a stealer needs both. Firefox:
+  // `logins.json` + `key4.db` are the same pair; `cookies.sqlite` its cookies.
+  'login data',
+  'local state',
+  'web data',
+  'cookies.sqlite',
+  'logins.json',
+  'key4.db',
+  'key3.db',
+  'signons.sqlite',
 ];
 
 /**

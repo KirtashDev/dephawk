@@ -54,6 +54,7 @@ const NEEDS_REVIEW: readonly Capability[] = [
   'process.spawn',
   'process.native',
   'code.eval',
+  'net.listen',
 ];
 
 interface Grants {
@@ -64,6 +65,7 @@ interface Grants {
   spawn: boolean;
   native: boolean;
   evaluate: boolean;
+  listen: boolean;
   observations: Set<string>;
   reviewable: Set<Capability>;
 }
@@ -132,6 +134,7 @@ function grantsFor(byPackage: Map<string, Grants>, name: string): Grants {
     spawn: false,
     native: false,
     evaluate: false,
+    listen: false,
     observations: new Set(),
     reviewable: new Set(),
   };
@@ -150,6 +153,11 @@ function record(grants: Grants, event: DhEvent, home: string): void {
       grants.observations.add(`connected to ${host}`);
       break;
     }
+    case 'net.listen':
+      grants.listen = true;
+      grants.reviewable.add('net.listen');
+      grants.observations.add(`opened an inbound listener (${detail})`);
+      break;
     case 'env.read':
       grants.envVars.add(event.detail);
       grants.observations.add(`read the secret ${event.detail}`);
@@ -185,7 +193,7 @@ function record(grants: Grants, event: DhEvent, home: string): void {
 
 function toPackagePolicy(grants: Grants): PackagePolicy {
   const policy: {
-    net?: { connect: readonly string[] };
+    net?: { connect?: readonly string[]; listen?: boolean };
     fs?: { read?: readonly string[]; write?: readonly string[] };
     spawn?: boolean;
     native?: boolean;
@@ -193,8 +201,11 @@ function toPackagePolicy(grants: Grants): PackagePolicy {
     env?: readonly string[];
   } = {};
 
-  if (grants.hosts.size > 0) {
-    policy.net = { connect: sorted(grants.hosts) };
+  if (grants.hosts.size > 0 || grants.listen) {
+    policy.net = {
+      ...(grants.hosts.size > 0 ? { connect: sorted(grants.hosts) } : {}),
+      ...(grants.listen ? { listen: true } : {}),
+    };
   }
   if (grants.reads.size > 0 || grants.writes.size > 0) {
     policy.fs = {

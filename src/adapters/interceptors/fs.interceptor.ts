@@ -36,6 +36,9 @@ const SINGLE_PATH: readonly FsMethod[] = [
   reads('createReadStream'),
   reads('open'),
   reads('openSync'),
+  // `openAsBlob('~/.ssh/id_rsa')` hands back a Blob whose `.text()`/`.stream()`
+  // reads the file without ever calling a named read member — a quiet way in.
+  reads('openAsBlob'),
   // Listing is reading: `readdir('~/.ssh')` names every key on the machine and
   // every host in `known_hosts` without opening one of them, which is exactly
   // the reconnaissance step that precedes the theft.
@@ -51,6 +54,10 @@ const SINGLE_PATH: readonly FsMethod[] = [
   // `glob('~/.ssh/*')` is `readdir` with a filter — same recon, newer API.
   reads('glob'),
   reads('globSync'),
+  // Watching is reading over time: `watch('~/.aws')` reports every change to a
+  // secret directory — a recon/exfil channel that never calls a read member.
+  reads('watch'),
+  reads('watchFile'),
   writes('writeFile'),
   writes('writeFileSync'),
   writes('appendFile'),
@@ -143,8 +150,8 @@ export interface FsInterceptorOptions {
  * Mundane paths pass through untouched with no stack capture, so the common
  * case (reading app/`node_modules` files) is not slowed. Covers the callback,
  * sync, stream, and `fs.promises` surfaces, including the reconnaissance members
- * (`readdir`, `opendir`, `readlink`, `glob` — learning what a secret directory
- * holds or where a key really lives), the bulk ones (`cp` takes a whole tree in
+ * (`readdir`, `opendir`, `readlink`, `glob`, `watch` — learning what a secret
+ * directory holds, where a key really lives, or when it changes), the bulk ones (`cp` takes a whole tree in
  * one call) and the destructive ones (`unlink`, `rm`, `truncate`, `rename`) an
  * attacker uses to remove traces.
  *

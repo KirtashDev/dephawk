@@ -102,6 +102,9 @@ function detectSensitive(req: CapabilityRequest): boolean {
     case 'code.eval':
       // Dynamically executing compiled code is the obfuscated-payload move.
       return true;
+    case 'net.listen':
+      // Opening an inbound listener is a backdoor primitive — high signal.
+      return true;
     case 'net.connect':
     case 'net.resolve':
     case 'os.info':
@@ -139,6 +142,12 @@ function evaluateCapability(
       return hostMatchesAny(host, allowlist)
         ? allow(sensitive)
         : deny(sensitive, `DNS resolution of ${host} is not in the allowlist`);
+    }
+
+    case 'net.listen': {
+      return pkg.net?.listen === true
+        ? allow(sensitive)
+        : deny(sensitive, `opening an inbound listener on ${req.detail} is not allowed`);
     }
 
     case 'process.spawn': {

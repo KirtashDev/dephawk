@@ -42,6 +42,38 @@ describe('EnvInterceptor', () => {
     expect(spy.calls).toHaveLength(1);
   });
 
+  it('does not leak a secret through getOwnPropertyDescriptor().value', () => {
+    const spy = recordSpy(); // allow — we assert the value is not in the descriptor
+    installed = new EnvInterceptor().install(spy.record);
+
+    const descriptor = Object.getOwnPropertyDescriptor(process.env, 'NPM_TOKEN');
+    // The value is behind a getter, not a data field, so reading .value leaks
+    // nothing and reports nothing.
+    expect(descriptor?.value).toBeUndefined();
+    expect(typeof descriptor?.get).toBe('function');
+    expect(spy.calls).toHaveLength(0);
+  });
+
+  it('reports (and can block) when the descriptor getter is actually invoked', () => {
+    const spy = recordSpy();
+    spy.deny('no secrets');
+    installed = new EnvInterceptor().install(spy.record);
+
+    const descriptor = Object.getOwnPropertyDescriptor(process.env, 'NPM_TOKEN');
+    expect(() => descriptor?.get?.()).toThrow(/dephawk: blocked/);
+    expect(spy.last?.detail).toBe('NPM_TOKEN');
+  });
+
+  it('does not report or break enumerating names with Object.keys', () => {
+    const spy = recordSpy();
+    spy.deny('would throw if the value were touched');
+    installed = new EnvInterceptor().install(spy.record);
+
+    const keys = Object.keys(process.env);
+    expect(keys).toContain('NPM_TOKEN'); // the name is visible…
+    expect(spy.calls).toHaveLength(0); // …but no value was read, so nothing fired
+  });
+
   it('restores process.env on dispose', () => {
     const before = process.env;
     const local = new EnvInterceptor().install(recordSpy().record);
