@@ -55,6 +55,7 @@ const NEEDS_REVIEW: readonly Capability[] = [
   'process.native',
   'code.eval',
   'net.listen',
+  'process.memory',
 ];
 
 interface Grants {
@@ -65,6 +66,7 @@ interface Grants {
   spawn: boolean;
   native: boolean;
   evaluate: boolean;
+  memory: boolean;
   listen: boolean;
   observations: Set<string>;
   reviewable: Set<Capability>;
@@ -134,6 +136,7 @@ function grantsFor(byPackage: Map<string, Grants>, name: string): Grants {
     spawn: false,
     native: false,
     evaluate: false,
+    memory: false,
     listen: false,
     observations: new Set(),
     reviewable: new Set(),
@@ -185,6 +188,11 @@ function record(grants: Grants, event: DhEvent, home: string): void {
       grants.reviewable.add('code.eval');
       grants.observations.add('executed dynamically compiled code');
       break;
+    case 'process.memory':
+      grants.memory = true;
+      grants.reviewable.add('process.memory');
+      grants.observations.add(`dumped process memory (${detail})`);
+      break;
     case 'os.info':
       // Never denied, so it never needs a rule.
       break;
@@ -198,6 +206,7 @@ function toPackagePolicy(grants: Grants): PackagePolicy {
     spawn?: boolean;
     native?: boolean;
     eval?: boolean;
+    memory?: boolean;
     env?: readonly string[];
   } = {};
 
@@ -221,6 +230,9 @@ function toPackagePolicy(grants: Grants): PackagePolicy {
   }
   if (grants.evaluate) {
     policy.eval = true;
+  }
+  if (grants.memory) {
+    policy.memory = true;
   }
   if (grants.envVars.size > 0) {
     policy.env = sorted(grants.envVars);

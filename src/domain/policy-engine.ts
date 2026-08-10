@@ -109,6 +109,10 @@ function detectSensitive(req: CapabilityRequest): boolean {
     case 'code.eval':
       // Dynamically executing compiled code is the obfuscated-payload move.
       return true;
+    case 'process.memory':
+      // Dumping the heap or the diagnostic report exposes every secret in
+      // memory and every env var at once — high signal.
+      return true;
     case 'net.listen':
       // Opening an inbound listener is a backdoor primitive — high signal.
       return true;
@@ -173,6 +177,12 @@ function evaluateCapability(
       return pkg.eval === true
         ? allow(sensitive)
         : deny(sensitive, 'dynamic code execution (vm) is not allowed');
+    }
+
+    case 'process.memory': {
+      return pkg.memory === true
+        ? allow(sensitive)
+        : deny(sensitive, `dumping process memory (${req.detail}) is not allowed`);
     }
 
     case 'env.read': {

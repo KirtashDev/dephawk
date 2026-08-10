@@ -82,6 +82,7 @@ function normalizePackagePolicy(input: unknown, home: string): PackagePolicy {
     spawn?: boolean;
     native?: boolean;
     eval?: boolean;
+    memory?: boolean;
     env?: EnvPolicy;
   } = {};
 
@@ -101,6 +102,9 @@ function normalizePackagePolicy(input: unknown, home: string): PackagePolicy {
   }
   if (typeof input['eval'] === 'boolean') {
     policy.eval = input['eval'];
+  }
+  if (typeof input['memory'] === 'boolean') {
+    policy.memory = input['memory'];
   }
   const env = normalizeEnv(input['env']);
   if (env !== undefined) {
