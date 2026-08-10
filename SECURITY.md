@@ -1,5 +1,42 @@
 # Security policy
 
+## What dephawk is, and what it is not
+
+Read this before relying on dephawk to stop anything.
+
+**dephawk is a tripwire, not a sandbox.** It works by patching the specific Node
+built-ins that reach a sensitive capability — `fs`, `net`, `child_process`,
+`vm`, and the rest — and checking each call against a policy. That is
+detection-and-policy at named choke points, not containment. It is genuinely
+useful: it makes the common supply-chain moves loud, attributes them to the
+exact package, and can block them in `--enforce`. It is **not** a guarantee that
+a dependency cannot do a thing.
+
+Why it cannot be a guarantee, plainly:
+
+- **Patching is inherently incomplete.** Node exposes a large and growing
+  surface — many different APIs reach the same syscall, and new ones arrive with
+  every release (`node:sqlite`, `WebAssembly`, worker threads, and more). Each
+  dephawk release covers the doors known at the time; the runtime keeps adding
+  doors. Closing bypasses is ongoing, not finished.
+- **Native code and language intrinsics are out of reach.** A native addon runs
+  outside JavaScript entirely; `eval`/`new Function` are language primitives that
+  cannot be patched (see the out-of-scope list below).
+- **A determined attacker who already controls a dependency has many moves.**
+  dephawk raises the cost and the visibility of those moves; it does not remove
+  them.
+
+So treat dephawk as **defence in depth and high-signal detection**, alongside —
+not instead of — lockfiles, `npm audit`/Socket-style scanning, least-privilege
+CI credentials, and review of what you install. If you need true isolation, run
+untrusted code in a real sandbox (a container, a VM, a locked-down user), and use
+dephawk to see and gate what happens inside it.
+
+That the project keeps finding and closing bypasses is the model working as
+intended, and also the reason for this warning: a tool you can keep finding holes
+in is not one to stake total protection on. Each fix raises the bar. None of them
+make the bar a ceiling.
+
 ## Reporting a vulnerability
 
 **Please do not open a public issue for a security problem.**
