@@ -14,6 +14,7 @@ export const CAPABILITIES = [
   'process.spawn',
   'process.native',
   'code.eval',
+  'process.memory',
   'env.read',
   'os.info',
 ] as const;
@@ -72,6 +73,12 @@ export const CAPABILITY_META: Readonly<Record<Capability, CapabilityMeta>> = {
   'code.eval': {
     label: 'eval',
     description: 'Execute dynamically compiled code via the vm module.',
+    detailCanBeSensitive: false,
+  },
+  'process.memory': {
+    label: 'memory',
+    description:
+      'Dump the process memory or full environment (heap snapshot, diagnostic report).',
     detailCanBeSensitive: false,
   },
   'env.read': {

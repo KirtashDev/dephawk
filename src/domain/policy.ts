@@ -53,6 +53,14 @@ export interface PackagePolicy {
   readonly native?: boolean;
   /** Whether the package may execute dynamically compiled code (`vm`). Defaults to false. */
   readonly eval?: boolean;
+  /**
+   * Whether the package may dump process memory or the whole environment — a
+   * heap snapshot (`v8.writeHeapSnapshot`) or a diagnostic report
+   * (`process.report.getReport`), both of which expose every in-memory secret
+   * and every environment variable without touching `fs` or `process.env`.
+   * Defaults to false.
+   */
+  readonly memory?: boolean;
   /** Env access policy. Defaults to false (no secret env). */
   readonly env?: EnvPolicy;
 }

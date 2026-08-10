@@ -3,6 +3,22 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.16] — 2026-08-10
+
+### Security
+
+- **Dumping process memory leaked secrets past every interceptor.** Two moves
+  bypassed the filesystem and `process.env` surfaces entirely:
+  `process.report.getReport()` returns Node's diagnostic report — including an
+  `environmentVariables` map of _every_ environment variable — as a plain
+  object, no file needed; and `v8.writeHeapSnapshot()` / `getHeapSnapshot()`
+  serialise the heap, which holds every decrypted string, token and key. Both
+  read a real secret under `--enforce` with a deny-by-default policy, invisible
+  in the report. They are now a new **`process.memory`** capability, denied by
+  default and allowlisted per package with `memory: true` — covering
+  `process.report.getReport`/`writeReport` and `v8.writeHeapSnapshot`/
+  `getHeapSnapshot`.
+
 ## [0.6.15] — 2026-08-10
 
 ### Security
@@ -778,6 +794,7 @@ a `Monitor` through the programmatic API:
 - `dephawk run <cmd>` CLI and `--import dephawk/register` entrypoint.
 - Hexagonal architecture, zero runtime dependencies, ≥90% core coverage.
 
+[0.6.16]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.16
 [0.6.15]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.15
 [0.6.14]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.14
 [0.6.13]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.13

@@ -106,6 +106,9 @@ function renderInline(policy: PackagePolicy): string {
   if (policy.eval !== undefined) {
     parts.push(`eval: ${String(policy.eval)}`);
   }
+  if (policy.memory !== undefined) {
+    parts.push(`memory: ${String(policy.memory)}`);
+  }
   if (policy.env !== undefined) {
     parts.push(
       `env: ${typeof policy.env === 'boolean' ? String(policy.env) : renderArray(policy.env)}`,
