@@ -10,6 +10,7 @@ import type {
 } from '../application/ports.js';
 import { StackAttributor } from '../adapters/attribution/stack-attributor.js';
 import { DeferredAttributor } from '../adapters/attribution/deferred-attributor.js';
+import { CompiledAttributor } from '../adapters/attribution/compiled-attributor.js';
 import { InMemorySink } from '../adapters/sink/in-memory-sink.js';
 import { SystemClock } from '../adapters/clock/system-clock.js';
 import { createInterceptors } from '../adapters/interceptors/index.js';
@@ -54,7 +55,12 @@ export function buildMonitor(options: BuildMonitorOptions): Monitor {
     policyEngine: new RulePolicyEngine(policy, protectedPaths),
     sink: options.sink ?? new InMemorySink(),
     clock: options.clock ?? new SystemClock(),
-    attributor: options.attributor ?? new DeferredAttributor(new StackAttributor()),
+    // Innermost reads the live stack; `CompiledAttributor` overrides it while
+    // `vm`-compiled code runs (the stack there names whatever the caller chose);
+    // `DeferredAttributor` fills in a culprit when nothing names one at all.
+    attributor:
+      options.attributor ??
+      new DeferredAttributor(new CompiledAttributor(new StackAttributor())),
     mode: policy.mode,
     interceptors:
       options.interceptors ??

@@ -1,4 +1,8 @@
 import { describe, it, expect, afterEach } from 'vitest';
+import {
+  isCompiledFilename,
+  resetCompiledFilenames,
+} from '../../../src/adapters/attribution/compiled-context.js';
 import vm from 'node:vm';
 import { VmInterceptor } from '../../../src/adapters/interceptors/vm.interceptor.js';
 import type { Disposable } from '../../../src/application/ports.js';
@@ -85,5 +89,41 @@ describe('VmInterceptor', () => {
     expect(vm.runInThisContext).not.toBe(before);
     local.dispose();
     expect(vm.runInThisContext).toBe(before);
+  });
+});
+
+describe('VmInterceptor — recording the filename vm is told to use', () => {
+  afterEach(() => {
+    resetCompiledFilenames();
+  });
+
+  it('records the filename from a module-level run', () => {
+    const spy = recordSpy(); // allow, so the code actually compiles
+    installed = new VmInterceptor().install(spy.record);
+
+    vm.runInThisContext('1 + 1', { filename: '/proj/node_modules/innocent/index.js' });
+    expect(isCompiledFilename('/proj/node_modules/innocent/index.js:1:1')).toBe(true);
+  });
+
+  it('records the filename a vm.Script was constructed with', () => {
+    // The run methods never see that option — it is given to the constructor,
+    // which is why the constructor is wrapped too.
+    const spy = recordSpy();
+    installed = new VmInterceptor().install(spy.record);
+
+    const script = new vm.Script('2 + 2', {
+      filename: '/proj/node_modules/other/lib.js',
+    });
+    expect(isCompiledFilename('/proj/node_modules/other/lib.js:1:1')).toBe(true);
+    // The subclass must still behave like a Script.
+    expect(script.runInThisContext()).toBe(4);
+  });
+
+  it('restores the original vm.Script on dispose', () => {
+    const before = vm.Script;
+    const local = new VmInterceptor().install(recordSpy().record);
+    expect(vm.Script).not.toBe(before);
+    local.dispose();
+    expect(vm.Script).toBe(before);
   });
 });

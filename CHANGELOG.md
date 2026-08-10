@@ -3,6 +3,34 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.8] — 2026-08-10
+
+### Security
+
+- **`vm` could pin a call on another package by naming the script.**
+  `runInThisContext(code, { filename: '…/node_modules/innocent/index.js' })`
+  makes V8 stamp that name onto every frame the compiled code produces, so the
+  frames are shaped exactly like that package's real ones. The `//# sourceURL`
+  forgery closed in 0.6.4 is recognisable by its `eval` marker; this one is not,
+  and could not be caught by reading the stack more carefully. It handed the
+  call — and the allowlist — to an innocent package, and poisoned the report, so
+  `dephawk init` would then draft that package a permission it never asked for.
+
+  What _is_ knowable is which names were handed to `vm`, so they are recorded as
+  they are used and no frame sitting at one of them is credited to a package.
+  Blame falls through to the next real frame, which for code a dependency
+  compiled and ran is that dependency. Only the exact name given to `vm` is
+  distrusted, so the rest of that package's real files are unaffected. The
+  `vm.Script` constructor is covered too, since the run methods never see the
+  option it was built with.
+
+  A first attempt scoped this to the duration of the `vm` call and was wrong:
+  `runInThisContext` can **return a closure** that runs later, carrying the
+  forged filename in its frames long after any such scope has ended. A name once
+  used to disguise code stays untrustworthy for the life of the process.
+
+  This was the last of the five bypasses found on 2026-08-10; all are now closed.
+
 ## [0.6.7] — 2026-08-10
 
 ### Security
@@ -602,6 +630,7 @@ a `Monitor` through the programmatic API:
 - `dephawk run <cmd>` CLI and `--import dephawk/register` entrypoint.
 - Hexagonal architecture, zero runtime dependencies, ≥90% core coverage.
 
+[0.6.8]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.8
 [0.6.7]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.7
 [0.6.6]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.6
 [0.6.5]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.5
