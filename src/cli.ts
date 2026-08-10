@@ -140,7 +140,13 @@ export async function run(argv: readonly string[]): Promise<number> {
     return 1;
   }
 
-  const configPath = configOverride ?? discoverConfig(process.cwd(), process.env);
+  // Resolve to an absolute path: it becomes `DEPHAWK_CONFIG` for the whole tree
+  // and is matched against the absolute paths the fs interceptor sees, so a
+  // relative `--config dephawk.config.js` must not stay relative.
+  const configPath =
+    configOverride !== null
+      ? resolve(process.cwd(), configOverride)
+      : discoverConfig(process.cwd(), process.env);
   // A --enforce/--observe flag takes precedence over the ambient DEPHAWK_MODE.
   const loaderEnv: NodeJS.ProcessEnv =
     modeOverride === undefined
@@ -174,6 +180,11 @@ export async function run(argv: readonly string[]): Promise<number> {
     NODE_OPTIONS: nodeOptions,
     DEPHAWK_POLICY: JSON.stringify(policy),
     DEPHAWK_SINK: sink.path,
+    // The resolved config path travels to the whole tree so `register.js` can
+    // protect it: a dependency that rewrites `dephawk.config.js` grants itself
+    // whatever it likes on the next run. Not while drafting — `init` is about to
+    // write that file itself.
+    ...(configPath !== null && !drafting ? { DEPHAWK_CONFIG: configPath } : {}),
   };
 
   const { code: exitCode, started } = await spawnMonitored(command, commandArgs, env);

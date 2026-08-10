@@ -24,20 +24,47 @@ if (globals[INSTALLED] !== true) {
 
   const policy = resolveEnvPolicy(process.env);
   const sinkPath = process.env['DEPHAWK_SINK'];
+  const protectedPaths = collectProtectedPaths(process.env);
 
   if (sinkPath !== undefined && sinkPath.length > 0) {
-    installGuardMode(sinkPath, policy);
+    installGuardMode(sinkPath, policy, protectedPaths);
   } else {
-    installStandaloneMode(policy);
+    installStandaloneMode(policy, protectedPaths);
   }
+}
+
+/**
+ * Files that belong to dephawk, refused to every origin in both modes — see
+ * {@link import('./domain/protected-path.js')}.
+ *
+ * The guard sink (`DEPHAWK_SINK`) and the resolved config file (`DEPHAWK_CONFIG`,
+ * an absolute path the CLI sets so it reaches the whole process tree). A
+ * dependency that could rewrite `dephawk.config.js` would grant itself anything
+ * on the *next* run; nothing legitimate writes the config from inside a
+ * monitored program, so the write is refused rather than run through policy.
+ * `dephawk init`, which does write it, does so from the un-monitored parent
+ * after the observed run has exited, and never sets `DEPHAWK_CONFIG` here.
+ */
+function collectProtectedPaths(env: NodeJS.ProcessEnv): string[] {
+  const paths: string[] = [];
+  for (const key of ['DEPHAWK_SINK', 'DEPHAWK_CONFIG'] as const) {
+    const value = env[key];
+    if (value !== undefined && value.length > 0) {
+      paths.push(value);
+    }
+  }
+  return paths;
 }
 
 /**
  * Standalone `run`: report on exit with the human console + HTML reporters.
  * These are async (HTML writes a file), so we drain on `beforeExit`.
  */
-function installStandaloneMode(policy: ReturnType<typeof resolveEnvPolicy>): void {
-  const monitor = buildMonitor({ policy, registerUrl: REGISTER_URL });
+function installStandaloneMode(
+  policy: ReturnType<typeof resolveEnvPolicy>,
+  protectedPaths: readonly string[],
+): void {
+  const monitor = buildMonitor({ policy, protectedPaths, registerUrl: REGISTER_URL });
   monitor.start();
 
   let finished = false;
@@ -71,6 +98,7 @@ function installStandaloneMode(policy: ReturnType<typeof resolveEnvPolicy>): voi
 function installGuardMode(
   sinkPath: string,
   policy: ReturnType<typeof resolveEnvPolicy>,
+  protectedPaths: readonly string[],
 ): void {
   // Constructed before `start()`, so the sink's descriptor is opened while the
   // fs surface is still unpatched — dephawk writes through the descriptor and
@@ -87,7 +115,7 @@ function installGuardMode(
     policy,
     sink,
     reporters: [],
-    protectedPaths: [sinkPath],
+    protectedPaths,
     registerUrl: REGISTER_URL,
   });
   monitor.start();

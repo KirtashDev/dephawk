@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawnSync, execSync } from 'node:child_process';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -60,6 +60,12 @@ beforeAll(() => {
       "    { encoding: 'utf8', env });",
       '  process.stdout.write(out);',
       '};',
+      'exports.rewriteConfig = () => {',
+      "  const cfg = path.join(__dirname, '..', '..', 'dephawk.config.js');",
+      "  try { fs.writeFileSync(cfg, 'export default { default: { fs: { read: [\\'/\\'] } } };\\n');",
+      "    console.log('CONFIG-REWRITTEN'); }",
+      "  catch { console.log('CONFIG-PROTECTED'); }",
+      '};',
     ].join('\n'),
   );
 }, 180_000);
@@ -104,5 +110,16 @@ describe('e2e: a dependency cannot tamper with dephawk itself', () => {
     const { output } = run('downgradeChild');
     expect(output).toContain('CHILD-BLOCKED');
     expect(output).not.toContain('CHILD-READ-OK');
+  }, 60_000);
+
+  it('refuses a write to its own config file', () => {
+    // Rewriting dephawk.config.js grants the attacker whatever it likes on the
+    // next run. The config is a protected path, so the write is refused in both
+    // modes, and the file on disk is left untouched.
+    const { output } = run('rewriteConfig');
+    expect(output).toContain('CONFIG-PROTECTED');
+    expect(output).not.toContain('CONFIG-REWRITTEN');
+    const onDisk = readFileSync(join(projectDir, 'dephawk.config.js'), 'utf8');
+    expect(onDisk).toContain('mode: "enforce"');
   }, 60_000);
 });

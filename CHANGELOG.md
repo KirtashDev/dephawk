@@ -3,6 +3,22 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.10] — 2026-08-10
+
+### Security
+
+- **The config file is now protected from the program it monitors.** A
+  dependency could overwrite `dephawk.config.js` on disk — it was not among
+  dephawk's protected paths — granting itself whatever it liked on the _next_
+  run. The CLI now passes the resolved config path to the whole process tree, and
+  writing it is refused for every origin in both modes, exactly like the guard
+  sink. `dephawk init` is unaffected: it writes the config from the un-monitored
+  parent, after the observed run has exited, and never marks it protected. Closes
+  the known issue noted in 0.6.9.
+
+  (A relative `--config path` is now resolved to an absolute path before it
+  travels, so protection matches the absolute paths the interceptor sees.)
+
 ## [0.6.9] — 2026-08-10
 
 Attacks on dephawk's own control plane, not on a capability: if you can stop the
@@ -665,6 +681,7 @@ a `Monitor` through the programmatic API:
 - `dephawk run <cmd>` CLI and `--import dephawk/register` entrypoint.
 - Hexagonal architecture, zero runtime dependencies, ≥90% core coverage.
 
+[0.6.10]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.10
 [0.6.9]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.9
 [0.6.8]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.8
 [0.6.7]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.7
