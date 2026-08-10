@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isSensitivePath } from '../../domain/sensitivity.js';
 import { protectedPathAffectedBy } from '../../domain/protected-path.js';
+import { packageOwningPath } from '../../domain/package-dir.js';
 import type { Capability } from '../../domain/capability.js';
 import type { CapabilityInterceptor, Disposable } from '../../application/ports.js';
 import { blockedError, patchMethod, report, restorer, type RecordFn } from './support.js';
@@ -209,7 +210,12 @@ export class FsInterceptor implements CapabilityInterceptor {
   /** Report a path worth reporting, and throw when the call is refused. */
   private check(record: RecordFn, capability: Capability, path: string): void {
     const isProtected = protectedPathAffectedBy(path, this.protectedPaths) !== null;
-    if (!isProtected && !isSensitivePath(path)) {
+    // A write into an installed package's directory is reported whatever the
+    // path looks like: only the policy engine knows who is writing, and one
+    // package writing into another's is a takeover of that package's identity.
+    // See {@link import('../../domain/package-dir.js')}.
+    const intoPackage = capability === 'fs.write' && packageOwningPath(path) !== null;
+    if (!isProtected && !intoPackage && !isSensitivePath(path)) {
       return; // mundane: no stack capture, no event
     }
     const decision = report(record, capability, path);

@@ -3,6 +3,7 @@ import type { Policy, PackagePolicy } from './policy.js';
 import type { Verdict } from './verdict.js';
 import { isSensitiveEnv, isSensitivePath } from './sensitivity.js';
 import { protectedPathAffectedBy } from './protected-path.js';
+import { isCrossPackageWrite, packageOwningPath } from './package-dir.js';
 import { extractHost, hostMatchesAny } from './host.js';
 import { pathMatchesAny } from './path-glob.js';
 
@@ -88,8 +89,14 @@ export class RulePolicyEngine implements PolicyEngine {
 
 function detectSensitive(req: CapabilityRequest): boolean {
   switch (req.capability) {
-    case 'fs.read':
     case 'fs.write':
+      // Writing into another package's directory installs code that will run
+      // as that package — high signal wherever the file sits.
+      return (
+        isSensitivePath(req.detail) ||
+        isCrossPackageWrite(req.package, packageOwningPath(req.detail))
+      );
+    case 'fs.read':
       return isSensitivePath(req.detail);
     case 'env.read':
       return isSensitiveEnv(req.detail);
@@ -189,6 +196,19 @@ function evaluateCapability(
     }
 
     case 'fs.write': {
+      // One package writing into another's directory is refused on its own
+      // terms, not via the path allowlist: the file being written is ordinary,
+      // and what makes it an attack is *who* is writing it. Granting a write
+      // allowlist for your own paths must never buy the right to overwrite a
+      // sibling dependency.
+      const owner = packageOwningPath(req.detail);
+      if (isCrossPackageWrite(req.package, owner)) {
+        return deny(
+          true,
+          `writing into another package's directory (${String(owner)}) would ` +
+            `make code run as that package`,
+        );
+      }
       if (!sensitive) {
         return allow(sensitive);
       }

@@ -358,3 +358,59 @@ describe('RulePolicyEngine — unlisted package falls back to default', () => {
     expect(v.allowed).toBe(false);
   });
 });
+
+describe('RulePolicyEngine — writing into another package’s directory', () => {
+  const engine = new RulePolicyEngine(policy);
+
+  it('refuses one package writing into another, whatever the filename', () => {
+    // The takeover: code planted here runs as `innocent` and inherits whatever
+    // policy grants it, and the path itself is entirely ordinary.
+    const verdict = engine.evaluate(
+      req({
+        capability: 'fs.write',
+        package: 'evil',
+        detail: '/proj/node_modules/innocent/.cache.js',
+      }),
+    );
+    expect(verdict.allowed).toBe(false);
+    expect(verdict.sensitive).toBe(true);
+    expect(verdict.reason).toMatch(/another package/);
+  });
+
+  it('refuses it even when the writer has a write allowlist of its own', () => {
+    // Being trusted with your own paths must not buy the right to overwrite a
+    // sibling dependency.
+    const verdict = engine.evaluate(
+      req({
+        capability: 'fs.write',
+        package: 'log-writer',
+        detail: '/proj/node_modules/innocent/index.js',
+      }),
+    );
+    expect(verdict.allowed).toBe(false);
+  });
+
+  it('allows a package writing inside its own directory', () => {
+    const verdict = engine.evaluate(
+      req({
+        capability: 'fs.write',
+        package: 'sharp',
+        detail: '/proj/node_modules/sharp/build/Release/sharp.node',
+      }),
+    );
+    expect(verdict.allowed).toBe(true);
+  });
+
+  it('leaves the application free to write into node_modules', () => {
+    // patch-package, monorepo linkers and build steps all do this.
+    const verdict = engine.evaluate(
+      req({
+        capability: 'fs.write',
+        package: null,
+        origin: 'application',
+        detail: '/proj/node_modules/innocent/index.js',
+      }),
+    );
+    expect(verdict.allowed).toBe(true);
+  });
+});
