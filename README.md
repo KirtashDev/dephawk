@@ -448,11 +448,29 @@ itself — so check it:
 npm audit signatures
 ```
 
+## Security
+
+Found a way past dephawk? Report it **privately** through
+[GitHub's private vulnerability reporting](https://github.com/KirtashDev/dephawk/security/advisories/new)
+— please not a public issue. A fixture package that performs the abuse and gets
+past the real CLI makes a report immediately actionable; that is how most of the
+bypasses fixed so far were found. What counts as in scope, what is a documented
+limitation, and how fixes ship: [`SECURITY.md`](./SECURITY.md).
+
 ## Contributing
 
-PRs welcome — especially new interceptors and real-world attack samples for the
-test suite. See [`CONTRIBUTING.md`](./CONTRIBUTING.md).
+dephawk is written and maintained by one person, so treat response times as
+best-effort. Issues, security reports and real-world attack samples are all
+welcome — for anything larger than a bug fix, open an issue first. See
+[`CONTRIBUTING.md`](./CONTRIBUTING.md).
+
+## Support
+
+dephawk is free, MIT-licensed and has no paid tier — that does not change. If it
+caught something before it cost you an incident, you can
+[buy me a coffee](https://buymeacoffee.com/kirtashDev). Entirely optional; it
+buys no priority over anyone else's issue.
 
 ## License
 
-MIT
+MIT © [Alberto (KirtashDev)](https://github.com/KirtashDev)

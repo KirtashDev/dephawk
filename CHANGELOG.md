@@ -3,6 +3,33 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.1] — 2026-08-10
+
+Housekeeping only — no behaviour changes.
+
+### Added
+
+- **`SECURITY.md`,** and private vulnerability reporting enabled on the
+  repository. A tool that tells you to distrust your dependencies needs a way to
+  be told it is wrong, and a public issue is the worst place for that. It states
+  what counts as a vulnerability here (a dependency doing something sensitive
+  that dephawk fails to record or block under `--enforce`), and what is a
+  documented limitation rather than a bug (native code, `eval`, bindings
+  captured before install).
+- A **funding link** (`funding` in `package.json`, plus a Sponsor button via
+  `.github/FUNDING.yml`). dephawk is free, MIT-licensed and has no paid tier —
+  that does not change.
+
+### Changed
+
+- README and `CONTRIBUTING.md` now say plainly that this is a one-person
+  project, so response times read as best-effort rather than as neglect. Issues,
+  security reports and attack samples are still welcome.
+- The contributing notes no longer describe the GitHub Marketplace as a pending
+  release step: it is deliberately unused, because listing there means accepting
+  an indemnity for data disclosure caused by the product, and
+  `uses: KirtashDev/dephawk@v0.6.0` works without it.
+
 ## [0.6.0] — 2026-08-10
 
 Eight escape hatches closed, each reproduced end to end against `--enforce` with
@@ -47,10 +74,10 @@ secret or ran code with an empty report, then couldn't.
   interceptors patch — one line read any file with nothing in the report. Now
   intercepted (with `process._linkedBinding`) as `process.native`: the same
   raw-runtime-power category as a native addon, default-deny.
-- **`node:inspector` was an open debugger backdoor.** `new inspector.Session()`
-  - `Runtime.evaluate` runs arbitrary code in the process, and
-    `inspector.open(port)` exposes a WebSocket for full remote control. Now
-    recorded as `code.eval` (default-deny) — nothing legitimate opens a debugger.
+- **`node:inspector` was an open debugger backdoor.** A `new inspector.Session()`
+  driving `Runtime.evaluate` runs arbitrary code in the process, and
+  `inspector.open(port)` exposes a WebSocket for full remote control. Now
+  recorded as `code.eval` (default-deny) — nothing legitimate opens a debugger.
 - **Inbound listeners were invisible.** The network interceptors watched egress;
   `net.createServer().listen(0)` / `http…listen()` bound a backdoor port and
   produced "no monitored activity recorded". A new **`net.listen`** capability
@@ -84,6 +111,8 @@ secret or ran code with an empty report, then couldn't.
   interceptor now runs Node's implementation behind the runtime-internals guard,
   and the DNS interceptor honours it — the same treatment `child_process`
   already had for the `process.env` copy it makes internally.
+
+## [0.5.0] — 2026-08-03
 
 Dependency changes become reviewable: dephawk can now say what a package started
 doing, not only whether it was allowed to.
@@ -408,6 +437,7 @@ a `Monitor` through the programmatic API:
 - `dephawk run <cmd>` CLI and `--import dephawk/register` entrypoint.
 - Hexagonal architecture, zero runtime dependencies, ≥90% core coverage.
 
+[0.6.1]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.1
 [0.6.0]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.0
 [0.5.0]: https://github.com/KirtashDev/dephawk/releases/tag/v0.5.0
 [0.4.3]: https://github.com/KirtashDev/dephawk/releases/tag/v0.4.3

@@ -1,8 +1,25 @@
 # Contributing to dephawk
 
-Thanks for helping make supply-chain attacks loud and cheap to catch. PRs are
-especially welcome for **new interceptors** and **real-world attack samples** for
-the test suite.
+dephawk is written and maintained by one person — [Alberto
+(KirtashDev)](https://github.com/KirtashDev). There is no team and no support
+rota behind it, which is worth knowing before you spend an evening on a change:
+I answer when I can, not on a schedule.
+
+That said, the door is open, and two things are genuinely valuable:
+
+- **Security reports.** A tool that tells you to distrust your dependencies has
+  to be checkable itself. If you find a way past dephawk, that is the most
+  useful thing you can send — see [`SECURITY.md`](./SECURITY.md) for how to
+  report it privately.
+- **Real-world attack samples.** A fixture reproducing something a published
+  package actually did is worth more than a feature request.
+
+For anything larger than a bug fix, open an issue before writing code, so
+neither of us discovers a disagreement about the design at review time.
+
+If dephawk saved you an incident, you can also [buy me a
+coffee](https://buymeacoffee.com/kirtashDev). Entirely optional, and it buys no
+priority over anyone else's issue.
 
 ## Setup
 
@@ -66,10 +83,15 @@ YAML and the shell — run it by pushing, and keep it green. Reasoning behind th
 defaults is in
 [`docs/adr/0007`](docs/adr/0007-a-published-github-action.md).
 
-Two things the release workflow cannot do for you:
+Two notes on releasing it:
 
-- **Marketplace.** Publishing a release to the GitHub Marketplace is a checkbox
-  on the release in the web UI; `gh release create` has no equivalent.
+- **The Marketplace is deliberately unused.** Listing the action there means
+  accepting the GitHub Developer Agreement, whose §9(c) makes the developer
+  indemnify GitHub for loss or disclosure of data caused by their product —
+  which is precisely the failure mode of a tool that reads a report full of
+  secrets. `uses: KirtashDev/dephawk@v0.6.0` works without it, so there is
+  nothing lost. (It would be a checkbox on the release in the web UI, which
+  `gh release create` cannot set anyway.)
 - **The floating tag.** If you keep a `v0`/`v1` tag pointing at the newest
   release, move it by hand. The release workflow deliberately triggers on
   `v*.*.*` so moving it does not attempt a publish.
