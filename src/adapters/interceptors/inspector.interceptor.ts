@@ -1,4 +1,3 @@
-import inspector from 'node:inspector';
 import type { CapabilityInterceptor, Disposable } from '../../application/ports.js';
 import {
   blockedError,
@@ -7,7 +6,10 @@ import {
   report,
   restorer,
   type RecordFn,
+  loadBuiltin,
 } from './support.js';
+
+const inspector = loadBuiltin('node:inspector');
 
 /** `inspector.Session` methods that open a control channel into the process. */
 const SESSION_METHODS = ['connect', 'connectToMainThread'] as const;

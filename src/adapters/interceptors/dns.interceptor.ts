@@ -1,4 +1,3 @@
-import dns from 'node:dns';
 import type { CapabilityInterceptor, Disposable } from '../../application/ports.js';
 import {
   blockedError,
@@ -8,7 +7,10 @@ import {
   report,
   restorer,
   type RecordFn,
+  loadBuiltin,
 } from './support.js';
+
+const dns = loadBuiltin('node:dns');
 
 /**
  * Every DNS entrypoint that takes a hostname (or IP, for `reverse`) as its

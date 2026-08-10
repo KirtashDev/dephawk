@@ -1,6 +1,8 @@
-import workerThreads from 'node:worker_threads';
 import type { CapabilityInterceptor, Disposable } from '../../application/ports.js';
-import { blockedError, report, restorer, type RecordFn } from './support.js';
+import { blockedError, report, restorer, type RecordFn, loadBuiltin } from './support.js';
+
+const workerThreads = loadBuiltin('node:worker_threads');
+
 import {
   captureMonitoringEnv,
   restoreWorkerOptions,

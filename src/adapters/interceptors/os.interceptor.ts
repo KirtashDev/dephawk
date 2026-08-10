@@ -1,6 +1,14 @@
-import os from 'node:os';
 import type { CapabilityInterceptor, Disposable } from '../../application/ports.js';
-import { blockedError, patchMethod, report, restorer, type RecordFn } from './support.js';
+import {
+  blockedError,
+  patchMethod,
+  report,
+  restorer,
+  type RecordFn,
+  loadBuiltin,
+} from './support.js';
+
+const os = loadBuiltin('node:os');
 
 const OS_METHODS = ['userInfo', 'networkInterfaces', 'hostname', 'homedir'] as const;
 

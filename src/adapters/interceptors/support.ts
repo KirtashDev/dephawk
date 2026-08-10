@@ -1,6 +1,32 @@
+import { createRequire } from 'node:module';
 import type { Decision, InterceptedCall } from '../../application/ports.js';
 import type { Capability } from '../../domain/capability.js';
 import { redactSecrets } from '../../domain/redact.js';
+
+const nodeRequire = createRequire(import.meta.url);
+
+/**
+ * Load a built-in module through `require`, not `import`, and this is
+ * load-bearing rather than a style choice.
+ *
+ * `import fs from 'node:fs'` builds the module's ESM facade, whose **named**
+ * exports (`import { readFileSync } from 'node:fs'`) are bound to the functions
+ * that exist at the moment the facade is first created — a snapshot, not a live
+ * view. If dephawk creates that facade (by importing the built-in) before it
+ * patches, the snapshot captures the *original* functions, and a dependency
+ * written as ESM sails straight past every interceptor with
+ * `import { readFileSync } from 'node:fs'`. Reproduced: an ESM dependency read a
+ * secret under `--enforce` with a deny-by-default policy, invisible in the
+ * report.
+ *
+ * `require` returns the module object *without* creating the facade. So every
+ * interceptor takes its built-in this way, patches it, and only then — when the
+ * application or a dependency first does `import … from 'node:fs'` — is the
+ * facade built, snapshotting the functions dephawk has already replaced.
+ */
+export function loadBuiltin<T = unknown>(id: string): T {
+  return nodeRequire(id) as T;
+}
 
 /** The record callback interceptors are wired to. */
 export type RecordFn = (call: InterceptedCall) => Decision;

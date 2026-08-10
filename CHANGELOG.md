@@ -3,6 +3,29 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.13] — 2026-08-10
+
+### Security
+
+- **An ESM dependency slipped past every interceptor with named imports.**
+  `import { readFileSync } from 'node:fs'` gave a dependency the _original_
+  function, not dephawk's patched one — so an ESM package read a secret, spawned
+  a process, resolved a host or ran `vm` code with nothing recorded and nothing
+  blocked, even under `--enforce` with a deny-by-default policy. This hit nearly
+  every capability (`fs`, `net`, `dns`, `child_process`, `vm`, `worker_threads`,
+  `inspector`, listeners), and ESM named imports are idiomatic, so it was the
+  widest bypass found.
+
+  The cause is how Node builds a built-in's ESM facade: its named exports are
+  bound to the functions that exist the moment the facade is first created — a
+  snapshot. dephawk imported the built-ins (`import fs from 'node:fs'`), which
+  created that facade with the _original_ functions before it patched them.
+  Every interceptor now acquires its built-in through `require` instead, which
+  does not create the facade, so the facade is built later — by the application
+  or a dependency's first `import` — and snapshots the functions dephawk has
+  already replaced. Confirmed across fs/net/dns/spawn/vm, and `fetch` and normal
+  ESM apps are unaffected.
+
 ## [0.6.12] — 2026-08-10
 
 ### Security
@@ -721,6 +744,7 @@ a `Monitor` through the programmatic API:
 - `dephawk run <cmd>` CLI and `--import dephawk/register` entrypoint.
 - Hexagonal architecture, zero runtime dependencies, ≥90% core coverage.
 
+[0.6.13]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.13
 [0.6.12]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.12
 [0.6.11]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.11
 [0.6.10]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.10

@@ -1,5 +1,3 @@
-import net from 'node:net';
-import dgram from 'node:dgram';
 import type { CapabilityInterceptor, Disposable } from '../../application/ports.js';
 import {
   blockedError,
@@ -8,7 +6,11 @@ import {
   report,
   restorer,
   type RecordFn,
+  loadBuiltin,
 } from './support.js';
+
+const net = loadBuiltin('node:net');
+const dgram = loadBuiltin('node:dgram');
 
 /**
  * Intercepts raw transport-level egress that bypasses the `http`/`https`/`fetch`

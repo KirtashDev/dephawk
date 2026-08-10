@@ -1,7 +1,15 @@
-import timers from 'node:timers';
 import type { CapabilityInterceptor, Disposable } from '../../application/ports.js';
 import { runScheduled } from '../attribution/scheduling-context.js';
-import { captureStack, isWrapper, patchMethod, restorer, type AnyFn } from './support.js';
+import {
+  captureStack,
+  isWrapper,
+  patchMethod,
+  restorer,
+  type AnyFn,
+  loadBuiltin,
+} from './support.js';
+
+const timers = loadBuiltin('node:timers');
 
 /** Where the callback sits in each scheduler's argument list. */
 interface SchedulerSpec {
