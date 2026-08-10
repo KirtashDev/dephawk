@@ -8,6 +8,7 @@ import {
   restorer,
   type RecordFn,
 } from './support.js';
+import { noteCompiledFilename } from '../attribution/compiled-context.js';
 
 /** Module-level entrypoints that compile and run a source string directly. */
 const VM_FUNCTIONS = [
@@ -74,7 +75,36 @@ export class VmInterceptor implements CapabilityInterceptor {
       }
     }
 
+    // `new vm.Script(code, { filename })` names the script at construction, and
+    // the run methods above never see that option — so the constructor is
+    // wrapped too. A subclass rather than a function wrapper, so `prototype`,
+    // `instanceof` and `new.target` all keep working.
+    const scriptRestore = this.patchScriptConstructor(mod);
+    if (scriptRestore) {
+      restores.push(scriptRestore);
+    }
+
     return restorer(restores);
+  }
+
+  /** Remember the `filename` a `vm.Script` was constructed with. */
+  private patchScriptConstructor(mod: Record<string, unknown>): (() => void) | null {
+    const Original = mod['Script'];
+    if (typeof Original !== 'function') {
+      return null;
+    }
+    const Base = Original as unknown as new (...args: unknown[]) => object;
+    class WatchedScript extends Base {
+      constructor(...args: unknown[]) {
+        noteFilenameFrom(args);
+        super(...args);
+      }
+    }
+    Object.defineProperty(WatchedScript, 'name', { value: 'Script' });
+    mod['Script'] = WatchedScript;
+    return () => {
+      mod['Script'] = Original;
+    };
   }
 
   /** A convenience fn: always reports (with a snippet) and guards nested runs. */
@@ -90,6 +120,7 @@ export class VmInterceptor implements CapabilityInterceptor {
       key,
       (original) =>
         function (this: unknown, ...args: unknown[]): unknown {
+          noteFilenameFrom(args);
           const decision = report(record, 'code.eval', snippet(args[0]));
           if (!decision.allow) {
             throw blockedError('dynamic code execution', decision.reason);
@@ -139,6 +170,24 @@ export class VmInterceptor implements CapabilityInterceptor {
     );
     if (restore) {
       restores.push(restore);
+    }
+  }
+}
+
+/**
+ * Record any `filename` option handed to `vm`, so the attributor can refuse to
+ * believe frames that claim to come from it. Scans the arguments rather than
+ * indexing a fixed position: the option sits third for `runInNewContext` and
+ * `runInContext`, second for `runInThisContext`, `compileFunction` and the
+ * `Script` constructor.
+ */
+function noteFilenameFrom(args: readonly unknown[]): void {
+  for (const arg of args) {
+    if (typeof arg === 'object' && arg !== null && !Array.isArray(arg)) {
+      const filename = (arg as { filename?: unknown }).filename;
+      if (typeof filename === 'string') {
+        noteCompiledFilename(filename);
+      }
     }
   }
 }

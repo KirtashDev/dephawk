@@ -375,7 +375,7 @@ policy layer_, not an unbreakable sandbox:
   the trace itself. Installing a hostile `Error.prepareStackTrace`, replacing
   `Error.captureStackTrace` (or the `Error` global), setting
   `stackTraceLimit = 0`, or evaluating code with a `//# sourceURL` naming
-  another package are all defeated: dephawk holds its own reference to `Error`
+  another package — or naming a `vm` script after one — are all defeated: dephawk holds its own reference to `Error`
   taken before any dependency loads, forces V8's own formatter and frame budget
   for the duration of each capture, and refuses to attribute a call to a
   location that evaluated code declared for itself. Losing a frame another way
