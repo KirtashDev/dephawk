@@ -236,6 +236,67 @@ describe('FsInterceptor — cp takes a whole tree in one call', () => {
   });
 });
 
+describe('FsInterceptor — a hard link cannot smuggle a sensitive path out', () => {
+  // `link('~/.ssh/id_rsa', 'notes.txt')` then `readFileSync('notes.txt')` reads
+  // the key. Unlike a symlink, the read-time realpath resolution cannot catch it
+  // — a hard link is a co-equal directory entry, so `realpath('notes.txt')` is
+  // `notes.txt`, not the key — so the alias must be caught the moment it is made.
+  it.each([
+    ['linkSync', () => fs.linkSync(FAKE_SSH, '/tmp/dephawk-hardlink-loot')],
+    ['promises.link', () => fs.promises.link(FAKE_SSH, '/tmp/dephawk-hardlink-loot')],
+  ])('catches %s of a sensitive source as fs.read', (_name, act) => {
+    const spy = recordSpy();
+    spy.deny('not allowed');
+    installed = new FsInterceptor().install(spy.record);
+
+    expect(act).toThrow(/dephawk: blocked/);
+    expect(spy.last?.capability).toBe('fs.read');
+    expect(spy.last?.detail).toContain('.ssh');
+  });
+
+  it('records the source as a read and the destination as a write', () => {
+    const spy = recordSpy(); // allow, so both arguments are reached
+    installed = new FsInterceptor().install(spy.record);
+
+    // Destination in a nonexistent dir so the real linkSync fails after both
+    // paths have been judged.
+    expect(() => fs.linkSync(FAKE_SSH, '/home/nobody/.npmrc')).toThrow(/ENOENT/);
+    expect(spy.calls.map((c) => c.capability)).toEqual(['fs.read', 'fs.write']);
+  });
+});
+
+describe('FsInterceptor — a symlink cannot be planted at a sensitive path', () => {
+  // `symlink('/tmp/attacker-key', '~/.ssh/authorized_keys')` is a write with no
+  // read member behind it: planting the link is a backdoor (or a payload dropped
+  // into another package). Only the destination is judged — the target is merely
+  // pointed at, not read here.
+  it.each([
+    ['symlinkSync', () => fs.symlinkSync('/tmp/attacker', FAKE_SSH)],
+    ['promises.symlink', () => fs.promises.symlink('/tmp/attacker', FAKE_SSH)],
+  ])('catches %s at a sensitive destination as fs.write', (_name, act) => {
+    const spy = recordSpy();
+    spy.deny('not allowed');
+    installed = new FsInterceptor().install(spy.record);
+
+    expect(act).toThrow(/dephawk: blocked/);
+    expect(spy.last?.capability).toBe('fs.write');
+    expect(spy.last?.detail).toContain('.ssh');
+  });
+
+  it('does not treat the symlink target as a read', () => {
+    // Pointing a link at a sensitive path does not read it; only the destination
+    // is judged, and here the destination is mundane, so nothing fires.
+    const spy = recordSpy();
+    spy.deny('would throw if the target counted as a read');
+    installed = new FsInterceptor().install(spy.record);
+
+    expect(() => fs.symlinkSync(FAKE_SSH, '/tmp/dephawk-mundane-link')).not.toThrow(
+      /dephawk: blocked/,
+    );
+    expect(spy.calls).toHaveLength(0);
+  });
+});
+
 describe('FsInterceptor — dephawk’s own protected paths', () => {
   const sink = '/tmp/dephawk-guard-test/events.jsonl';
 

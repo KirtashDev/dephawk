@@ -3,6 +3,31 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.21] — 2026-08-10
+
+### Security
+
+- **A hard link smuggled a sensitive file past the read rules.**
+  `fs.linkSync('~/.ssh/id_rsa', 'notes.txt')` then `readFileSync('notes.txt')`
+  read the key with no event recorded, in enforce mode with a deny-by-default
+  policy. Symlinks are caught because the interceptor resolves a mundane-looking
+  path with `realpath` before judging it — but a hard link is a _co-equal
+  directory entry_ for the same bytes, so `realpath('notes.txt')` is `notes.txt`,
+  not the key, and nothing downstream flags the read. `link`/`linkSync` (and the
+  `fs.promises` form) are now covered like `copyFile`: the source counts as an
+  `fs.read` (the caller gains read access to that content) and the destination as
+  an `fs.write` (so linking _into_ another package's directory is refused too).
+  The alias is now caught the moment it is made, before the invisible read.
+
+- **A symlink could be planted at a sensitive path unseen.** `fs.symlink`/
+  `symlinkSync` were not covered, so
+  `symlink('/tmp/attacker-key', '~/.ssh/authorized_keys')` — an SSH backdoor, or
+  a payload dropped into another package — wrote nothing dephawk could see. The
+  destination of a symlink is now judged as an `fs.write` (sensitive-path and
+  into-package rules both apply). The target is deliberately _not_ treated as a
+  read: a link only points at it, and reading _through_ the link is already
+  caught by the read-time `realpath` resolution.
+
 ## [0.6.20] — 2026-08-10
 
 ### Fixed
