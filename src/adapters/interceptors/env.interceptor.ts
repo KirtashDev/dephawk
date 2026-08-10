@@ -157,6 +157,17 @@ export class EnvInterceptor implements CapabilityInterceptor {
         // `Object.preventExtensions` throws, `Reflect.preventExtensions` is false.
         return Reflect.preventExtensions(original);
       },
+      getPrototypeOf(): object | null {
+        // The decoy is a plain object, but `process.env` has its own special
+        // prototype. Forwarding keeps `Object.getPrototypeOf(process.env)`
+        // identical to an unwrapped env — otherwise the mismatch is both a
+        // fidelity break and a way for a dependency to *detect* it is being
+        // monitored (and change behaviour) by testing the prototype.
+        return Reflect.getPrototypeOf(original);
+      },
+      setPrototypeOf(_target, proto): boolean {
+        return Reflect.setPrototypeOf(original, proto);
+      },
       getOwnPropertyDescriptor(_target, prop): PropertyDescriptor | undefined {
         const real = Reflect.getOwnPropertyDescriptor(original, prop);
         if (

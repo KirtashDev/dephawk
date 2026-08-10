@@ -3,6 +3,20 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.20] — 2026-08-10
+
+### Fixed
+
+- **The env Proxy exposed the wrong prototype, letting a dependency detect it.**
+  The decoy target introduced in 0.6.18 is a plain object, so
+  `Object.getPrototypeOf(process.env)` returned `Object.prototype` instead of the
+  distinct prototype an unwrapped `process.env` has. Beyond the fidelity gap, a
+  dependency could test the prototype to notice it was being monitored and go
+  dormant — trivial evasion. The Proxy now forwards `getPrototypeOf` and
+  `setPrototypeOf` to the real environment, so the prototype is identical to an
+  unwrapped `process.env`. (Property access was never affected; the `get` trap
+  already resolved the real prototype chain.)
+
 ## [0.6.19] — 2026-08-10
 
 ### Fixed

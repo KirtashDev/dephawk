@@ -128,6 +128,20 @@ describe('EnvInterceptor', () => {
     expect(() => ({ ...process.env })).not.toThrow();
   });
 
+  it('mirrors the real env prototype so it cannot be fingerprinted', () => {
+    // The Proxy wraps a plain-object decoy, but must not expose the decoy's
+    // Object.prototype: real process.env has its own prototype (neither
+    // Object.prototype nor null). A mismatch both breaks fidelity and lets a
+    // dependency detect it is being monitored by testing the prototype.
+    const realProto = Object.getPrototypeOf(process.env);
+
+    const spy = recordSpy();
+    installed = new EnvInterceptor().install(spy.record);
+
+    expect(Object.getPrototypeOf(process.env)).toBe(realProto);
+    expect(Object.getPrototypeOf(process.env)).not.toBe(Object.prototype);
+  });
+
   it('restores process.env on dispose', () => {
     const before = process.env;
     const local = new EnvInterceptor().install(recordSpy().record);
