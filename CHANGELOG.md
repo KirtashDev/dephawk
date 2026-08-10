@@ -3,6 +3,36 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.6] — 2026-08-10
+
+### Fixed
+
+- **`dephawk guard npm ci` now actually runs npm.** It never had. npm exited 1
+  in silence under dephawk — no install, no output, not even its own debug log —
+  so the command the README leads with was a no-op in every release from 0.4.3
+  to 0.6.5, and reported a clean install of nothing.
+
+  The cause was one line of spec behaviour. Assigning to a property that already
+  exists on a Proxy re-enters as `[[DefineOwnProperty]]` on the receiver with a
+  **value-only** descriptor, and Node's `process.env` refuses partial
+  descriptors, throwing `'process.env' only accepts a configurable, writable,
+and enumerable data descriptor`. npm sets `env.HOME` while loading its config,
+  that threw out of `Config.load`, and npm's exit handler swallowed it. Creating
+  a _new_ variable was fine — it builds a full descriptor — which is why nothing
+  ever looked wrong in ordinary use. The env Proxy now carries a `set` trap that
+  writes straight to the real environment.
+
+  With npm running, the 0.6.5 `node_modules` write rule can finally be measured
+  against a real install: `npm ci` produced an 8 KB report with no write noise
+  at all, and the events it did record (npm reading `.npmrc`, resolving and
+  fetching from the registry) are attributed to the npm packages that made them.
+
+- **The suite now runs a real package manager.** Every other test drives
+  dephawk with a `node` script we wrote, and the CI action job uses
+  `node --version` — which is exactly why a total failure to run npm went
+  unnoticed for five releases. `test/e2e/package-manager.e2e.test.ts` runs
+  `npm --version` under the CLI, and fails without this fix.
+
 ## [0.6.5] — 2026-08-10
 
 ### Security
@@ -30,14 +60,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Known issues
 
-- **`dephawk guard npm ci` does nothing.** npm exits 1 in silence under
-  dephawk's `--import` hook — no install, no output, not even npm's own debug
-  log. Bisected to the `process.env` Proxy: _any_ proxy over `process.env`,
-  including an empty one, is enough, and every other interceptor is fine.
-  Verified back to 0.4.3, so this has never worked; npm 10.9.4 and 11.8.0 on
-  Node 22, macOS. The test suite and CI only ever ran dephawk against `node`
-  programs, which is why it went unnoticed. Being investigated — until it is
-  fixed, `guard` is only dependable for installs driven by a plain Node script.
+- **`dephawk guard npm ci` did nothing** — npm exited silently under the
+  `process.env` Proxy. Diagnosed and fixed in 0.6.6; the entry above is kept as
+  written at the time.
 
 ## [0.6.4] — 2026-08-10
 
@@ -552,6 +577,7 @@ a `Monitor` through the programmatic API:
 - `dephawk run <cmd>` CLI and `--import dephawk/register` entrypoint.
 - Hexagonal architecture, zero runtime dependencies, ≥90% core coverage.
 
+[0.6.6]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.6
 [0.6.5]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.5
 [0.6.4]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.4
 [0.6.3]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.3
