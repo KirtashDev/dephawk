@@ -37,17 +37,19 @@ if (globals[INSTALLED] !== true) {
  * Files that belong to dephawk, refused to every origin in both modes — see
  * {@link import('./domain/protected-path.js')}.
  *
- * The guard sink (`DEPHAWK_SINK`) and the resolved config file (`DEPHAWK_CONFIG`,
- * an absolute path the CLI sets so it reaches the whole process tree). A
- * dependency that could rewrite `dephawk.config.js` would grant itself anything
- * on the *next* run; nothing legitimate writes the config from inside a
- * monitored program, so the write is refused rather than run through policy.
- * `dephawk init`, which does write it, does so from the un-monitored parent
- * after the observed run has exited, and never sets `DEPHAWK_CONFIG` here.
+ * The guard sink (`DEPHAWK_SINK`), the resolved config file (`DEPHAWK_CONFIG`)
+ * and the behaviour baseline (`DEPHAWK_BASELINE`) — all absolute paths the CLI
+ * sets so they reach the whole process tree. A dependency that could rewrite
+ * `dephawk.config.js` would grant itself anything on the *next* run, and one
+ * that could rewrite the baseline would hide its own new behaviour from
+ * `--replay --fail-on new`. Nothing legitimate writes any of these from inside
+ * a monitored program, so the write is refused rather than run through policy.
+ * `dephawk init` writes the config, and the CLI writes the recording, both from
+ * the un-monitored parent after the observed run has exited — never from here.
  */
 function collectProtectedPaths(env: NodeJS.ProcessEnv): string[] {
   const paths: string[] = [];
-  for (const key of ['DEPHAWK_SINK', 'DEPHAWK_CONFIG'] as const) {
+  for (const key of ['DEPHAWK_SINK', 'DEPHAWK_CONFIG', 'DEPHAWK_BASELINE'] as const) {
     const value = env[key];
     if (value !== undefined && value.length > 0) {
       paths.push(value);

@@ -133,6 +133,43 @@ describe('e2e: --record / --replay catch what a policy cannot', () => {
     }
   }, 60_000);
 
+  it('a dependency cannot poison the baseline to hide its own change', () => {
+    // The whole point of --replay is to catch a behaviour change. A dependency
+    // that overwrites the committed baseline mid-run — to include the very host
+    // it just started resolving — would erase the evidence. The baseline is a
+    // protected path, so that write is refused and the diff still fires.
+    writeFileSync(dependency, ORIGINAL);
+    dephawk(projectDir, '--record', baselinePath);
+    const before = readFileSync(join(projectDir, baselinePath), 'utf8');
+
+    const poisoner = [
+      "const dns = require('node:dns');",
+      "const fs = require('node:fs');",
+      "const path = require('node:path');",
+      'exports.go = () => {',
+      "  dns.lookup('exfil.attacker.example', () => {});",
+      "  const bl = path.join(__dirname, '..', '..', '.dephawk', 'baseline.json');",
+      '  const poisoned = {',
+      '    version: 1,',
+      '    recordedAt: new Date().toISOString(),',
+      '    behaviours: [',
+      "      { package: 'httpclient', origin: 'dependency', capability: 'net.resolve',",
+      "        detail: 'exfil.attacker.example' },",
+      '    ],',
+      '  };',
+      '  try { fs.writeFileSync(bl, JSON.stringify(poisoned)); } catch {}',
+      '};',
+    ].join('\n');
+    writeFileSync(dependency, poisoner);
+
+    const result = dephawk(projectDir, '--replay', baselinePath, '--fail-on', 'new');
+
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('exfil.attacker.example');
+    // And the file on disk was not tampered with.
+    expect(readFileSync(join(projectDir, baselinePath), 'utf8')).toBe(before);
+  }, 60_000);
+
   it('refuses to compare against a baseline it cannot read', () => {
     // Treating a broken file as empty would report "no change" for a run that
     // was never actually checked.
