@@ -92,12 +92,45 @@ Two notes on releasing it:
   secrets. `uses: KirtashDev/dephawk@v0.6.0` works without it, so there is
   nothing lost. (It would be a checkbox on the release in the web UI, which
   `gh release create` cannot set anyway.)
-- **The floating tag.** If you keep a `v0`/`v1` tag pointing at the newest
-  release, move it by hand. The release workflow deliberately triggers on
-  `v*.*.*` so moving it does not attempt a publish.
+- **The floating tag.** `v0` points at the newest release and the README tells
+  people to use it, so **move it by hand after every release** or they stop
+  receiving fixes:
+
+  ```bash
+  git tag -f v0 v0.6.1 && git push origin v0 --force
+  ```
+
+  The release workflow deliberately triggers on `v*.*.*`, so moving `v0` never
+  attempts a publish.
 
 The action does not pin a dephawk version — it derives one from its own
 reference — so there is nothing to bump here when you release.
+
+## How work lands on `main`
+
+Trunk-based, not GitFlow. There is one long-lived branch — `main` — and it is
+always releasable. No `develop`, no `release/*`, no `hotfix/*`: those exist to
+coordinate several supported versions and several people, and this project has
+one of each. A release here is a tag on `main`.
+
+```bash
+git switch -c feat/intercept-something   # feat/ fix/ docs/ chore/ test/ refactor/
+# …work, commit…
+git push -u origin feat/intercept-something
+gh pr create --fill
+```
+
+Branches are short-lived and squash-merged, so `main`'s history is one commit
+per change and stays linear. GitHub deletes the branch on merge.
+
+**`main` is protected, and the protection applies to the maintainer too.** Both
+CI legs (Node 20 and Node 22) must pass before anything merges, force-pushes and
+deletions are refused, and there is no admin bypass. That last part is a
+security control rather than etiquette: releases publish to npm from a tag via
+OIDC with no stored credential, so an admin bypass would leave a one-command
+path from a stolen laptop to a malicious version on every user's machine. Going
+through a pull request costs about thirty seconds — reviews are not required, so
+you can merge your own once CI is green — and it leaves a reviewable trail.
 
 ## Before you push
 
@@ -108,6 +141,10 @@ npm run format:check
 npm run build
 npm run test:coverage
 ```
+
+Run **all five**. `format:check` (prettier) is a separate gate from `lint`
+(eslint) and is not covered by it — the release workflow runs it, and it is the
+easiest one to forget and have a release fail on.
 
 Coverage must stay ≥ 90% in `domain` and `application`. Commit messages follow
 [Conventional Commits](https://www.conventionalcommits.org/).
