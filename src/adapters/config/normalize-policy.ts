@@ -1,4 +1,6 @@
-import { homedir } from 'node:os';
+import { loadBuiltin } from '../interceptors/support.js';
+
+const { homedir } = loadBuiltin('node:os') as { homedir: () => string };
 import {
   PERMISSIVE_POLICY,
   type EnvPolicy,

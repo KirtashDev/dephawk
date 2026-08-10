@@ -1,4 +1,3 @@
-import vm from 'node:vm';
 import type { CapabilityInterceptor, Disposable } from '../../application/ports.js';
 import {
   blockedError,
@@ -7,7 +6,11 @@ import {
   report,
   restorer,
   type RecordFn,
+  loadBuiltin,
 } from './support.js';
+
+const vm = loadBuiltin('node:vm');
+
 import { noteCompiledFilename } from '../attribution/compiled-context.js';
 
 /** Module-level entrypoints that compile and run a source string directly. */

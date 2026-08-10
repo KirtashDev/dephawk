@@ -1,4 +1,3 @@
-import childProcess from 'node:child_process';
 import type { CapabilityInterceptor, Disposable } from '../../application/ports.js';
 import {
   asRuntimeInternals,
@@ -7,7 +6,11 @@ import {
   report,
   restorer,
   type RecordFn,
+  loadBuiltin,
 } from './support.js';
+
+const childProcess = loadBuiltin('node:child_process');
+
 import {
   captureMonitoringEnv,
   missingMonitoring,

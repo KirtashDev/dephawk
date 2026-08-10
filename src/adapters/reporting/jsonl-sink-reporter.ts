@@ -1,4 +1,9 @@
-import { openSync, writeSync } from 'node:fs';
+import { loadBuiltin } from '../interceptors/support.js';
+
+const { openSync, writeSync } = loadBuiltin('node:fs') as {
+  openSync: (path: string, flags: string) => number;
+  writeSync: (fd: number, data: string) => void;
+};
 import type { DhEvent } from '../../domain/event.js';
 import type { Reporter } from '../../application/ports.js';
 

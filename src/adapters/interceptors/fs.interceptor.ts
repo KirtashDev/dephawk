@@ -1,4 +1,3 @@
-import fs from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isSensitivePath } from '../../domain/sensitivity.js';
@@ -6,7 +5,19 @@ import { protectedPathAffectedBy } from '../../domain/protected-path.js';
 import { packageOwningPath } from '../../domain/package-dir.js';
 import type { Capability } from '../../domain/capability.js';
 import type { CapabilityInterceptor, Disposable } from '../../application/ports.js';
-import { blockedError, patchMethod, report, restorer, type RecordFn } from './support.js';
+import {
+  blockedError,
+  loadBuiltin,
+  patchMethod,
+  report,
+  restorer,
+  type RecordFn,
+} from './support.js';
+
+const fs = loadBuiltin('node:fs') as Record<string, unknown> & {
+  realpathSync?: ((p: string) => string) & { native?: (p: string) => string };
+  promises?: Record<string, unknown>;
+};
 
 /** One path argument of an `fs` member, and what touching it amounts to. */
 interface PathArgument {
@@ -158,7 +169,9 @@ export interface FsInterceptorOptions {
  *
  * Limitation: file-descriptor-based calls (`read(fd, …)`), `realpath` (called
  * constantly by module resolution, so it would report far more than it caught),
- * native addons, and named bindings captured before install are not covered.
+ * and native addons are not covered. ESM named imports
+ * (`import { readFileSync } from 'node:fs'`) *are* — see {@link loadBuiltin} for
+ * why the interceptor acquires `fs` through `require`.
  */
 export class FsInterceptor implements CapabilityInterceptor {
   readonly name = 'fs';

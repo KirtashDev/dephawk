@@ -48,9 +48,12 @@ a sandbox**:
 - **`eval()` and `new Function()`.** Language intrinsics, not module methods, so
   they cannot be patched. The `vm` module, `WebAssembly` and `node:inspector` —
   the deliberate paths for staged code — are covered.
-- **Bindings captured before dephawk installs.** A named import
-  (`import { readFileSync } from 'node:fs'`) resolved before the register
-  entrypoint runs holds a reference to the original.
+- **Bindings captured before dephawk installs.** Code that runs _before_ the
+  register entrypoint and squirrels away a reference to a built-in holds the
+  original. A dependency cannot do this — it loads after the register — and an
+  ESM dependency's `import { readFileSync } from 'node:fs'` is covered as of
+  0.6.13. It applies only to something loaded ahead of dephawk, which on the
+  `dephawk run`/`guard` path is nothing.
 - **Freezing the `Error` globals** as non-configurable to defeat the
   stack-capture hardening. Narrower and far more conspicuous than the plain
   assignment it replaced, and accepted.

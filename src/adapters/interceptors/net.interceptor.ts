@@ -1,7 +1,15 @@
-import http from 'node:http';
-import https from 'node:https';
 import type { CapabilityInterceptor, Disposable } from '../../application/ports.js';
-import { blockedError, patchMethod, report, restorer, type RecordFn } from './support.js';
+import {
+  blockedError,
+  patchMethod,
+  report,
+  restorer,
+  type RecordFn,
+  loadBuiltin,
+} from './support.js';
+
+const http = loadBuiltin('node:http');
+const https = loadBuiltin('node:https');
 
 /**
  * Intercepts outbound connections: `http`/`https` `request`/`get`, and global
