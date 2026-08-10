@@ -122,6 +122,35 @@ const KEY_MATERIAL_EXTENSIONS: readonly string[] = [
 const SENSITIVE_ABSOLUTE: readonly string[] = ['/etc/passwd', '/etc/shadow'];
 
 /**
+ * Shell startup files, by basename. *Writing* one is persistence: a line
+ * appended to `~/.bashrc` or `~/.zshrc` during an install runs on every shell
+ * the developer opens afterwards, long after the build is gone. These are judged
+ * on write only — reading a shell rc is unremarkable, but a build step that
+ * modifies one is almost always malicious, and a legitimate one (a shell
+ * framework installer) can allow the path explicitly.
+ */
+const PERSISTENCE_BASENAMES: readonly string[] = [
+  // bash / sh
+  '.bashrc',
+  '.bash_profile',
+  '.bash_login',
+  '.bash_logout',
+  '.profile',
+  // zsh
+  '.zshrc',
+  '.zshenv',
+  '.zprofile',
+  '.zlogin',
+  '.zlogout',
+  // csh / ksh
+  '.cshrc',
+  '.tcshrc',
+  '.kshrc',
+  // fish
+  'config.fish',
+];
+
+/**
  * Env-var secret detection, in two tiers to balance recall against noise:
  * - "strong" keywords match anywhere (a var containing SECRET/TOKEN/PASSWORD is
  *   almost certainly a secret);
@@ -191,6 +220,15 @@ function isKeyMaterial(padded: string, name: string): boolean {
     return false;
   }
   return KEY_MATERIAL_EXTENSIONS.some((extension) => name.endsWith(extension));
+}
+
+/**
+ * True when *writing* `path` installs persistence — a shell startup file whose
+ * modification runs attacker code on the next shell. Judged on writes only; see
+ * {@link PERSISTENCE_BASENAMES}.
+ */
+export function isPersistenceTarget(path: string): boolean {
+  return PERSISTENCE_BASENAMES.includes(basename(normalisePath(path)));
 }
 
 /** True when an environment variable name looks like a secret. */

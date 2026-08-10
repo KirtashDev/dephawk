@@ -1,7 +1,7 @@
 import type { CapabilityRequest } from './capability-request.js';
 import type { Policy, PackagePolicy } from './policy.js';
 import type { Verdict } from './verdict.js';
-import { isSensitiveEnv, isSensitivePath } from './sensitivity.js';
+import { isPersistenceTarget, isSensitiveEnv, isSensitivePath } from './sensitivity.js';
 import { protectedPathAffectedBy } from './protected-path.js';
 import { isCrossPackageWrite, packageOwningPath } from './package-dir.js';
 import { extractHost, hostMatchesAny } from './host.js';
@@ -91,9 +91,11 @@ function detectSensitive(req: CapabilityRequest): boolean {
   switch (req.capability) {
     case 'fs.write':
       // Writing into another package's directory installs code that will run
-      // as that package — high signal wherever the file sits.
+      // as that package — high signal wherever the file sits. Writing a shell
+      // startup file is persistence for the same reason.
       return (
         isSensitivePath(req.detail) ||
+        isPersistenceTarget(req.detail) ||
         isCrossPackageWrite(req.package, packageOwningPath(req.detail))
       );
     case 'fs.read':

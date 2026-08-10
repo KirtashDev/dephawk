@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { isSensitivePath, isSensitiveEnv } from '../../src/domain/sensitivity.js';
+import {
+  isSensitivePath,
+  isSensitiveEnv,
+  isPersistenceTarget,
+} from '../../src/domain/sensitivity.js';
 
 describe('isSensitivePath', () => {
   it.each([
@@ -136,6 +140,26 @@ describe('isSensitivePath — browser credential theft (the 2025-26 npm stealers
   it('does not flag a mundane file that merely says state or data', () => {
     expect(isSensitivePath('/home/alice/project/global state.json')).toBe(false);
     expect(isSensitivePath('/home/alice/project/user data.txt')).toBe(false);
+  });
+});
+
+describe('isPersistenceTarget — shell startup files (write-side persistence)', () => {
+  it.each([
+    '/home/alice/.bashrc',
+    '/home/alice/.bash_profile',
+    '/home/alice/.profile',
+    '/Users/bob/.zshrc',
+    '/Users/bob/.zshenv',
+    '/home/alice/.config/fish/config.fish',
+    'C:\\Users\\bob\\.zshrc',
+  ])('flags a write to %s', (path) => {
+    expect(isPersistenceTarget(path)).toBe(true);
+  });
+
+  it('does not flag mundane files that merely resemble a shell rc', () => {
+    expect(isPersistenceTarget('/home/alice/project/bashrc.md')).toBe(false);
+    expect(isPersistenceTarget('/home/alice/project/config.fish.txt')).toBe(false);
+    expect(isPersistenceTarget('/home/alice/project/notes.txt')).toBe(false);
   });
 });
 

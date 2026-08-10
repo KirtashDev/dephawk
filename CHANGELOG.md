@@ -3,6 +3,22 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.22] — 2026-08-10
+
+### Security
+
+- **Writing a shell startup file for persistence went unseen.** A dependency
+  could append a line to `~/.bashrc`, `~/.zshrc`, `~/.profile` (or any common
+  shell rc/profile) during an install or build and run its payload on every shell
+  the developer opened afterwards — persistence that outlives the build. The path
+  is neither a secret to read nor inside another package, so nothing flagged it.
+  Writing a shell startup file is now treated as a sensitive `fs.write` (append,
+  copy, hard link, and symlink destinations all count), denied by default and
+  allowlistable per package with an `fs.write` entry for a framework installer
+  that legitimately edits one. Reading a shell rc is deliberately left alone —
+  persistence is a write-side concern, so there are no new false positives on the
+  many tools that read these files.
+
 ## [0.6.21] — 2026-08-10
 
 ### Security
