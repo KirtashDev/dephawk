@@ -3,6 +3,42 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.5] — 2026-08-10
+
+### Security
+
+- **A dependency could take over another package by writing into its
+  directory.** Attribution names the first `node_modules/<name>` frame on the
+  stack, so a payload written to `node_modules/innocent/.cache.js` and then
+  `require`d genuinely runs _as_ `innocent` and inherits whatever the policy
+  grants it. Reproduced under `--enforce` with a deny-by-default policy: the
+  write was not recorded at all (a `node_modules` path is not sensitive), the
+  secret came back, and the report named `innocent` while the attacker appeared
+  nowhere. It is persistent — the planted file survives until the next install.
+
+  Nothing about it is forgery, which is why it could not be fixed in the
+  attributor: the code really is in that directory. The write is the moment to
+  catch it, so writes into an installed package's directory are now reported
+  whatever the filename looks like, and refused when the writer is a _different_
+  package. A package writing inside its own directory (caches, compiled output,
+  downloaded binaries) is untouched, and so is the application — `patch-package`,
+  monorepo linkers and build steps keep working.
+
+  Cost: writes into `node_modules` now capture a stack, ~3 µs each. A synthetic
+  5 000-file run took 827 ms and produced a 1.9 MB report, so a tool that
+  rewrites a whole dependency tree under `dephawk run` will make a large report.
+
+### Known issues
+
+- **`dephawk guard npm ci` does nothing.** npm exits 1 in silence under
+  dephawk's `--import` hook — no install, no output, not even npm's own debug
+  log. Bisected to the `process.env` Proxy: _any_ proxy over `process.env`,
+  including an empty one, is enough, and every other interceptor is fine.
+  Verified back to 0.4.3, so this has never worked; npm 10.9.4 and 11.8.0 on
+  Node 22, macOS. The test suite and CI only ever ran dephawk against `node`
+  programs, which is why it went unnoticed. Being investigated — until it is
+  fixed, `guard` is only dependable for installs driven by a plain Node script.
+
 ## [0.6.4] — 2026-08-10
 
 Two more ways to lie about who made a call, both reproduced against `--enforce`
@@ -516,6 +552,7 @@ a `Monitor` through the programmatic API:
 - `dephawk run <cmd>` CLI and `--import dephawk/register` entrypoint.
 - Hexagonal architecture, zero runtime dependencies, ≥90% core coverage.
 
+[0.6.5]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.5
 [0.6.4]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.4
 [0.6.3]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.3
 [0.6.2]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.2
