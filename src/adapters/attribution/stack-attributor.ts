@@ -99,6 +99,10 @@ export class StackAttributor implements Attributor {
   }
 
   private classify(frame: string): FrameKind {
+    if (isForgedEvalFrame(frame)) {
+      return INTERNAL; // location is the evaluated code's own claim — untrusted
+    }
+
     const location = locationOf(frame);
 
     if (location.startsWith('node:')) {
@@ -116,6 +120,42 @@ export class StackAttributor implements Attributor {
     }
     return isSourceLocation(location) ? APPLICATION : INTERNAL;
   }
+}
+
+/**
+ * Whether an `eval` frame reports a location the *evaluated code chose for
+ * itself*, rather than the one V8 recorded.
+ *
+ * V8 writes an eval frame two ways, and only one can be trusted:
+ *
+ * - `at eval (eval at run (/p/node_modules/staged/i.js:3:9), <anonymous>:1:1)`
+ *   — the `eval at` clause is V8's own note of where the eval was called from.
+ *   That inner path is real, and naming the package that staged the code is
+ *   exactly right.
+ * - `at eval (/app/node_modules/innocent/index.js:2:26)` — a `//# sourceURL=…`
+ *   comment inside the evaluated source replaced the location wholesale.
+ *
+ * The second is a forgery: `eval` and `new Function` are language intrinsics
+ * that cannot be patched, so a dependency can evaluate
+ * `//# sourceURL=…/node_modules/innocent/index.js` and have its call attributed
+ * to *another package* — one that may be allowlisted, which then lends it the
+ * permission. Reproduced reading a real secret under `--enforce`: the report
+ * blamed `innocent` and the read went through.
+ *
+ * Treating a forged frame as internal takes nothing the caller was entitled to.
+ * Attribution falls through to the next frame — the package that actually
+ * called `eval` — which is the correct culprit either way.
+ *
+ * Limitation: `vm` lets the caller name the script outright
+ * (`runInThisContext(code, { filename })`), producing a frame with no `eval`
+ * marker at all. That path is covered instead by `vm` being intercepted as
+ * `code.eval` and denied by default.
+ */
+function isForgedEvalFrame(frame: string): boolean {
+  if (!frame.startsWith('at eval (') && !frame.startsWith('at async eval (')) {
+    return false;
+  }
+  return !frame.includes('eval at ');
 }
 
 /**
