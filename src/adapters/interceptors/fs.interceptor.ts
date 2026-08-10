@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isSensitivePath } from '../../domain/sensitivity.js';
 import { protectedPathAffectedBy } from '../../domain/protected-path.js';
@@ -215,13 +215,72 @@ export class FsInterceptor implements CapabilityInterceptor {
     // package writing into another's is a takeover of that package's identity.
     // See {@link import('../../domain/package-dir.js')}.
     const intoPackage = capability === 'fs.write' && packageOwningPath(path) !== null;
+
+    let target = path;
     if (!isProtected && !intoPackage && !isSensitivePath(path)) {
-      return; // mundane: no stack capture, no event
+      // Lexically mundane — but `path.resolve` does not follow symlinks, and a
+      // link can point anywhere. `readFileSync('notes.txt')` where that is a
+      // link to `~/.ssh/id_rsa` used to read the key with no event at all.
+      // Resolve and judge the real target instead.
+      const real = realPathOf(path);
+      if (real === null || !isSensitivePath(real)) {
+        return; // genuinely mundane: no stack capture, no event
+      }
+      // Report where the bytes actually come from. This stays a bare path on
+      // purpose: the policy engine matches `detail` against the sensitivity
+      // rules and the per-package allowlists, so decorating it (`… (via …)`)
+      // would break allowlisting and, worse, make the sensitivity test miss.
+      target = real;
     }
-    const decision = report(record, capability, path);
+
+    const decision = report(record, capability, target);
     if (!decision.allow) {
-      throw blockedError(`${capability} of ${path}`, decision.reason);
+      throw blockedError(`${capability} of ${target}`, decision.reason);
     }
+  }
+}
+
+/**
+ * The real filesystem location `path` names, or null when it resolves to
+ * itself, cannot be resolved, or does not exist.
+ *
+ * Taken from `fs` at module load so it is the genuine implementation rather
+ * than one of this interceptor's own wrappers — `realpath` is not patched, but
+ * relying on that from inside the patch would be a trap for later.
+ *
+ * Cost is why this is only reached for paths that already look mundane:
+ * measured at ~14 µs a call (`realpathSync.native`) against ~2 µs for `lstat`.
+ * That sounded prohibitive until it was measured against real workloads rather
+ * than assumed: Node resolves modules through internal bindings, not the public
+ * `fs` API, so this interceptor sees **hundreds** of calls where the syscall
+ * count is millions — 637 for a real `npm ci`, 96 for a `tsup` build. Ten
+ * milliseconds, not ten seconds.
+ */
+const nativeRealpath: ((p: string) => string) | undefined =
+  typeof fs.realpathSync?.native === 'function'
+    ? fs.realpathSync.native
+    : typeof fs.realpathSync === 'function'
+      ? fs.realpathSync
+      : undefined;
+
+function realPathOf(path: string): string | null {
+  if (nativeRealpath === undefined) {
+    return null;
+  }
+  try {
+    const real = nativeRealpath(path);
+    return real === path ? null : real;
+  } catch {
+    // Does not exist yet. A *write* still has to be judged: the leaf may be new
+    // while the directory holding it is a link — `write('/tmp/out/key', …)`
+    // where `/tmp/out` points at `~/.ssh`. Resolve the parent and rebuild.
+  }
+  try {
+    const parent = dirname(path);
+    const realParent = nativeRealpath(parent);
+    return realParent === parent ? null : join(realParent, basename(path));
+  } catch {
+    return null; // neither exists, or permission denied: nothing to judge
   }
 }
 

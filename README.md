@@ -382,10 +382,9 @@ policy layer_, not an unbreakable sandbox:
   (native code, freezing the `Error` globals non-configurable) no longer buys
   trust — the call is held to the default bucket — but it can still cost you the
   culprit's name.
-- **A symlink still hides a path.** Paths are matched as written, so a link at a
-  mundane path pointing at a secret is read without an event. Resolving every
-  path would cost ~16 µs a call against a design where mundane paths cost
-  nothing; a cheaper fix is planned.
+- Paths are judged by what they **actually point at**: a link at a mundane name
+  pointing at a secret is resolved and caught, and so is a write into a
+  directory that links to one.
 - Native addons and internal bindings run outside the JS sandbox: dephawk flags
   the `process.dlopen` _load_ and any `process.binding` (`process.native`), but
   what native code does afterwards is invisible.

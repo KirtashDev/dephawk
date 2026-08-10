@@ -1,6 +1,8 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, beforeAll, afterAll } from 'vitest';
 import fs from 'node:fs';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { FsInterceptor } from '../../../src/adapters/interceptors/fs.interceptor.js';
 import type { Disposable } from '../../../src/application/ports.js';
 import { recordSpy } from './spy.js';
@@ -262,6 +264,69 @@ describe('FsInterceptor — dephawk’s own protected paths', () => {
     installed = new FsInterceptor({ protectedPaths: [sink] }).install(spy.record);
 
     fs.readFileSync(resolve('package.json'), 'utf8');
+    expect(spy.calls).toHaveLength(0);
+  });
+});
+
+describe('FsInterceptor — a symlink cannot hide a sensitive path', () => {
+  // `path.resolve` does not follow links, so an innocent-looking name pointing
+  // at a secret used to be read with no event recorded at all.
+  // `tmpdir()` is itself a symlink on macOS (/var/folders -> /private/var/folders),
+  // so resolve the base first: the interceptor reports real paths, and the
+  // expectations below have to speak the same language.
+  const dir = join(realpathSync(tmpdir()), `dephawk-symlink-test-${process.pid}`);
+  const secret = join(dir, 'real', '.env');
+  const disguise = join(dir, 'notes.txt');
+  const secretDir = join(dir, 'home', '.ssh');
+  const disguisedDir = join(dir, 'assets');
+
+  beforeAll(() => {
+    mkdirSync(join(dir, 'real'), { recursive: true });
+    mkdirSync(secretDir, { recursive: true });
+    writeFileSync(secret, 'SECRET=1\n');
+    symlinkSync(secret, disguise);
+    symlinkSync(secretDir, disguisedDir);
+  });
+
+  afterAll(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('judges the link by what it points at, not by its own name', () => {
+    const spy = recordSpy();
+    spy.deny('no secrets');
+    installed = new FsInterceptor().install(spy.record);
+
+    expect(() => fs.readFileSync(disguise, 'utf8')).toThrow(/dephawk: blocked/);
+    expect(spy.last?.capability).toBe('fs.read');
+    // The detail is the *real* path, and stays a bare path so the policy engine
+    // can still match it against sensitivity rules and allowlists.
+    expect(spy.last?.detail).toBe(secret);
+  });
+
+  it('catches a new file written inside a linked directory', () => {
+    // The leaf does not exist yet, so resolving it fails and the parent has to
+    // be resolved instead — `write('assets/authorized_keys')` into `~/.ssh`.
+    const spy = recordSpy();
+    spy.deny();
+    installed = new FsInterceptor().install(spy.record);
+
+    expect(() => fs.writeFileSync(join(disguisedDir, 'authorized_keys'), 'x')).toThrow(
+      /dephawk: blocked/,
+    );
+    expect(spy.last?.capability).toBe('fs.write');
+    expect(spy.last?.detail).toBe(join(secretDir, 'authorized_keys'));
+  });
+
+  it('still says nothing about an ordinary file that is not a link', () => {
+    // The no-noise guarantee: resolving must not turn mundane paths into events.
+    const ordinary = join(dir, 'real', 'readme.txt');
+    writeFileSync(ordinary, 'hello');
+    const spy = recordSpy();
+    spy.deny('would throw if this were reported');
+    installed = new FsInterceptor().install(spy.record);
+
+    expect(fs.readFileSync(ordinary, 'utf8')).toBe('hello');
     expect(spy.calls).toHaveLength(0);
   });
 });
