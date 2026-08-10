@@ -5,17 +5,22 @@
 #   vhs assets/demo.tape    # -> writes assets/demo.gif
 #
 # Two acts, both real: dephawk watching a malicious dependency, then blocking
-# it. Nothing is staged — the output is whatever the current build prints.
+# it. Nothing is staged — the output is whatever the current build prints, and
+# the sample's twelve calls are what produce the twelve lines on screen.
+#
+# The frame is sized to the report rather than to a round number: at 1100px the
+# longest line (~98 columns) still fits, and GitHub scales it down less than a
+# 1240px capture would, so the text stays legible in the README column.
 
 Output assets/demo.gif
 
 Set Shell "bash"
 Set FontSize 16
-Set Width 1240
-Set Height 720
+Set Width 1100
+Set Height 700
 Set Padding 22
 Set Theme "Dracula"
-Set TypingSpeed 45ms
+Set TypingSpeed 35ms
 Set Framerate 20
 
 # Setup, hidden from the recording: a throwaway copy of examples/demo with this
@@ -32,13 +37,17 @@ Type "export HOME=/Users/you NPM_TOKEN=npm_demo_fake_token PS1='$ '" Enter
 Type "clear" Enter
 Show
 
-# Act I — see it. One dependency, and everything it quietly does.
-Sleep 1s
+# Act I — see it. One dependency: your SSH keys, your browser's saved passwords,
+# a wallet, your npm token, Node's raw internal bindings, a WebAssembly payload,
+# a backdoor port, a shell-out and an exfil socket. Every one named, and blamed.
+Sleep 800ms
 Type "dephawk run node index.js" Sleep 400ms Enter
-Sleep 9s
+Sleep 7s
 
 # Act II — block it. Same run under enforce, ending on the CI exit code.
+Type "# twelve calls, every one attributed. now refuse them:" Sleep 200ms Enter
+Sleep 700ms
 Type "dephawk run --enforce --fail-on blocked node index.js" Sleep 400ms Enter
-Sleep 8s
+Sleep 7s
 Type "echo CI exit code: $?" Sleep 300ms Enter
 Sleep 3s

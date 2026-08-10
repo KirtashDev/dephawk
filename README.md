@@ -33,20 +33,28 @@ npx dephawk run npm test
 
 <div align="center">
 
-![dephawk catching a dependency listing ~/.ssh, reading a crypto wallet key and an npm token, shelling out with a credential, and phoning home — then blocking all of it in enforce mode](assets/demo.gif)
+![dephawk catching a dependency listing ~/.ssh, stealing the browser's saved passwords and a wallet key, reading an npm token, reaching for Node's raw internal bindings, running a WebAssembly payload, opening a backdoor port, shelling out with a credential and exfiltrating over a raw socket — then blocking all twelve calls in enforce mode](assets/demo.gif)
 
 </div>
 
-Those twenty seconds are the pitch. A dependency lists your `~/.ssh`, goes for a
-wallet key and your `NPM_TOKEN`, shells out with a bearer token and phones home —
-dephawk names it, redacts the token out of its own report, and on the second run
-blocks every one of those calls and fails the build with exit code 2.
+Those twenty-five seconds are the pitch. One dependency lists your `~/.ssh`, goes
+for **Chrome's saved passwords** (`Login Data` and the `Local State` key that
+decrypts them) and a wallet key, reads your `NPM_TOKEN`, grabs Node's **raw
+internal bindings**, runs a **WebAssembly** payload, opens a **backdoor port**,
+shells out with a bearer token and exfiltrates over a **raw socket to a
+hardcoded IP**. Twelve calls, and dephawk names the package behind every single
+one — not one line says "unattributed" — redacts the token out of its own
+report, then on the second run blocks all of them and fails the build with exit
+code 2.
 
 > 📺 **Run it yourself:** `npm run demo` (observe) and `npm run demo:enforce`
 > (block). The recording above is that same demo, made with
 > [`vhs`](https://github.com/charmbracelet/vhs): `vhs assets/demo.tape`. The
-> sample dependency simulates an attack and exfiltrates nothing — fake key paths,
-> a `.invalid` host, a made-up token
+> sample dependency simulates an attack and exfiltrates nothing — every path is
+> a made-up filename that does not exist, the backdoor binds loopback on an
+> OS-assigned port and closes immediately, and the two exfil targets are a
+> `.invalid` host (RFC 6761) and a `203.0.113.x` documentation address (RFC
+> 5737) that routes nowhere
 > ([see for yourself](examples/demo/node_modules/sneaky-dependency/index.js)).
 
 ## Why
@@ -179,13 +187,14 @@ this for you.)
 
 | Capability       | Examples caught                                                                    |
 | ---------------- | ---------------------------------------------------------------------------------- |
-| `fs.read`        | reading, **listing**, globbing or **copying** `~/.ssh`, keychains, wallets, `.env` |
+| `fs.read`        | reading, **listing**, globbing, **copying**, **watching** or **blob-opening** `~/.ssh`, keychains, wallets, `.env` |
 | `fs.write`       | overwriting or **deleting** `~/.npmrc`, `authorized_keys`, other secret files      |
-| `net.connect`    | `http`/`https`/`fetch`, plus raw `net`/`tls` sockets and UDP (`dgram`)             |
+| `net.connect`    | `http`/`https`/`fetch`/`http2`, plus **raw `net`/`tls` sockets — even a bare `new Socket().connect(port, ip)`** — and UDP (`dgram`) |
 | `net.resolve`    | `dns.lookup`/`resolve*` — recon and DNS-tunnel exfil (no TCP to see)               |
+| `net.listen`     | `net`/`http`/`http2` servers and `dgram.bind` — an inbound backdoor/C2 listener   |
 | `process.spawn`  | `child_process.exec`/`spawn`/`fork`, and `worker_threads` (the curl-pipe-sh)       |
-| `process.native` | `process.dlopen` — loading a native addon (`.node`) that escapes the JS sandbox    |
-| `code.eval`      | `vm.runInThisContext`/`Script`/`compileFunction` — running staged payloads         |
+| `process.native` | `process.dlopen` **and `process.binding`** — raw runtime power outside the JS sandbox |
+| `code.eval`      | `vm.*`, **WebAssembly** compile/instantiate, and **`node:inspector`** — running staged payloads / opening a debugger backdoor |
 | `env.read`       | a dependency reading `NPM_TOKEN`, `AWS_SECRET_ACCESS_KEY`, …                       |
 | `os.info`        | `os.userInfo`/`networkInterfaces`/`hostname` host profiling                        |
 
@@ -197,9 +206,12 @@ name: `~/.ssh`, `~/.aws`, `~/.azure`, `~/.gnupg`, `~/.kube`, `~/.docker`,
 `~/.config/gcloud`, `~/.config/gh` (a GitHub token in `hosts.yml`), OS credential
 stores (macOS keychains, GNOME Keyring, Windows DPAPI), **crypto wallets** (geth
 keystores, Electrum, Solana, NEAR, Exodus, `wallet.dat`, browser-extension
-vaults — the payload of choice in recent npm compromises), `.npmrc`, `.netrc`,
-`.env*`, `.git-credentials`, `.pypirc`, `*.pem`/`*.key`/`*.p12`/`*.kdbx` outside
-`node_modules`, `/etc/passwd`, and `/proc/*/environ` (every env var in one read).
+vaults like MetaMask — the payload of choice in recent npm compromises),
+**browser credential stores** (Chrome/Brave/Edge `Login Data` + `Local State`,
+Firefox `logins.json` + `key4.db`, cookie DBs — what the 2025-26 stealer
+campaigns went after), `.npmrc`, `.netrc`, `.env*`, `.git-credentials`,
+`.pypirc`, `*.pem`/`*.key`/`*.p12`/`*.kdbx` outside `node_modules`, `/etc/passwd`,
+and `/proc/*/environ` (every env var in one read).
 Matching is case-insensitive, and **listing** one of those directories counts as
 reading it — `readdir('~/.ssh')` names every key on the machine without opening
 one, and `readlink` says where a key really lives.
@@ -290,11 +302,19 @@ export default {
 - `net.connect` — allowlist of hosts. `*.sentry.io` matches the apex and any
   subdomain; an exact host matches only itself. The same list gates DNS
   resolution (`net.resolve`): a host you may connect to, you may resolve.
+- `net.listen` — `true` to permit opening an inbound listener (`server.listen`,
+  `dgram.bind`). Off by default; a dependency binding a port is a backdoor, so
+  set it only for a package whose job is to run a server. Written as
+  `net: { connect: [...], listen: true }`.
 - `spawn` — `true` to permit child processes **and** worker threads.
-- `native` — `true` to permit loading native addons (`.node` via
-  `process.dlopen`). Off by default; set it for packages like `bcrypt`, `sharp`.
-- `eval` — `true` to permit dynamic code execution through the `vm` module. Off
-  by default — most dependencies should never need it.
+- `native` — `true` to permit raw runtime power outside the JS sandbox: loading
+  native addons (`.node` via `process.dlopen`) **and** reaching internal C++
+  bindings via `process.binding`. Off by default; set it for packages like
+  `bcrypt`, `sharp`.
+- `eval` — `true` to permit dynamic code execution: the `vm` module,
+  **WebAssembly** compile/instantiate, and opening the **`node:inspector`**
+  debugger. Off by default — most dependencies should never need it. (Some
+  packages ship WASM codecs; those are the ones you may need to grant.)
 - `env` — `true` (any secret), `false` (no secrets), or an array of allowed
   secret var names. Non-secret vars (e.g. `NODE_ENV`) are always allowed.
 - `fs` — `{ read: [...], write: [...] }` path prefixes for sensitive paths.
@@ -309,10 +329,12 @@ Your own application code is never flagged — dephawk watches dependencies, not
 
 At startup (`--import dephawk/register`) dephawk monkey-patches the sensitive
 Node built-ins — `fs`, `http`/`https`/`fetch`, raw `net`/`tls`/`dgram` sockets,
-`dns`, `child_process`, `worker_threads`, `process.dlopen`, `vm`, `os`, and
-`process.env`. Each patched call captures a stack trace, walks it to find the
-first `node_modules/<package>` frame, checks it against your policy, and records
-the event. On exit it prints a summary and writes the HTML report.
+inbound `net`/`http`/`http2` server `listen`, `dns`, `child_process`,
+`worker_threads`, `process.dlopen`, `process.binding`, `vm`, `WebAssembly`,
+`node:inspector`, `os`, and `process.env`. Each patched call captures a stack
+trace, walks it to find the first `node_modules/<package>` frame, checks it
+against your policy, and records the event. On exit it prints a summary and
+writes the HTML report.
 
 **Children stay monitored.** Monitoring reaches a process tree by inheritance
 (`NODE_OPTIONS`, `DEPHAWK_*`), so a dependency could once blind dephawk for a
@@ -335,13 +357,22 @@ even under `--enforce` — see
 **This is an honest threat model.** dephawk is a high-signal _tripwire and
 policy layer_, not an unbreakable sandbox:
 
-- Attribution uses stack traces, which a determined attacker can obscure
-  (rewriting `Error.stack`, running native code). Losing a frame no longer buys
-  trust, but it can still cost you the culprit's name.
-- Native addons run outside the JS sandbox: dephawk flags the `.node` _load_
-  (`process.native`), but what the addon does afterwards is invisible.
+- Attribution uses stack traces. A dependency that installs a hostile
+  `Error.prepareStackTrace` to **forge** an application frame, or sets
+  `Error.stackTraceLimit = 0` to blind the capture, is defeated: dephawk forces
+  V8's own formatter and a generous frame budget for the duration of each
+  capture, then restores the dependency's values. Losing a frame another way
+  (native code, freezing `Error.prepareStackTrace` non-configurable) no longer
+  buys trust — the call is held to the default bucket — but it can still cost
+  you the culprit's name.
+- Native addons and internal bindings run outside the JS sandbox: dephawk flags
+  the `process.dlopen` _load_ and any `process.binding` (`process.native`), but
+  what native code does afterwards is invisible.
 - `eval()` and `new Function()` are language primitives and can't be patched;
-  the `vm` module — the deliberate path for staged code — is covered.
+  the `vm` module, `WebAssembly`, and `node:inspector` — the deliberate paths
+  for staged code and debugger backdoors — are covered. Node's own bundled WASM
+  (undici's `llhttp`, loaded on first `fetch`) is recognised as runtime plumbing
+  and left alone, so covering WASM does not break `fetch`.
 - HTTP resolves and connects internally, so one request may surface both a
   `net.resolve` and a `net.connect`; identical rows collapse in the report.
 - Named imports captured before startup (`import { readFileSync } from 'fs'`)
@@ -392,6 +423,9 @@ is not guaranteed.
 - [x] `fs.write` coverage and `os.userInfo`/`networkInterfaces` interception
 - [x] DNS (`net.resolve`), raw socket/TLS/UDP, native addon (`process.native`),
       `vm` code-eval (`code.eval`) and `worker_threads` interception
+- [x] Internal bindings (`process.binding`), inbound listeners (`net.listen`),
+      `WebAssembly` and `node:inspector` interception — closing the raw-runtime,
+      backdoor-port, staged-WASM and debugger escape hatches
 - [x] `postinstall` script guard (`dephawk guard` — catch install-time attacks
       before your code even runs)
 - [x] CI gating: `--fail-on` exit codes and SARIF output for code scanning

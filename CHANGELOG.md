@@ -3,7 +3,87 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
-## [0.5.0] — 2026-08-03
+## [0.6.0] — 2026-08-10
+
+Eight escape hatches closed, each reproduced end to end against `--enforce` with
+a deny-by-default policy before it was covered — a fake dependency read a real
+secret or ran code with an empty report, then couldn't.
+
+### Security
+
+- **Attribution could be forged (the worst of the set).** A dependency that set
+  its own `Error.prepareStackTrace` returning a stack string with a fake
+  application frame made *every* laundered call read as the user's own code and
+  get allowed unconditionally — reproduced reading `/etc/passwd` under enforce
+  with a deny-by-default policy, invisible in the report. `stackTraceLimit = 0`
+  was a weaker variant that blinded the capture. dephawk now forces V8's default
+  stack formatter and a generous frame budget for the duration of each capture,
+  then restores the dependency's values, so the forgery is ignored while the
+  app's own error handling (source maps, monitors) is untouched. Reads are now
+  blocked *and* attributed to the real package.
+- **A secret could be lifted out of `process.env` through a descriptor.**
+  `Object.getOwnPropertyDescriptor(process.env, 'AWS_SECRET_ACCESS_KEY').value`
+  reads the value without ever triggering the `get` trap the env Proxy relied
+  on. The Proxy now also traps `getOwnPropertyDescriptor`, handing back an
+  accessor descriptor for a sensitive variable: enumerating names
+  (`Object.keys`, `for…in`) still reports nothing, but pulling the value out
+  funnels through the same report/deny path as a plain read.
+
+- **Raw sockets to an IP were invisible.** Only the module-level
+  `net.connect`/`net.createConnection`/`tls.connect` were patched, so
+  `new net.Socket().connect(port, '93.184.216.34')` — a plain socket straight to
+  a hardcoded C2 IP — reached the network with nothing in the report (a
+  *hostname* was caught by DNS in passing; a bare IP was not). Now patched at the
+  one chokepoint they all funnel through, `net.Socket.prototype.connect`, which
+  covers the module functions, TLS, and `http2` (proper `host:port` detail) as
+  well as the raw case.
+- **`fs.openAsBlob` read files uncovered.** `openAsBlob('~/.ssh/id_rsa')` returns
+  a Blob whose `.text()`/`.stream()` reads the file without calling any named
+  read member — it was not in the intercepted set. Now recorded as `fs.read`.
+
+- **`process.binding` bypassed everything.** `process.binding('fs').readFileUtf8`
+  (or `'spawn_sync'`, `'tcp_wrap'`, `'cares_wrap'`) hands back Node's raw
+  internal C++ bindings, which never touch the `node:*` modules the other
+  interceptors patch — one line read any file with nothing in the report. Now
+  intercepted (with `process._linkedBinding`) as `process.native`: the same
+  raw-runtime-power category as a native addon, default-deny.
+- **`node:inspector` was an open debugger backdoor.** `new inspector.Session()`
+  + `Runtime.evaluate` runs arbitrary code in the process, and
+  `inspector.open(port)` exposes a WebSocket for full remote control. Now
+  recorded as `code.eval` (default-deny) — nothing legitimate opens a debugger.
+- **Inbound listeners were invisible.** The network interceptors watched egress;
+  `net.createServer().listen(0)` / `http…listen()` bound a backdoor port and
+  produced "no monitored activity recorded". A new **`net.listen`** capability
+  covers `net`/`http`/`http2` servers (one patch on `net.Server.prototype.listen`)
+  and `dgram.bind`, allowlisted per package with `net: { listen: true }`.
+- **WebAssembly ran staged payloads uncovered.** `WebAssembly.instantiate`
+  (and the sync `new WebAssembly.Module`/`Instance` path) executes a byte blob
+  outside the JS surface, like `vm` one format over. Now recorded as `code.eval`.
+  Node's own bundled WASM (undici's `llhttp`, compiled on first `fetch`) is
+  recognised as runtime plumbing by its immediate caller and left alone, so the
+  coverage does not break `fetch` or invent a finding for the runtime.
+
+### Added
+
+- **Browser credential stores are now sensitive**, driven by the npm stealer
+  campaigns of 2025-26 (NodeCordRAT, TrapDoor, the dYdX/Polymarket drainers),
+  which target the browser more than `~/.ssh`. Covered by their distinctive file
+  names — so a read is caught whatever the OS or profile: Chromium
+  (Chrome/Brave/Edge/Electron) `Login Data`, `Local State`, `Web Data`; Firefox
+  `logins.json`, `key4.db`, `cookies.sqlite`; plus the browser profile
+  directories themselves, so listing one is caught as recon. (MetaMask and other
+  extension vaults were already covered under `Local Extension Settings`.)
+- Watching a sensitive path (`fs.watch`/`fs.watchFile` on `~/.aws`, `.env`, …)
+  is now recorded as `fs.read` — a recon channel that never calls a read member.
+
+### Fixed
+
+- **`server.listen(port, host)` invented a DNS finding.** Node resolves the bind
+  address on the way through `listen`, so opening a server reported a
+  `net.resolve` against the caller for a lookup it never made. The listen
+  interceptor now runs Node's implementation behind the runtime-internals guard,
+  and the DNS interceptor honours it — the same treatment `child_process`
+  already had for the `process.env` copy it makes internally.
 
 Dependency changes become reviewable: dephawk can now say what a package started
 doing, not only whether it was allowed to.
@@ -328,6 +408,8 @@ a `Monitor` through the programmatic API:
 - `dephawk run <cmd>` CLI and `--import dephawk/register` entrypoint.
 - Hexagonal architecture, zero runtime dependencies, ≥90% core coverage.
 
+[0.6.0]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.0
+[0.5.0]: https://github.com/KirtashDev/dephawk/releases/tag/v0.5.0
 [0.4.3]: https://github.com/KirtashDev/dephawk/releases/tag/v0.4.3
 [0.4.2]: https://github.com/KirtashDev/dephawk/releases/tag/v0.4.2
 [0.4.1]: https://github.com/KirtashDev/dephawk/releases/tag/v0.4.1
