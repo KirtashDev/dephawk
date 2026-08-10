@@ -3,6 +3,45 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.4] — 2026-08-10
+
+Two more ways to lie about who made a call, both reproduced against `--enforce`
+with a deny-by-default policy before being closed. 0.6.0 stopped a dependency
+forging its _own_ innocence; these two let it hand the blame to someone else.
+
+### Security
+
+- **`Error.captureStackTrace` could be hijacked.** 0.6.0 hardened
+  `Error.prepareStackTrace` and `Error.stackTraceLimit` during a capture but not
+  the function doing the capturing. Replacing it with one that writes a frame
+  naming an application file made the call read as _your_ code — which policy
+  allows unconditionally — and a real secret came back under a deny-by-default
+  `--enforce` policy. dephawk now takes its own reference to `Error` and
+  `Error.captureStackTrace` at load, before any dependency has run, and uses
+  those; the `prepareStackTrace`/`stackTraceLimit` overrides are set on that
+  captured constructor too, so swapping the global out moves nothing.
+- **An `eval` frame could pin a call on another package.** `eval` and
+  `new Function` are language intrinsics that cannot be patched, and a
+  `//# sourceURL=…` comment inside evaluated source replaces that frame's
+  location wholesale. Evaluating
+  `//# sourceURL=…/node_modules/innocent/index.js` attributed the call to
+  `innocent` — which then **lent it that package's allowlist**, so the read was
+  permitted, and the report named the wrong dependency to remove. Such a frame
+  is no longer trusted for attribution, so the blame falls through to the
+  package that actually called `eval`.
+
+  V8's other eval form — `at eval (eval at run (/pkg/i.js:3:9), …)` — keeps
+  V8's own record of where the eval came from, so that path is still attributed
+  exactly as before; only a self-declared `sourceURL` location is discarded.
+
+### Known, not yet fixed
+
+- A **symlink** at a mundane path pointing to a secret is still read with no
+  event recorded: paths are resolved with `path.resolve`, which does not follow
+  links. Resolving on every call costs ~16 µs (measured), against a design where
+  mundane paths cost nothing, so the fix needs a cheaper shape than "realpath
+  everything" — likely intercepting link _creation_. Tracked for a later release.
+
 ## [0.6.3] — 2026-08-10
 
 ### Fixed
@@ -477,6 +516,7 @@ a `Monitor` through the programmatic API:
 - `dephawk run <cmd>` CLI and `--import dephawk/register` entrypoint.
 - Hexagonal architecture, zero runtime dependencies, ≥90% core coverage.
 
+[0.6.4]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.4
 [0.6.3]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.3
 [0.6.2]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.2
 [0.6.1]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.1

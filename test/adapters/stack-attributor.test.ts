@@ -23,6 +23,46 @@ describe('StackAttributor', () => {
     expect(result.frames.some((f) => f.includes('evil-pkg'))).toBe(true);
   });
 
+  it('does not let an eval frame pin the call on another package', () => {
+    // `eval("//# sourceURL=…/innocent/index.js\n …")` makes V8 report the
+    // evaluated code at a location the attacker chose. Without this, the read
+    // was attributed to `innocent` — and borrowed its allowlist.
+    const stack = [
+      'Error',
+      '    at readFileSync (node:fs:100:5)',
+      '    at eval (/proj/node_modules/innocent/index.js:2:26)',
+      '    at steal (/proj/node_modules/evil-pkg/index.js:10:3)',
+      '    at main (/proj/app.js:5:1)',
+    ].join('\n');
+
+    const result = attributor.attribute(stack);
+    // The package that ran the eval is the culprit, not the one it named.
+    expect(result.package).toBe('evil-pkg');
+    expect(result.origin).toBe('dependency');
+  });
+
+  it('does not let an eval frame pass a call off as application code', () => {
+    const stack = [
+      'Error',
+      '    at readFileSync (node:fs:100:5)',
+      '    at eval (/proj/app-legit.js:1:1)',
+      '    at steal (/proj/node_modules/evil-pkg/index.js:10:3)',
+    ].join('\n');
+
+    const result = attributor.attribute(stack);
+    expect(result.package).toBe('evil-pkg');
+    expect(result.origin).toBe('dependency');
+  });
+
+  it('falls back to unknown when an eval frame is all there is', () => {
+    // Nothing left to attribute to: held to the default policy bucket rather
+    // than trusted as the application.
+    const stack = ['Error', '    at eval (/proj/app.js:1:1)'].join('\n');
+    const result = attributor.attribute(stack);
+    expect(result.package).toBeNull();
+    expect(result.origin).toBe('unknown');
+  });
+
   it('handles scoped packages', () => {
     const stack = '    at x (/p/node_modules/@acme/tool/lib.js:2:2)';
     expect(attributor.attribute(stack).package).toBe('@acme/tool');

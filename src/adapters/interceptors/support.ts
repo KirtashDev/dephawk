@@ -14,6 +14,26 @@ export type RecordFn = (call: InterceptedCall) => Decision;
 const STACK_CAPTURE_LIMIT = 100;
 
 /**
+ * The genuine `Error` constructor and `Error.captureStackTrace`, taken once at
+ * module load.
+ *
+ * Everything about attribution rests on the stack being the real one, and both
+ * of these are writable globals. `register.js` runs before any dependency is
+ * loaded, so what we grab here is V8's own — reading them live at capture time
+ * would let a dependency swap in a function that returns whatever stack it
+ * likes. That is not hypothetical: replacing `Error.captureStackTrace` with one
+ * that writes a frame naming an application file makes the call read as *your*
+ * code, which the policy engine allows unconditionally. Reproduced reading a
+ * real secret under `--enforce` with a deny-by-default policy.
+ *
+ * The same reasoning covers the `prepareStackTrace`/`stackTraceLimit` overrides
+ * below: they are set on this captured constructor rather than on the live
+ * `Error` global, so swapping the global out does not move the knobs we set.
+ */
+const NativeError = Error;
+const nativeCaptureStackTrace = Error.captureStackTrace;
+
+/**
  * Capture the current stack as a string, excluding this helper's own frame.
  * Uses V8's `Error.captureStackTrace` when available (fast, no Error object
  * exposed) and degrades to `new Error().stack` elsewhere (Bun/Deno).
@@ -33,12 +53,12 @@ const STACK_CAPTURE_LIMIT = 100;
  * a far narrower and more conspicuous move than a plain assignment.
  */
 export function captureStack(): string {
-  const capture = Error.captureStackTrace as
+  const capture = nativeCaptureStackTrace as
     ((target: object, ctor?: (...args: never[]) => unknown) => void) | undefined;
 
   // Typed loosely: we deliberately set `prepareStackTrace` to `undefined` (the
   // signal for V8's default formatter), which its declared type forbids.
-  const errorGlobal = Error as unknown as {
+  const errorGlobal = NativeError as unknown as {
     prepareStackTrace?: unknown;
     stackTraceLimit?: number | undefined;
   };
@@ -62,7 +82,7 @@ export function captureStack(): string {
       capture(holder, captureStack);
       return holder.stack ?? '';
     }
-    return new Error().stack ?? '';
+    return new NativeError().stack ?? '';
   } finally {
     try {
       errorGlobal.prepareStackTrace = savedPrepare;
@@ -99,7 +119,7 @@ export function report(
  * {@link import('./wasm.interceptor.js').WasmInterceptor}.
  */
 export function callerLocation(boundary: (...args: never[]) => unknown): string {
-  const capture = Error.captureStackTrace as
+  const capture = nativeCaptureStackTrace as
     ((target: object, ctor?: (...args: never[]) => unknown) => void) | undefined;
   let stack: string;
   if (typeof capture === 'function') {
@@ -107,7 +127,7 @@ export function callerLocation(boundary: (...args: never[]) => unknown): string 
     capture(holder, boundary);
     stack = holder.stack ?? '';
   } else {
-    stack = new Error().stack ?? '';
+    stack = new NativeError().stack ?? '';
   }
   for (const line of stack.split('\n')) {
     const trimmed = line.trim();

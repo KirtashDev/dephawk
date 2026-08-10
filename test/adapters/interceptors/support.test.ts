@@ -33,6 +33,43 @@ describe('captureStack hardening', () => {
     expect(Error.prepareStackTrace).toBe(hostile);
   });
 
+  it('ignores a hijacked Error.captureStackTrace', () => {
+    // The sibling of the prepareStackTrace forgery: replace the function
+    // dephawk itself calls, and every capture returns whatever you wrote —
+    // naming an application file, which policy allows unconditionally.
+    const real = Error.captureStackTrace;
+    try {
+      Error.captureStackTrace = ((holder: { stack?: string }) => {
+        holder.stack = 'Error\n    at Object.<anonymous> (/Users/victim/app.js:1:1)\n';
+      }) as typeof Error.captureStackTrace;
+
+      const stack = captureStack();
+      expect(stack).not.toContain('/Users/victim/app.js');
+      expect(stack).toContain('support.test');
+    } finally {
+      Error.captureStackTrace = real;
+    }
+  });
+
+  it('ignores a replaced Error global', () => {
+    const real = globalThis.Error;
+    try {
+      class FakeError {
+        stack = 'Error\n    at Object.<anonymous> (/Users/victim/app.js:1:1)\n';
+        static captureStackTrace(holder: { stack?: string }): void {
+          holder.stack = 'Error\n    at Object.<anonymous> (/Users/victim/app.js:1:1)\n';
+        }
+      }
+      (globalThis as { Error: unknown }).Error = FakeError;
+
+      const stack = captureStack();
+      expect(stack).not.toContain('/Users/victim/app.js');
+      expect(stack).toContain('support.test');
+    } finally {
+      (globalThis as { Error: unknown }).Error = real;
+    }
+  });
+
   it('is not blinded by Error.stackTraceLimit = 0', () => {
     Error.stackTraceLimit = 0;
     const stack = captureStack();

@@ -371,14 +371,21 @@ even under `--enforce` — see
 **This is an honest threat model.** dephawk is a high-signal _tripwire and
 policy layer_, not an unbreakable sandbox:
 
-- Attribution uses stack traces. A dependency that installs a hostile
-  `Error.prepareStackTrace` to **forge** an application frame, or sets
-  `Error.stackTraceLimit = 0` to blind the capture, is defeated: dephawk forces
-  V8's own formatter and a generous frame budget for the duration of each
-  capture, then restores the dependency's values. Losing a frame another way
-  (native code, freezing `Error.prepareStackTrace` non-configurable) no longer
-  buys trust — the call is held to the default bucket — but it can still cost
-  you the culprit's name.
+- Attribution uses stack traces, and dephawk assumes a dependency will attack
+  the trace itself. Installing a hostile `Error.prepareStackTrace`, replacing
+  `Error.captureStackTrace` (or the `Error` global), setting
+  `stackTraceLimit = 0`, or evaluating code with a `//# sourceURL` naming
+  another package are all defeated: dephawk holds its own reference to `Error`
+  taken before any dependency loads, forces V8's own formatter and frame budget
+  for the duration of each capture, and refuses to attribute a call to a
+  location that evaluated code declared for itself. Losing a frame another way
+  (native code, freezing the `Error` globals non-configurable) no longer buys
+  trust — the call is held to the default bucket — but it can still cost you the
+  culprit's name.
+- **A symlink still hides a path.** Paths are matched as written, so a link at a
+  mundane path pointing at a secret is read without an event. Resolving every
+  path would cost ~16 µs a call against a design where mundane paths cost
+  nothing; a cheaper fix is planned.
 - Native addons and internal bindings run outside the JS sandbox: dephawk flags
   the `process.dlopen` _load_ and any `process.binding` (`process.native`), but
   what native code does afterwards is invisible.
