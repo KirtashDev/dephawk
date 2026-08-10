@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach, beforeEach } from 'vitest';
+import util from 'node:util';
 import { EnvInterceptor } from '../../../src/adapters/interceptors/env.interceptor.js';
 import type { Disposable } from '../../../src/application/ports.js';
 import { recordSpy } from './spy.js';
@@ -62,6 +63,43 @@ describe('EnvInterceptor', () => {
     const descriptor = Object.getOwnPropertyDescriptor(process.env, 'NPM_TOKEN');
     expect(() => descriptor?.get?.()).toThrow(/dephawk: blocked/);
     expect(spy.last?.detail).toBe('NPM_TOKEN');
+  });
+
+  it('does not leak a secret through util.inspect / console.log when denied', () => {
+    // `util.inspect` (and hence `console.log(process.env)`) unwraps a Proxy to
+    // its target and formats the target's own values with no trap in the way.
+    // With the real env as the target this dumped every secret in one call,
+    // reporting and denying nothing. The decoy target holds no values, and a
+    // denied dump is replaced by a placeholder.
+    const spy = recordSpy();
+    spy.deny('no whole-env dumps');
+    installed = new EnvInterceptor().install(spy.record);
+
+    const shown = util.inspect(process.env);
+    expect(shown).not.toContain('super-secret');
+    expect(shown).toContain('hidden by dephawk');
+    // Nested, too: `console.log({ env: process.env })`.
+    expect(util.inspect({ env: process.env })).not.toContain('super-secret');
+  });
+
+  it('judges a whole-environment dump via inspect as process.memory', () => {
+    const spy = recordSpy();
+    spy.deny();
+    installed = new EnvInterceptor().install(spy.record);
+
+    util.inspect(process.env);
+    expect(spy.last?.capability).toBe('process.memory');
+    expect(spy.last?.detail).toContain('inspect');
+  });
+
+  it('reveals the real environment to inspect when the dump is allowed', () => {
+    // Allowed callers — your own code, or a dependency with `memory: true` —
+    // still get the normal, useful `console.log(process.env)` output.
+    const spy = recordSpy(); // allow
+    installed = new EnvInterceptor().install(spy.record);
+
+    expect(util.inspect(process.env)).toContain('super-secret');
+    expect(spy.last?.capability).toBe('process.memory');
   });
 
   it('does not report or break enumerating names with Object.keys', () => {
