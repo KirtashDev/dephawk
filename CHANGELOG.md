@@ -3,6 +3,25 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.15] — 2026-08-10
+
+### Security
+
+- **`node:sqlite` read files past the filesystem interceptor.** A dependency
+  could `new DatabaseSync('…/Login Data')` and `SELECT` the passwords straight
+  out of Chrome's saved-password database — or any sensitive SQLite file — with
+  nothing recorded and nothing blocked, even under `--enforce`. `node:sqlite`
+  (Node 22.5+) opens the file through its own C++ binding, never through `fs`.
+  This is exactly what the 2025-26 browser-credential stealers do, and dephawk
+  already treated those paths as sensitive — it just could not see this door.
+  Opening a database at a sensitive path is now recorded as `fs.read`, gated by
+  the same sensitivity rules and `fs.read` allowlist, including the
+  `{ open: false }` + `.open()` form; loading a SQLite extension (native code)
+  is recorded as `process.native`. In-memory and mundane databases are ignored,
+  and the interceptor installs nothing where `node:sqlite` is unavailable, with
+  its experimental warning suppressed so a project that never touches SQLite
+  does not print it.
+
 ## [0.6.14] — 2026-08-10
 
 ### Security
@@ -759,6 +778,7 @@ a `Monitor` through the programmatic API:
 - `dephawk run <cmd>` CLI and `--import dephawk/register` entrypoint.
 - Hexagonal architecture, zero runtime dependencies, ≥90% core coverage.
 
+[0.6.15]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.15
 [0.6.14]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.14
 [0.6.13]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.13
 [0.6.12]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.12

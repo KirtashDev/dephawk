@@ -10,6 +10,7 @@ import { BindingInterceptor } from './binding.interceptor.js';
 import { VmInterceptor } from './vm.interceptor.js';
 import { WasmInterceptor } from './wasm.interceptor.js';
 import { InspectorInterceptor } from './inspector.interceptor.js';
+import { SqliteInterceptor } from './sqlite.interceptor.js';
 import { ListenInterceptor } from './listen.interceptor.js';
 import { EnvInterceptor } from './env.interceptor.js';
 import { OsInterceptor } from './os.interceptor.js';
@@ -50,6 +51,7 @@ export { BindingInterceptor } from './binding.interceptor.js';
 export { VmInterceptor } from './vm.interceptor.js';
 export { WasmInterceptor } from './wasm.interceptor.js';
 export { InspectorInterceptor } from './inspector.interceptor.js';
+export { SqliteInterceptor } from './sqlite.interceptor.js';
 export { ListenInterceptor } from './listen.interceptor.js';
 export { EnvInterceptor } from './env.interceptor.js';
 export { OsInterceptor } from './os.interceptor.js';
@@ -78,6 +80,7 @@ export function createInterceptors(
     new WorkerInterceptor(options),
     new NativeAddonInterceptor(),
     new BindingInterceptor(),
+    new SqliteInterceptor(),
     new VmInterceptor(),
     new WasmInterceptor(),
     new InspectorInterceptor(),
