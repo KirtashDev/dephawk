@@ -51,7 +51,7 @@ export class JsonlSinkReporter implements Reporter {
  * not a gate. We say so on stderr and carry on writing nothing, which surfaces
  * as an empty report rather than a crashed `npm ci`.
  */
-function openAppender(path: string): AppendFn {
+export function openAppender(path: string): AppendFn {
   let fd: number;
   try {
     fd = openSync(path, 'a');
