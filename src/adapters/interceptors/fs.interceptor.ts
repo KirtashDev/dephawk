@@ -1,6 +1,6 @@
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isSensitivePath } from '../../domain/sensitivity.js';
+import { isPersistenceTarget, isSensitivePath } from '../../domain/sensitivity.js';
 import { protectedPathAffectedBy } from '../../domain/protected-path.js';
 import { packageOwningPath } from '../../domain/package-dir.js';
 import type { Capability } from '../../domain/capability.js';
@@ -264,9 +264,12 @@ export class FsInterceptor implements CapabilityInterceptor {
     // package writing into another's is a takeover of that package's identity.
     // See {@link import('../../domain/package-dir.js')}.
     const intoPackage = capability === 'fs.write' && packageOwningPath(path) !== null;
+    // Writing a shell startup file is persistence, not a secret read — judged on
+    // writes only, and lexically (no realpath needed for a basename match).
+    const persistence = capability === 'fs.write' && isPersistenceTarget(path);
 
     let target = path;
-    if (!isProtected && !intoPackage && !isSensitivePath(path)) {
+    if (!isProtected && !intoPackage && !persistence && !isSensitivePath(path)) {
       // Lexically mundane — but `path.resolve` does not follow symlinks, and a
       // link can point anywhere. `readFileSync('notes.txt')` where that is a
       // link to `~/.ssh/id_rsa` used to read the key with no event at all.

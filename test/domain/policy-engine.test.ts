@@ -340,6 +340,21 @@ describe('RulePolicyEngine — fs.read / fs.write', () => {
     // /var/log/app is not sensitive, so it's allowed regardless — assert it stays allowed.
     expect(allowed.allowed).toBe(true);
   });
+
+  it('treats writing a shell startup file as sensitive persistence', () => {
+    const rc = engine.evaluate(
+      req({ capability: 'fs.write', detail: '/home/alice/.bashrc' }),
+    );
+    expect(rc.sensitive).toBe(true);
+    expect(rc.allowed).toBe(false);
+
+    // Reading it is not sensitive — persistence is a write-side concern.
+    const read = engine.evaluate(
+      req({ capability: 'fs.read', detail: '/home/alice/.bashrc' }),
+    );
+    expect(read.sensitive).toBe(false);
+    expect(read.allowed).toBe(true);
+  });
 });
 
 describe('RulePolicyEngine — os.info', () => {
