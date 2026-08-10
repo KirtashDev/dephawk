@@ -20,6 +20,7 @@
  * These helpers are pure string/object transforms so the merge rules can be
  * tested without spawning anything.
  */
+import { fileURLToPath } from 'node:url';
 
 /** The parts of the environment that must reach every child process. */
 export interface MonitoringEnv {
@@ -124,18 +125,41 @@ export interface RestoredWorkerOptions {
 export function restoreWorkerOptions(
   options: Record<string, unknown>,
   monitoring: MonitoringEnv,
+  baseExecArgv: readonly string[] = [],
 ): RestoredWorkerOptions {
   const patched: Record<string, unknown> = { ...options };
   const restored: string[] = [];
 
   const execArgv = options['execArgv'];
-  if (Array.isArray(execArgv)) {
-    const present = execArgv.filter((arg): arg is string => typeof arg === 'string');
+  const explicit = Array.isArray(execArgv)
+    ? execArgv.filter((arg): arg is string => typeof arg === 'string')
+    : null;
+
+  if (options['eval'] === true) {
+    // An `eval: true` worker does not honour `--import` in execArgv — verified
+    // on Node 20 and 22 — and with no execArgv it inherits `process.execArgv`,
+    // whose `--import` is equally useless to it. So it runs entirely unmonitored
+    // unless we switch to `--require`, which it does honour (register.js has no
+    // top-level await, so it loads through `require`). We seed from whatever
+    // execArgv would otherwise apply — the caller's, or the parent's — so any
+    // other flags on it survive.
+    const base = explicit ?? [...baseExecArgv];
+    const missing = monitoring.imports
+      .map(asRequireFlag)
+      .filter((flag) => !base.some((arg) => arg.includes(requiredPath(flag))));
+    if (missing.length > 0) {
+      patched['execArgv'] = [...base, ...missing];
+      restored.push('execArgv');
+    }
+  } else if (explicit !== null) {
+    // A file-based worker with an explicit execArgv: `--import` works for it,
+    // and only an explicit array can be missing the flag (no array inherits the
+    // parent's, which already carries monitoring).
     const missing = monitoring.imports
       .map(asExecArgvFlag)
-      .filter((flag) => !present.some((arg) => arg.includes(importedUrl(flag))));
+      .filter((flag) => !explicit.some((arg) => arg.includes(importedUrl(flag))));
     if (missing.length > 0) {
-      patched['execArgv'] = [...execArgv, ...missing];
+      patched['execArgv'] = [...explicit, ...missing];
       restored.push('execArgv');
     }
   }
@@ -163,6 +187,21 @@ function asExecArgvFlag(fragment: string): string {
 
 function importedUrl(flag: string): string {
   return flag.slice('--import='.length);
+}
+
+/**
+ * `--require <path>` for an `eval` worker, which honours `--require` where it
+ * ignores `--import`. The import fragment names a `file://` URL; `--require`
+ * wants a filesystem path.
+ */
+function asRequireFlag(fragment: string): string {
+  const url = fragment.replace(/^--import(?:=|\s+)/, '');
+  const path = url.startsWith('file:') ? fileURLToPath(url) : url;
+  return `--require=${path}`;
+}
+
+function requiredPath(flag: string): string {
+  return flag.slice('--require='.length);
 }
 
 /** The outcome of putting monitoring back into an environment. */

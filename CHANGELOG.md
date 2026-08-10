@@ -3,6 +3,25 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.12] — 2026-08-10
+
+### Security
+
+- **An `eval: true` worker ran unmonitored.** `new Worker(code, { eval: true })`
+  escaped monitoring entirely — its reads were neither recorded nor blocked,
+  even under `--enforce` with a deny-by-default policy — because such a worker
+  does **not** honour `--import` in `execArgv` (verified on Node 20 and 22), and
+  with no `execArgv` it inherits `process.execArgv`, whose `--import` is equally
+  useless to it. The 0.4.3 worker fix, which re-attaches `--import`, had no
+  effect on them. dephawk now re-attaches monitoring to an eval worker with
+  `--require` instead, which it does honour, seeding from the caller's or the
+  parent's `execArgv` so other flags survive. File-based workers are unchanged —
+  `--import` works for them and this is verified in both directions.
+
+  Along the way this corrected a wrong belief in the code's own comments: worker
+  threads do **not** re-apply an inherited `NODE_OPTIONS` (they are threads, not
+  new processes), so worker monitoring rests entirely on `execArgv`.
+
 ## [0.6.11] — 2026-08-10
 
 ### Security
@@ -702,6 +721,7 @@ a `Monitor` through the programmatic API:
 - `dephawk run <cmd>` CLI and `--import dephawk/register` entrypoint.
 - Hexagonal architecture, zero runtime dependencies, ≥90% core coverage.
 
+[0.6.12]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.12
 [0.6.11]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.11
 [0.6.10]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.10
 [0.6.9]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.9

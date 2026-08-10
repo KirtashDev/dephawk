@@ -101,7 +101,11 @@ function reattach(args: unknown[], monitoring: MonitoringEnv): readonly string[]
   if (!isObject(options)) {
     return [];
   }
-  const { options: patched, restored } = restoreWorkerOptions(options, monitoring);
+  const { options: patched, restored } = restoreWorkerOptions(
+    options,
+    monitoring,
+    process.execArgv,
+  );
   if (restored.length > 0) {
     args[1] = patched;
   }
