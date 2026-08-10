@@ -53,13 +53,27 @@ else
 
   version="$IN_VERSION"
   if [ -z "$version" ]; then
-    # Self-pinning: `uses: KirtashDev/dephawk@v1.2.3` runs dephawk 1.2.3. The
-    # action reference is the only source of truth for which version runs, so
-    # there is no default written down here to drift out of step with releases.
+    # Self-pinning: the action reference is the only source of truth for which
+    # version runs, so there is no default written down here to drift out of
+    # step with releases. A tag is turned into the npm range that means the same
+    # thing, most specific first:
+    #
+    #   @v1.2.3 -> 1.2.3   exactly that release
+    #   @v1.2   -> 1.2     newest patch of that minor
+    #   @v1     -> 1       newest release of that major
+    #
+    # The major case is the one that matters. `@v0` is a floating tag, and
+    # mapping it to `latest` (as this did until 0.6.3) would silently move
+    # everyone pinned to `@v0` onto 1.x the day 1.0 ships — a major bump is
+    # exactly where this action's inputs may change, so "newest" is not what
+    # `@v0` asks for. `0` keeps them on the major they pinned.
+    #
     # A reference that is not a version tag (a branch, a commit SHA) has nothing
     # to pin to and falls back to the newest release.
     case "${GITHUB_ACTION_REF:-}" in
       v[0-9]*.[0-9]*.[0-9]*) version="${GITHUB_ACTION_REF#v}" ;;
+      v[0-9]*.[0-9]*) version="${GITHUB_ACTION_REF#v}" ;;
+      v[0-9]*) version="${GITHUB_ACTION_REF#v}" ;;
       *) version="latest" ;;
     esac
   fi

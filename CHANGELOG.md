@@ -3,6 +3,24 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.3] — 2026-08-10
+
+### Fixed
+
+- **A floating major tag would have jumped across the 1.0 boundary.** The action
+  pins dephawk from its own reference, but only a full `vX.Y.Z` tag was
+  recognised — anything else, `@v0` included, resolved to `latest`. Since 0.6.2
+  the README recommends `@v0`, so the day 1.0 shipped every workflow using it
+  would have silently moved to 1.x, across exactly the bump where this action's
+  inputs may change. A reference is now turned into the npm range that means the
+  same thing: `@v1.2.3` → `1.2.3`, `@v1.2` → newest `1.2.x`, `@v1` → newest
+  `1.x`. Branches and SHAs still fall back to `latest`, having nothing to pin to.
+
+  The version derivation had no test at all — CI exercises the action through
+  the `bin` input, which skips that branch entirely. It now has one
+  (`test/e2e/action-version.e2e.test.ts`) that runs the real `action/run.sh`
+  against a stub `npx` and asserts the resolved spec; it fails without this fix.
+
 ## [0.6.2] — 2026-08-10
 
 Documentation only — no behaviour changes.
@@ -459,6 +477,7 @@ a `Monitor` through the programmatic API:
 - `dephawk run <cmd>` CLI and `--import dephawk/register` entrypoint.
 - Hexagonal architecture, zero runtime dependencies, ≥90% core coverage.
 
+[0.6.3]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.3
 [0.6.2]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.2
 [0.6.1]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.1
 [0.6.0]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.0

@@ -140,12 +140,22 @@ is why it is opt-in. Every input, including `mode: enforce`, a `config` path and
 a `working-directory`, is documented in [`action.yml`](action.yml); the reasoning
 is in [`docs/adr/0007`](docs/adr/0007-a-published-github-action.md).
 
-**On pinning.** The action runs the dephawk release its own tag names, so the
-reference you choose picks the tool version too. `@v0` is a floating tag moved
-to each new release, which is what you want here: this is a security tool, and
-an exact pin means you keep the bypasses a later version fixed. Pin exactly
-(`@v0.6.1` → `dephawk@0.6.1`) only when you need a reproducible build, and then
-treat it like any other dependency — something to update, not to forget.
+**On pinning.** The action runs the dephawk release its own reference names, so
+the tag you choose picks the tool version too, at whatever precision you ask
+for:
+
+| reference    | runs            | means                                   |
+| ------------ | --------------- | --------------------------------------- |
+| `@v0`        | newest `0.x`    | fixes yes, major bumps no ← recommended |
+| `@v0.6`      | newest `0.6.x`  | patches only                            |
+| `@v0.6.3`    | exactly `0.6.3` | fully reproducible                      |
+| a branch/SHA | newest release  | nothing to pin to                       |
+
+`@v0` is the right default for a security tool: an exact pin means keeping the
+bypasses a later version fixed, and a floating major still never carries you
+across a breaking change to the action's inputs. Pin exactly only when you need
+a reproducible build, and then treat it like any other dependency — something to
+update, not to forget.
 
 ### Or wire the CLI up yourself
 

@@ -62,9 +62,11 @@ inputs:
     default: '.'
   version:
     description: >
-      Version of dephawk to run. Defaults to the version this action reference
-      names (`@v1.2.3` runs dephawk 1.2.3), falling back to `latest` when the
-      reference is a branch or a commit SHA.
+      Version of dephawk to run. Defaults to whatever this action reference
+      names: `@v1.2.3` runs dephawk 1.2.3, `@v1.2` the newest 1.2.x, and `@v1`
+      the newest 1.x — so a floating major tag never carries you across a major
+      bump. Falls back to `latest` when the reference is a branch or a commit
+      SHA, which name no version to pin to.
     required: false
     default: ''
   bin:
