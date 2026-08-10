@@ -112,6 +112,22 @@ describe('EnvInterceptor', () => {
     expect(spy.calls).toHaveLength(0); // …but no value was read, so nothing fired
   });
 
+  it('cannot be sealed into breaking env enumeration', () => {
+    // The Proxy wraps an empty decoy target. If a dependency could make that
+    // decoy non-extensible (Object.preventExtensions/freeze), `ownKeys`
+    // returning the real environment's names would violate the Proxy invariant
+    // and make every Object.keys/spread/console.log(process.env) throw — a DoS.
+    // Like the real process.env, sealing is refused and enumeration keeps working.
+    const spy = recordSpy();
+    installed = new EnvInterceptor().install(spy.record);
+
+    expect(() => Object.preventExtensions(process.env)).toThrow(TypeError);
+    expect(Reflect.preventExtensions(process.env)).toBe(false);
+    expect(Object.isExtensible(process.env)).toBe(true);
+    expect(Object.keys(process.env)).toContain('NODE_ENV'); // still enumerable
+    expect(() => ({ ...process.env })).not.toThrow();
+  });
+
   it('restores process.env on dispose', () => {
     const before = process.env;
     const local = new EnvInterceptor().install(recordSpy().record);

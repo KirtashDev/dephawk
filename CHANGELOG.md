@@ -3,6 +3,21 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.19] — 2026-08-10
+
+### Fixed
+
+- **A dependency could freeze `process.env` into breaking the host app.** The
+  env-inspect fix in 0.6.18 wraps the env Proxy over an empty decoy target. If a
+  dependency made that decoy non-extensible — `Object.preventExtensions(process.env)`
+  or `Object.freeze(process.env)` — the `ownKeys` trap, which returns the real
+  environment's variable names (none of which exist on the empty decoy), then
+  violated a Proxy invariant and threw `TypeError` on every `Object.keys(process.env)`,
+  spread, and `console.log(process.env)` afterwards: a denial of service on the
+  program dephawk is protecting. The Proxy now forwards `preventExtensions` to the
+  real `process.env`, which refuses it exactly as an unwrapped `process.env` does,
+  so the decoy can never be sealed and enumeration keeps working.
+
 ## [0.6.18] — 2026-08-10
 
 ### Security
