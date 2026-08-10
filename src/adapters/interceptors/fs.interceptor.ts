@@ -137,6 +137,42 @@ const TWO_PATHS: readonly FsMethod[] = [
       { index: 1, capability: 'fs.write' },
     ],
   },
+  // A hard link is a second name for the *same bytes*. `link('~/.ssh/id_rsa',
+  // 'notes.txt')` then `readFileSync('notes.txt')` reads the key — and unlike a
+  // symlink, the read-time `realpath` resolution cannot catch it: a hard link is
+  // a co-equal directory entry, so `realpath('notes.txt')` is `notes.txt`, not
+  // the key. The only place to see it is the moment the alias is made, so the
+  // source counts as a read (the caller gains read access to its content) and
+  // the destination as a write (the into-package takeover check applies).
+  {
+    key: 'link',
+    paths: [
+      { index: 0, capability: 'fs.read' },
+      { index: 1, capability: 'fs.write' },
+    ],
+  },
+  {
+    key: 'linkSync',
+    paths: [
+      { index: 0, capability: 'fs.read' },
+      { index: 1, capability: 'fs.write' },
+    ],
+  },
+  // A symlink writes only its destination — planting one at a sensitive path
+  // (`symlink('/tmp/attacker-key', '~/.ssh/authorized_keys')`, or a payload
+  // inside another package) is a write with no read member behind it. Only the
+  // destination (index 1) counts: the target (index 0) is a path the link merely
+  // points at, not read here — reading *through* the link later is caught by the
+  // read-time realpath resolution, and treating the target as a read would flag
+  // the many legitimate symlinks a build creates into its own tree.
+  {
+    key: 'symlink',
+    paths: [{ index: 1, capability: 'fs.write' }],
+  },
+  {
+    key: 'symlinkSync',
+    paths: [{ index: 1, capability: 'fs.write' }],
+  },
 ];
 
 const METHODS: readonly FsMethod[] = [...SINGLE_PATH, ...TWO_PATHS];
