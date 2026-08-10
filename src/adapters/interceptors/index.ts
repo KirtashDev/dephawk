@@ -12,6 +12,7 @@ import { WasmInterceptor } from './wasm.interceptor.js';
 import { InspectorInterceptor } from './inspector.interceptor.js';
 import { SqliteInterceptor } from './sqlite.interceptor.js';
 import { ProcessMemoryInterceptor } from './process-memory.interceptor.js';
+import { ModuleLoaderInterceptor } from './module-loader.interceptor.js';
 import { ListenInterceptor } from './listen.interceptor.js';
 import { EnvInterceptor } from './env.interceptor.js';
 import { OsInterceptor } from './os.interceptor.js';
@@ -54,6 +55,7 @@ export { WasmInterceptor } from './wasm.interceptor.js';
 export { InspectorInterceptor } from './inspector.interceptor.js';
 export { SqliteInterceptor } from './sqlite.interceptor.js';
 export { ProcessMemoryInterceptor } from './process-memory.interceptor.js';
+export { ModuleLoaderInterceptor } from './module-loader.interceptor.js';
 export { ListenInterceptor } from './listen.interceptor.js';
 export { EnvInterceptor } from './env.interceptor.js';
 export { OsInterceptor } from './os.interceptor.js';
@@ -84,6 +86,7 @@ export function createInterceptors(
     new BindingInterceptor(),
     new SqliteInterceptor(),
     new ProcessMemoryInterceptor(),
+    new ModuleLoaderInterceptor(),
     new VmInterceptor(),
     new WasmInterceptor(),
     new InspectorInterceptor(),

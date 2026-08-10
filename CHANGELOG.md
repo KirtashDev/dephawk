@@ -3,6 +3,32 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.17] — 2026-08-10
+
+### Security
+
+- **Hijacking the module loader ran code as another package.** A dependency that
+  reassigned `Module.prototype._compile` (or `Module._load`,
+  `Module._resolveFilename`, a `require.extensions` handler) could prepend code
+  to the source of every module loaded afterwards, so the injected code ran
+  inside — and was attributed to — an innocent, allowlisted package and borrowed
+  its permissions. Reproduced: a dependency injected a `readFileSync` into an
+  allowlisted package via `_compile` and read a secret it had no rule for, under
+  `--enforce` with a deny-by-default policy. The ES-module equivalent,
+  `module.register(hook)` (and `registerHooks`), did the same for ESM.
+
+  This cannot be caught in the attributor — the injected code genuinely runs in
+  the victim's module — so the _act of hooking the loader_ is now recorded as
+  `code.eval` and denied by default. Legitimate transpiler hooks (`ts-node`,
+  `@babel/register`, `tsx`) are real code execution and are allowlisted the same
+  way any `vm` user is, with `eval: true`.
+
+  Closing the ESM side also required not building the `node:module` ESM facade
+  early: `support.ts` now obtains `createRequire` through
+  `process.getBuiltinModule` instead of `import`, so a dependency's
+  `import { register } from 'node:module'` gets dephawk's patched `register`, not
+  the original. (Same facade-snapshot class as the 0.6.13 fix.)
+
 ## [0.6.16] — 2026-08-10
 
 ### Security
@@ -794,6 +820,7 @@ a `Monitor` through the programmatic API:
 - `dephawk run <cmd>` CLI and `--import dephawk/register` entrypoint.
 - Hexagonal architecture, zero runtime dependencies, ≥90% core coverage.
 
+[0.6.17]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.17
 [0.6.16]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.16
 [0.6.15]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.15
 [0.6.14]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.14
