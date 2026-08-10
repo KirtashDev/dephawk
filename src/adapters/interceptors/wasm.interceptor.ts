@@ -65,17 +65,22 @@ export class WasmInterceptor implements CapabilityInterceptor {
     const restores: (() => void)[] = [];
 
     for (const key of ASYNC_METHODS) {
-      const restore = patchMethod(wasm, key, (original) =>
-        function wrapped(this: unknown, ...args: unknown[]): unknown {
-          if (callerLocation(wrapped).startsWith(RUNTIME_WASM_CALLER)) {
+      const restore = patchMethod(
+        wasm,
+        key,
+        (original) =>
+          function wrapped(this: unknown, ...args: unknown[]): unknown {
+            if (callerLocation(wrapped).startsWith(RUNTIME_WASM_CALLER)) {
+              return (original as (...a: unknown[]) => unknown).apply(this, args);
+            }
+            const decision = report(record, 'code.eval', `WebAssembly.${key}`);
+            if (!decision.allow) {
+              return Promise.reject(
+                blockedError('WebAssembly execution', decision.reason),
+              );
+            }
             return (original as (...a: unknown[]) => unknown).apply(this, args);
-          }
-          const decision = report(record, 'code.eval', `WebAssembly.${key}`);
-          if (!decision.allow) {
-            return Promise.reject(blockedError('WebAssembly execution', decision.reason));
-          }
-          return (original as (...a: unknown[]) => unknown).apply(this, args);
-        },
+          },
       );
       if (restore) {
         restores.push(restore);
@@ -83,19 +88,22 @@ export class WasmInterceptor implements CapabilityInterceptor {
     }
 
     for (const key of CONSTRUCTORS) {
-      const restore = patchMethod(wasm, key, (Original) =>
-        function wrapped(this: unknown, ...args: unknown[]): unknown {
-          if (!callerLocation(wrapped).startsWith(RUNTIME_WASM_CALLER)) {
-            const decision = report(record, 'code.eval', `new WebAssembly.${key}`);
-            if (!decision.allow) {
-              throw blockedError('WebAssembly execution', decision.reason);
+      const restore = patchMethod(
+        wasm,
+        key,
+        (Original) =>
+          function wrapped(this: unknown, ...args: unknown[]): unknown {
+            if (!callerLocation(wrapped).startsWith(RUNTIME_WASM_CALLER)) {
+              const decision = report(record, 'code.eval', `new WebAssembly.${key}`);
+              if (!decision.allow) {
+                throw blockedError('WebAssembly execution', decision.reason);
+              }
             }
-          }
-          return Reflect.construct(
-            Original as unknown as new (...a: unknown[]) => object,
-            args,
-          );
-        },
+            return Reflect.construct(
+              Original as unknown as new (...a: unknown[]) => object,
+              args,
+            );
+          },
       );
       if (restore) {
         restores.push(restore);

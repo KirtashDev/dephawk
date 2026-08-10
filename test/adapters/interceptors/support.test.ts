@@ -1,5 +1,8 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { captureStack, callerLocation } from '../../../src/adapters/interceptors/support.js';
+import {
+  captureStack,
+  callerLocation,
+} from '../../../src/adapters/interceptors/support.js';
 
 // These tests poke the two `Error` globals a dependency can weaponise against
 // attribution. Always restore them so a failure cannot leak into other tests.
@@ -34,8 +37,9 @@ describe('captureStack hardening', () => {
     Error.stackTraceLimit = 0;
     const stack = captureStack();
     // A real, multi-frame stack came back despite the zero limit.
-    expect(stack.split('\n').filter((l) => l.trim().startsWith('at ')).length)
-      .toBeGreaterThan(1);
+    expect(
+      stack.split('\n').filter((l) => l.trim().startsWith('at ')).length,
+    ).toBeGreaterThan(1);
     // And the caller's chosen limit is restored.
     expect(Error.stackTraceLimit).toBe(0);
   });

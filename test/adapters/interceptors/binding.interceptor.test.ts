@@ -40,8 +40,9 @@ describe('BindingInterceptor', () => {
     if (typeof linked !== 'function') {
       return; // not exposed on this runtime — nothing to assert
     }
-    expect(() => (proc._linkedBinding as Binder)('os'))
-      .toThrow(/dephawk: blocked internal binding access process\._linkedBinding\(os\)/);
+    expect(() => (proc._linkedBinding as Binder)('os')).toThrow(
+      /dephawk: blocked internal binding access process\._linkedBinding\(os\)/,
+    );
     expect(spy.last?.detail).toBe('process._linkedBinding(os)');
   });
 

@@ -13,14 +13,14 @@ secret or ran code with an empty report, then couldn't.
 
 - **Attribution could be forged (the worst of the set).** A dependency that set
   its own `Error.prepareStackTrace` returning a stack string with a fake
-  application frame made *every* laundered call read as the user's own code and
+  application frame made _every_ laundered call read as the user's own code and
   get allowed unconditionally — reproduced reading `/etc/passwd` under enforce
   with a deny-by-default policy, invisible in the report. `stackTraceLimit = 0`
   was a weaker variant that blinded the capture. dephawk now forces V8's default
   stack formatter and a generous frame budget for the duration of each capture,
   then restores the dependency's values, so the forgery is ignored while the
   app's own error handling (source maps, monitors) is untouched. Reads are now
-  blocked *and* attributed to the real package.
+  blocked _and_ attributed to the real package.
 - **A secret could be lifted out of `process.env` through a descriptor.**
   `Object.getOwnPropertyDescriptor(process.env, 'AWS_SECRET_ACCESS_KEY').value`
   reads the value without ever triggering the `get` trap the env Proxy relied
@@ -33,7 +33,7 @@ secret or ran code with an empty report, then couldn't.
   `net.connect`/`net.createConnection`/`tls.connect` were patched, so
   `new net.Socket().connect(port, '93.184.216.34')` — a plain socket straight to
   a hardcoded C2 IP — reached the network with nothing in the report (a
-  *hostname* was caught by DNS in passing; a bare IP was not). Now patched at the
+  _hostname_ was caught by DNS in passing; a bare IP was not). Now patched at the
   one chokepoint they all funnel through, `net.Socket.prototype.connect`, which
   covers the module functions, TLS, and `http2` (proper `host:port` detail) as
   well as the raw case.
@@ -48,9 +48,9 @@ secret or ran code with an empty report, then couldn't.
   intercepted (with `process._linkedBinding`) as `process.native`: the same
   raw-runtime-power category as a native addon, default-deny.
 - **`node:inspector` was an open debugger backdoor.** `new inspector.Session()`
-  + `Runtime.evaluate` runs arbitrary code in the process, and
-  `inspector.open(port)` exposes a WebSocket for full remote control. Now
-  recorded as `code.eval` (default-deny) — nothing legitimate opens a debugger.
+  - `Runtime.evaluate` runs arbitrary code in the process, and
+    `inspector.open(port)` exposes a WebSocket for full remote control. Now
+    recorded as `code.eval` (default-deny) — nothing legitimate opens a debugger.
 - **Inbound listeners were invisible.** The network interceptors watched egress;
   `net.createServer().listen(0)` / `http…listen()` bound a backdoor port and
   produced "no monitored activity recorded". A new **`net.listen`** capability

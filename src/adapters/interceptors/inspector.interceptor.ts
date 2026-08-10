@@ -40,14 +40,17 @@ export class InspectorInterceptor implements CapabilityInterceptor {
     const restores: (() => void)[] = [];
     const mod = inspector as unknown as Record<string, unknown>;
 
-    const openRestore = patchMethod(mod, 'open', (original) =>
-      function (this: unknown, ...args: unknown[]): unknown {
-        const decision = report(record, 'code.eval', 'inspector.open');
-        if (!decision.allow) {
-          throw blockedError('opening the inspector', decision.reason);
-        }
-        return (original as (...a: unknown[]) => unknown).apply(this, args);
-      },
+    const openRestore = patchMethod(
+      mod,
+      'open',
+      (original) =>
+        function (this: unknown, ...args: unknown[]): unknown {
+          const decision = report(record, 'code.eval', 'inspector.open');
+          if (!decision.allow) {
+            throw blockedError('opening the inspector', decision.reason);
+          }
+          return (original as (...a: unknown[]) => unknown).apply(this, args);
+        },
     );
     if (openRestore) {
       restores.push(openRestore);
@@ -56,14 +59,17 @@ export class InspectorInterceptor implements CapabilityInterceptor {
     const proto = prototypeOf((inspector as unknown as { Session?: unknown }).Session);
     if (proto) {
       for (const key of SESSION_METHODS) {
-        const restore = patchMethod(proto, key, (original) =>
-          function (this: unknown, ...args: unknown[]): unknown {
-            const decision = report(record, 'code.eval', `inspector.Session.${key}`);
-            if (!decision.allow) {
-              throw blockedError('connecting an inspector session', decision.reason);
-            }
-            return (original as (...a: unknown[]) => unknown).apply(this, args);
-          },
+        const restore = patchMethod(
+          proto,
+          key,
+          (original) =>
+            function (this: unknown, ...args: unknown[]): unknown {
+              const decision = report(record, 'code.eval', `inspector.Session.${key}`);
+              if (!decision.allow) {
+                throw blockedError('connecting an inspector session', decision.reason);
+              }
+              return (original as (...a: unknown[]) => unknown).apply(this, args);
+            },
         );
         if (restore) {
           restores.push(restore);

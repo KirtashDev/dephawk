@@ -53,8 +53,7 @@ code 2.
 > sample dependency simulates an attack and exfiltrates nothing — every path is
 > a made-up filename that does not exist, the backdoor binds loopback on an
 > OS-assigned port and closes immediately, and the two exfil targets are a
-> `.invalid` host (RFC 6761) and a `203.0.113.x` documentation address (RFC
-> 5737) that routes nowhere
+> `.invalid` host (RFC 6761) and a `203.0.113.x` documentation address (RFC 5737) that routes nowhere
 > ([see for yourself](examples/demo/node_modules/sneaky-dependency/index.js)).
 
 ## Why
@@ -185,18 +184,18 @@ this for you.)
 
 ## What it watches
 
-| Capability       | Examples caught                                                                    |
-| ---------------- | ---------------------------------------------------------------------------------- |
-| `fs.read`        | reading, **listing**, globbing, **copying**, **watching** or **blob-opening** `~/.ssh`, keychains, wallets, `.env` |
-| `fs.write`       | overwriting or **deleting** `~/.npmrc`, `authorized_keys`, other secret files      |
+| Capability       | Examples caught                                                                                                                     |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `fs.read`        | reading, **listing**, globbing, **copying**, **watching** or **blob-opening** `~/.ssh`, keychains, wallets, `.env`                  |
+| `fs.write`       | overwriting or **deleting** `~/.npmrc`, `authorized_keys`, other secret files                                                       |
 | `net.connect`    | `http`/`https`/`fetch`/`http2`, plus **raw `net`/`tls` sockets — even a bare `new Socket().connect(port, ip)`** — and UDP (`dgram`) |
-| `net.resolve`    | `dns.lookup`/`resolve*` — recon and DNS-tunnel exfil (no TCP to see)               |
-| `net.listen`     | `net`/`http`/`http2` servers and `dgram.bind` — an inbound backdoor/C2 listener   |
-| `process.spawn`  | `child_process.exec`/`spawn`/`fork`, and `worker_threads` (the curl-pipe-sh)       |
-| `process.native` | `process.dlopen` **and `process.binding`** — raw runtime power outside the JS sandbox |
-| `code.eval`      | `vm.*`, **WebAssembly** compile/instantiate, and **`node:inspector`** — running staged payloads / opening a debugger backdoor |
-| `env.read`       | a dependency reading `NPM_TOKEN`, `AWS_SECRET_ACCESS_KEY`, …                       |
-| `os.info`        | `os.userInfo`/`networkInterfaces`/`hostname` host profiling                        |
+| `net.resolve`    | `dns.lookup`/`resolve*` — recon and DNS-tunnel exfil (no TCP to see)                                                                |
+| `net.listen`     | `net`/`http`/`http2` servers and `dgram.bind` — an inbound backdoor/C2 listener                                                     |
+| `process.spawn`  | `child_process.exec`/`spawn`/`fork`, and `worker_threads` (the curl-pipe-sh)                                                        |
+| `process.native` | `process.dlopen` **and `process.binding`** — raw runtime power outside the JS sandbox                                               |
+| `code.eval`      | `vm.*`, **WebAssembly** compile/instantiate, and **`node:inspector`** — running staged payloads / opening a debugger backdoor       |
+| `env.read`       | a dependency reading `NPM_TOKEN`, `AWS_SECRET_ACCESS_KEY`, …                                                                        |
+| `os.info`        | `os.userInfo`/`networkInterfaces`/`hostname` host profiling                                                                         |
 
 Each event is **attributed to the specific package** that triggered it, so you
 know exactly who's misbehaving.

@@ -44,10 +44,7 @@ beforeAll(() => {
       '};',
     ].join('\n'),
   );
-  writeFileSync(
-    join(projectDir, 'app.js'),
-    "console.log(require('evil').steal());\n",
-  );
+  writeFileSync(join(projectDir, 'app.js'), "console.log(require('evil').steal());\n");
 }, 180_000);
 
 afterAll(() => {
