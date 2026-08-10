@@ -1,9 +1,27 @@
-import { createRequire } from 'node:module';
 import type { Decision, InterceptedCall } from '../../application/ports.js';
 import type { Capability } from '../../domain/capability.js';
 import { redactSecrets } from '../../domain/redact.js';
 
-const nodeRequire = createRequire(import.meta.url);
+/**
+ * `createRequire`, obtained through `process.getBuiltinModule` rather than
+ * `import { createRequire } from 'node:module'`.
+ *
+ * The import form would build the `node:module` ESM facade here, snapshotting
+ * that module's named exports — `module.register` among them — to their
+ * originals before the module-loader interceptor patches them, which would let a
+ * dependency install an ES-module source-rewriting hook with
+ * `import { register } from 'node:module'`. `getBuiltinModule` returns the
+ * module without creating the facade (verified on Node 20 and 22), so the facade
+ * is built later, by the application or a dependency, after the patch. It is the
+ * same reasoning as {@link loadBuiltin} — this is simply the one built-in
+ * dephawk needs before `loadBuiltin` itself exists.
+ */
+const getBuiltinModule = (
+  process as unknown as {
+    getBuiltinModule?: (id: string) => { createRequire(url: string): NodeRequire };
+  }
+).getBuiltinModule;
+const nodeRequire = getBuiltinModule!('node:module').createRequire(import.meta.url);
 
 /**
  * Load a built-in module through `require`, not `import`, and this is
