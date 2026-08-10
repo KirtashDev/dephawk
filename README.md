@@ -345,7 +345,9 @@ At startup (`--import dephawk/register`) dephawk monkey-patches the sensitive
 Node built-ins — `fs`, `http`/`https`/`fetch`, raw `net`/`tls`/`dgram` sockets,
 inbound `net`/`http`/`http2` server `listen`, `dns`, `child_process`,
 `worker_threads`, `process.dlopen`, `process.binding`, `vm`, `WebAssembly`,
-`node:inspector`, `os`, and `process.env`. Each patched call captures a stack
+`node:inspector`, `node:sqlite` (a database opened at a sensitive path — how the
+browser-password stealers read Chrome's `Login Data`), `os`, and `process.env`.
+Each patched call captures a stack
 trace, walks it to find the first `node_modules/<package>` frame, checks it
 against your policy, and records the event. On exit it prints a summary and
 writes the HTML report.
