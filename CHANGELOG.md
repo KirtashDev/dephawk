@@ -3,6 +3,29 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.18] — 2026-08-10
+
+### Security
+
+- **`util.inspect(process.env)` dumped every secret past the env Proxy.** The env
+  interceptor mediates `process.env` through a Proxy, but `util.inspect` — and so
+  `console.log(process.env)`, `console.dir`, and every logger that formats an
+  object — reads no trap at all: V8 unwraps a Proxy straight to its _target_ via
+  the internal `getProxyDetails` and formats the target's own values directly.
+  With the real environment as the target, one `console.log(process.env)` handed
+  a dependency every variable, secrets included, and dephawk recorded nothing and
+  denied nothing.
+
+  The Proxy now sits over an empty _decoy_ target and every trap forwards to the
+  real environment, so an unwrap finds no values to print. A `util.inspect.custom`
+  hook on the decoy judges the dump: exposing the whole environment at once is the
+  same threat as `process.report.getReport()`, so it is recorded as
+  `process.memory` and, for a dependency without `memory: true`, replaced by a
+  placeholder. Your own code — and a dependency you have allowed — still see the
+  real output, so `console.log(process.env)` keeps working when you run it. The
+  hook never throws (it runs inside object formatting, where a throw would break
+  every `console.log` in the process); a denied dump is hidden, not fatal.
+
 ## [0.6.17] — 2026-08-10
 
 ### Security
