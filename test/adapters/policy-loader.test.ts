@@ -31,6 +31,18 @@ describe('EnvPolicyLoader', () => {
     }).load();
     expect(policy.mode).toBe('enforce');
   });
+
+  it('lets DEPHAWK_MODE tighten but never loosen a pinned policy', async () => {
+    // A dependency that spawns a child with DEPHAWK_MODE=observe used to
+    // downgrade it out of enforce and run its blocked calls freely. The pinned
+    // policy's mode is authoritative on this path; DEPHAWK_MODE may only make it
+    // stricter.
+    const enforced = await new EnvPolicyLoader({
+      DEPHAWK_POLICY: JSON.stringify({ mode: 'enforce' }),
+      DEPHAWK_MODE: 'observe',
+    }).load();
+    expect(enforced.mode).toBe('enforce');
+  });
 });
 
 describe('FileConfigPolicyLoader', () => {

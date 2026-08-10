@@ -3,6 +3,41 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.9] — 2026-08-10
+
+Attacks on dephawk's own control plane, not on a capability: if you can stop the
+report or run a child out of enforce, no capability bypass is needed. Both
+reproduced against the real CLI before being closed.
+
+### Security
+
+- **Removing the exit listeners blinded the whole report.** The aggregated
+  `run`/`guard` report was produced from a `process.on('exit')` flush that
+  buffered every event until the end. A dependency that read a secret and then
+  called `process.removeAllListeners('exit')` erased all of it: the run exited 0
+  with "no monitored activity recorded", defeating the `--fail-on` gate along
+  with it. Events are now streamed to the shared sink the instant each call is
+  decided (`JsonlSink`), so the record is on disk before the code that produced
+  it returns — tearing down the exit handler loses nothing the parent has not
+  already read.
+
+- **A dependency could spawn a child out of enforce.** `DEPHAWK_MODE` was
+  applied on top of the pinned policy every time it was resolved, including in
+  children, and only the policy JSON was re-attached to spawned processes — not
+  the mode. So a dependency that spawned a child with `DEPHAWK_MODE=observe` in
+  its environment downgraded that child out of enforce and ran its
+  blocked-by-default calls freely. On the `--import` path `DEPHAWK_MODE` may now
+  only _tighten_ the pinned mode (observe → enforce), never loosen it; the CLI's
+  own `--observe` flag still loosens where it is meant to, at the top level
+  before the policy is pinned.
+
+### Known issues
+
+- A dependency can still **overwrite the config file** (`dephawk.config.js`) on
+  disk, poisoning the _next_ run — the file is not among dephawk's protected
+  paths. It does not affect the run in progress (the policy is resolved once at
+  startup). Tracked for a follow-up.
+
 ## [0.6.8] — 2026-08-10
 
 ### Security
@@ -630,6 +665,7 @@ a `Monitor` through the programmatic API:
 - `dephawk run <cmd>` CLI and `--import dephawk/register` entrypoint.
 - Hexagonal architecture, zero runtime dependencies, ≥90% core coverage.
 
+[0.6.9]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.9
 [0.6.8]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.8
 [0.6.7]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.7
 [0.6.6]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.6

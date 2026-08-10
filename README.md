@@ -382,6 +382,9 @@ policy layer_, not an unbreakable sandbox:
   (native code, freezing the `Error` globals non-configurable) no longer buys
   trust — the call is held to the default bucket — but it can still cost you the
   culprit's name.
+- Tampering with dephawk itself is anticipated too: events are written to the
+  shared sink as they happen, so removing the exit handler cannot erase them,
+  and an inherited `DEPHAWK_MODE` can only make a child stricter, never looser.
 - Paths are judged by what they **actually point at**: a link at a mundane name
   pointing at a secret is resolved and caught, and so is a write into a
   directory that links to one.

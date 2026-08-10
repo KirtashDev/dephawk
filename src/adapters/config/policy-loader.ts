@@ -23,6 +23,20 @@ export function resolveEnvPolicy(env: Env): Policy {
   const json = env['DEPHAWK_POLICY'];
   const policy =
     json !== undefined && json.length > 0 ? safeParse(json) : PERMISSIVE_POLICY;
+
+  // `DEPHAWK_MODE` may only *tighten* the mode here, never loosen it. On this
+  // path — the `--import` entrypoint, inherited by every child in the tree — a
+  // looser value is an attack, not a preference: a dependency that spawns a
+  // child with `DEPHAWK_MODE=observe` used to downgrade that child out of
+  // enforce and run its blocked-by-default calls freely, since the policy JSON
+  // is re-attached to children but the mode was applied on top of it afterward.
+  // Tightening (observe → enforce) is always safe and stays honoured. The CLI's
+  // own `--observe` flag loosens the mode where it is meant to — at the top
+  // level, before the policy is pinned — through {@link FileConfigPolicyLoader},
+  // not here.
+  if (policy.mode === 'enforce') {
+    return policy;
+  }
   return applyModeOverride(policy, env['DEPHAWK_MODE']);
 }
 
