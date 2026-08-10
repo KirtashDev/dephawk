@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
 import { SHARE_ENV } from 'node:worker_threads';
 import {
@@ -139,6 +140,45 @@ describe('restoreWorkerOptions', () => {
     [['--import', REGISTER]],
   ])('adds nothing when execArgv already carries it: %s', (execArgv) => {
     expect(restoreWorkerOptions({ execArgv }, monitoring).restored).toEqual([]);
+  });
+
+  // The path `--require` wants, derived from the `file://` import URL.
+  const REGISTER_PATH = fileURLToPath(REGISTER);
+
+  it('uses --require for an eval worker, which ignores --import', () => {
+    // `new Worker(code, { eval: true, execArgv: [] })` runs unmonitored under
+    // `--import` on every Node tested; `--require` is honoured instead.
+    const { options, restored } = restoreWorkerOptions(
+      { eval: true, execArgv: [] },
+      monitoring,
+    );
+
+    expect(options['execArgv']).toEqual([`--require=${REGISTER_PATH}`]);
+    expect(restored).toEqual(['execArgv']);
+  });
+
+  it('monitors an eval worker that passed no execArgv, seeding from the parent’s', () => {
+    // With no execArgv the worker would inherit `process.execArgv`, whose
+    // `--import` an eval worker ignores — so we seed from it and append
+    // `--require`, keeping any real flags it carried.
+    const { options, restored } = restoreWorkerOptions({ eval: true }, monitoring, [
+      '--max-old-space-size=64',
+    ]);
+
+    expect(options['execArgv']).toEqual([
+      '--max-old-space-size=64',
+      `--require=${REGISTER_PATH}`,
+    ]);
+    expect(restored).toEqual(['execArgv']);
+  });
+
+  it('adds nothing to an eval worker that already requires the register', () => {
+    expect(
+      restoreWorkerOptions(
+        { eval: true, execArgv: [`--require=${REGISTER_PATH}`] },
+        monitoring,
+      ).restored,
+    ).toEqual([]);
   });
 
   it('restores monitoring in an emptied env', () => {

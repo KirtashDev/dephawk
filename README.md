@@ -356,7 +356,8 @@ whole subtree by spawning with those stripped out. dephawk now puts them back
 into every child it lets through, and the report notes when it had to
 — `node payload.js [dephawk re-attached: NODE_OPTIONS]`. The same holds for
 **worker threads**, which declined monitoring through `{ execArgv: [] }` or
-`{ env: {} }` until 0.4.3. See
+`{ env: {} }` until 0.4.3, and — for `{ eval: true }` workers, which ignore
+`--import` — through the `--require` form since 0.6.12. See
 [`docs/adr/0006`](docs/adr/0006-re-attaching-monitoring-to-children.md).
 
 **Deferred calls still count.** A dependency cannot shed responsibility by
