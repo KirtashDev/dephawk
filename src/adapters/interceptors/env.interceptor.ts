@@ -49,6 +49,24 @@ export class EnvInterceptor implements CapabilityInterceptor {
         }
         return Reflect.get(target, prop, receiver);
       },
+      set(target, prop, value): boolean {
+        // Write straight to the real environment, deliberately *not* passing a
+        // receiver.
+        //
+        // Without this trap, `process.env.X = y` through a proxy re-enters as
+        // `[[DefineOwnProperty]]` on the receiver with a value-only descriptor,
+        // and Node's `process.env` refuses partial descriptors outright:
+        // `TypeError: 'process.env' only accepts a configurable, writable, and
+        // enumerable data descriptor`.
+        //
+        // That one throw is why **`dephawk guard npm ci` did nothing at all**
+        // for every release up to 0.6.5: npm assigns `env.HOME` while loading
+        // its config, the TypeError propagated out of `Config.load`, and npm
+        // exited 1 in silence — no install, no message, not even its own debug
+        // log. Any proxy over `process.env` was enough; nothing else about
+        // dephawk was involved.
+        return Reflect.set(target, prop, value);
+      },
       getOwnPropertyDescriptor(target, prop): PropertyDescriptor | undefined {
         const real = Reflect.getOwnPropertyDescriptor(target, prop);
         if (

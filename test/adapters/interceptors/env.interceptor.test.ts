@@ -82,3 +82,38 @@ describe('EnvInterceptor', () => {
     expect(process.env).toBe(before);
   });
 });
+
+describe('EnvInterceptor — writing through the proxy', () => {
+  it('overwrites an existing variable without throwing', () => {
+    // The exact shape of the bug, and why only *overwriting* triggers it:
+    // creating a new property goes through CreateDataProperty, which builds a
+    // full descriptor that `process.env` accepts. Overwriting an existing one
+    // re-enters as `[[DefineOwnProperty]]` with a **value-only** descriptor,
+    // which Node refuses — `'process.env' only accepts a configurable,
+    // writable, and enumerable data descriptor`. npm assigns `env.HOME`, which
+    // always already exists, so it died on every run.
+    process.env['DEPHAWK_WRITE_PROBE'] = 'first';
+
+    const spy = recordSpy();
+    installed = new EnvInterceptor().install(spy.record);
+
+    expect(() => {
+      process.env['DEPHAWK_WRITE_PROBE'] = 'second';
+    }).not.toThrow();
+    expect(process.env['DEPHAWK_WRITE_PROBE']).toBe('second');
+
+    installed.dispose();
+    installed = undefined;
+    // It landed on the real object, not on a proxy-local shadow.
+    expect(process.env['DEPHAWK_WRITE_PROBE']).toBe('second');
+    delete process.env['DEPHAWK_WRITE_PROBE'];
+  });
+
+  it('coerces like the real process.env does', () => {
+    const spy = recordSpy();
+    installed = new EnvInterceptor().install(spy.record);
+    (process.env as Record<string, unknown>)['DEPHAWK_NUM_PROBE'] = 42;
+    expect(process.env['DEPHAWK_NUM_PROBE']).toBe('42');
+    delete process.env['DEPHAWK_NUM_PROBE'];
+  });
+});
