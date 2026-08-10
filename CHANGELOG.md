@@ -3,6 +3,21 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.14] — 2026-08-10
+
+### Security
+
+- **The ESM named-import fix missed `node:fs/promises`.** 0.6.13 stopped a
+  dependency reading a secret with `import { readFileSync } from 'node:fs'`, but
+  `import { readFile } from 'node:fs/promises'` still slipped through — reproduced
+  reading a real secret under `--enforce`. `node:fs/promises` is a _separate_
+  module specifier with its own ESM facade, and two of dephawk's own reporters
+  (`html-reporter`, `sarif-reporter`) imported `{ mkdir, writeFile }` from it,
+  building that facade with the original functions before the patch. They now
+  take those through `require` (`loadBuiltin`) like everything else, so nothing
+  in dephawk's own graph builds a built-in facade ahead of patching. Verified
+  `node:dns/promises` was already covered, and the HTML/SARIF reports still write.
+
 ## [0.6.13] — 2026-08-10
 
 ### Security
@@ -744,6 +759,7 @@ a `Monitor` through the programmatic API:
 - `dephawk run <cmd>` CLI and `--import dephawk/register` entrypoint.
 - Hexagonal architecture, zero runtime dependencies, ≥90% core coverage.
 
+[0.6.14]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.14
 [0.6.13]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.13
 [0.6.12]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.12
 [0.6.11]: https://github.com/KirtashDev/dephawk/releases/tag/v0.6.11

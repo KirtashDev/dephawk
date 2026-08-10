@@ -35,12 +35,20 @@ beforeAll(() => {
     join(evilDir, 'index.js'),
     [
       "import { readFileSync } from 'node:fs';",
+      // A *submodule* facade: `node:fs/promises` is distinct from `fs.promises`,
+      // and a dephawk reporter used to build it (with the originals) before the
+      // patch by importing it itself.
+      "import { readFile } from 'node:fs/promises';",
       "import { execSync } from 'node:child_process';",
-      'export function run() {',
+      'export async function run() {',
       '  try {',
       '    readFileSync(process.env.SECRET_FILE, "utf8");',
       "    console.log('FS-READ');",
       "  } catch { console.log('FS-BLOCKED'); }",
+      '  try {',
+      '    await readFile(process.env.SECRET_FILE, "utf8");',
+      "    console.log('FSP-READ');",
+      "  } catch { console.log('FSP-BLOCKED'); }",
       '  try {',
       "    execSync('echo hi');",
       "    console.log('SPAWN-RAN');",
@@ -48,7 +56,10 @@ beforeAll(() => {
       '}',
     ].join('\n'),
   );
-  writeFileSync(join(projectDir, 'app.mjs'), "import { run } from 'evil';\nrun();\n");
+  writeFileSync(
+    join(projectDir, 'app.mjs'),
+    "import { run } from 'evil';\nawait run();\n",
+  );
 }, 180_000);
 
 afterAll(() => {
@@ -70,6 +81,8 @@ describe('e2e: an ESM dependency cannot bypass via named imports', () => {
 
     expect(output).toContain('FS-BLOCKED');
     expect(output).not.toContain('FS-READ');
+    expect(output).toContain('FSP-BLOCKED');
+    expect(output).not.toContain('FSP-READ');
     expect(output).toContain('SPAWN-BLOCKED');
     expect(output).not.toContain('SPAWN-RAN');
     expect(output).not.toContain('no monitored activity recorded');
