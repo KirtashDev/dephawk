@@ -147,6 +147,16 @@ export class EnvInterceptor implements CapabilityInterceptor {
         // environment, not the decoy.
         return Reflect.defineProperty(original, prop, descriptor);
       },
+      preventExtensions(): boolean {
+        // Forward to the real environment, which refuses (`process.env` cannot
+        // be made non-extensible). Crucially this keeps the *decoy* extensible:
+        // if the decoy were ever sealed, `ownKeys` returning the real
+        // environment's names — none of which exist on the empty decoy — would
+        // violate the Proxy invariant and make every `Object.keys(process.env)`,
+        // spread and `console.log` throw. Mirrors real `process.env`:
+        // `Object.preventExtensions` throws, `Reflect.preventExtensions` is false.
+        return Reflect.preventExtensions(original);
+      },
       getOwnPropertyDescriptor(_target, prop): PropertyDescriptor | undefined {
         const real = Reflect.getOwnPropertyDescriptor(original, prop);
         if (
