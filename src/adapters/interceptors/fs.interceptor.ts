@@ -141,13 +141,17 @@ const TWO_PATHS: readonly FsMethod[] = [
   // 'notes.txt')` then `readFileSync('notes.txt')` reads the key — and unlike a
   // symlink, the read-time `realpath` resolution cannot catch it: a hard link is
   // a co-equal directory entry, so `realpath('notes.txt')` is `notes.txt`, not
-  // the key. The only place to see it is the moment the alias is made, so the
-  // source counts as a read (the caller gains read access to its content) and
-  // the destination as a write (the into-package takeover check applies).
+  // the key. The only place to see it is the moment the alias is made. The alias
+  // is a full read/write handle to the source's inode, so the source counts as
+  // *both* a read (leaking `~/.ssh/id_rsa`) and a write — the write matters for
+  // the protected audit log: `link(sink, alias)` then `writeFileSync(alias)`
+  // would otherwise truncate the log through a name the tamper check never sees.
+  // The destination is a write too (the into-package takeover check applies).
   {
     key: 'link',
     paths: [
       { index: 0, capability: 'fs.read' },
+      { index: 0, capability: 'fs.write' },
       { index: 1, capability: 'fs.write' },
     ],
   },
@@ -155,6 +159,7 @@ const TWO_PATHS: readonly FsMethod[] = [
     key: 'linkSync',
     paths: [
       { index: 0, capability: 'fs.read' },
+      { index: 0, capability: 'fs.write' },
       { index: 1, capability: 'fs.write' },
     ],
   },
@@ -275,7 +280,16 @@ export class FsInterceptor implements CapabilityInterceptor {
       // link to `~/.ssh/id_rsa` used to read the key with no event at all.
       // Resolve and judge the real target instead.
       const real = realPathOf(path);
-      if (real === null || !isSensitivePath(real)) {
+      if (real === null) {
+        return; // genuinely mundane: no stack capture, no event
+      }
+      // The real target has to be judged by every rule the lexical path was, or
+      // a symlink launders a write to the audit log (`writeFileSync(link)` where
+      // `link` resolves to the protected sink) or to a shell rc just as it would
+      // launder a read of a secret.
+      const realProtected = protectedPathAffectedBy(real, this.protectedPaths) !== null;
+      const realPersistence = capability === 'fs.write' && isPersistenceTarget(real);
+      if (!realProtected && !realPersistence && !isSensitivePath(real)) {
         return; // genuinely mundane: no stack capture, no event
       }
       // Report where the bytes actually come from. This stays a bare path on

@@ -254,14 +254,21 @@ describe('FsInterceptor — a hard link cannot smuggle a sensitive path out', ()
     expect(spy.last?.detail).toContain('.ssh');
   });
 
-  it('records the source as a read and the destination as a write', () => {
-    const spy = recordSpy(); // allow, so both arguments are reached
+  it('records the source as a read AND a write, and the destination as a write', () => {
+    const spy = recordSpy(); // allow, so every argument is reached
     installed = new FsInterceptor().install(spy.record);
 
-    // Destination in a nonexistent dir so the real linkSync fails after both
-    // paths have been judged.
+    // A hard link is a full read/write handle to the source's inode, so the
+    // source is both — the write is what stops `link(sink, alias)` +
+    // `writeFileSync(alias)` from truncating the protected audit log through a
+    // name the tamper check never sees. Destination in a nonexistent dir so the
+    // real linkSync fails after every path has been judged.
     expect(() => fs.linkSync(FAKE_SSH, '/home/nobody/.npmrc')).toThrow(/ENOENT/);
-    expect(spy.calls.map((c) => c.capability)).toEqual(['fs.read', 'fs.write']);
+    expect(spy.calls.map((c) => c.capability)).toEqual([
+      'fs.read',
+      'fs.write',
+      'fs.write',
+    ]);
   });
 });
 
@@ -357,6 +364,49 @@ describe('FsInterceptor — dephawk’s own protected paths', () => {
 
     fs.readFileSync(resolve('package.json'), 'utf8');
     expect(spy.calls).toHaveLength(0);
+  });
+
+  it('records a hard link of the audit log as a write handle to it', () => {
+    // `link(sink, alias)` then `writeFileSync(alias)` truncated the log through a
+    // name the tamper check never saw, because `realpath(alias)` is `alias`, not
+    // the sink. The source of a hard link is now a write, so the tamper is caught
+    // the moment the alias is made.
+    const spy = recordSpy(); // allow, so every path is judged
+    installed = new FsInterceptor({ protectedPaths: [sink] }).install(spy.record);
+
+    expect(() => fs.linkSync(sink, '/tmp/dephawk-loot-hardlink')).toThrow(/ENOENT/);
+    expect(spy.calls.filter((c) => c.detail === sink).map((c) => c.capability)).toEqual([
+      'fs.read',
+      'fs.write',
+    ]);
+  });
+
+  it('blocks writing to the audit log through a symlink alias', () => {
+    // The realpath fallback must judge the resolved target against the protected
+    // paths, not only the sensitivity rules — otherwise a symlink launders a
+    // write to the log.
+    const base = join(realpathSync(tmpdir()), `dephawk-sink-test-${process.pid}`);
+    mkdirSync(base, { recursive: true });
+    const realSink = join(base, 'events.jsonl');
+    writeFileSync(realSink, '');
+    const alias = join(base, 'notes.txt');
+    symlinkSync(realSink, alias);
+
+    const spy = recordSpy();
+    spy.deny('dephawk audit log');
+    installed = new FsInterceptor({ protectedPaths: [realSink] }).install(spy.record);
+
+    try {
+      expect(() => fs.writeFileSync(alias, 'CORRUPTED')).toThrow(/dephawk: blocked/);
+      expect(spy.last?.capability).toBe('fs.write');
+      expect(spy.last?.detail).toBe(realSink); // resolved to the real protected path
+    } finally {
+      // Dispose before cleanup: rmSync of a directory holding a protected path is
+      // itself refused while the interceptor is installed.
+      installed?.dispose();
+      installed = undefined;
+      rmSync(base, { recursive: true, force: true });
+    }
   });
 });
 

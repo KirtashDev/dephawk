@@ -3,6 +3,28 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.23] — 2026-08-11
+
+### Security
+
+- **The audit log could be blinded through a link alias (`dephawk guard`).**
+  dephawk refuses writes to its own shared event sink, but the check is by path,
+  and a link is a second path to the same bytes. A dependency could
+  `link(sink, alias)` and then `writeFileSync(alias, '')` to truncate the log —
+  erasing every capability its neighbours had already recorded — because
+  `realpath(alias)` is the alias itself, not the sink, so nothing matched it to
+  the protected path. A symlink did the same by a different route: the resolved
+  target was tested against the sensitivity rules but not against the protected
+  paths.
+
+  Three fixes close it: the source of a hard link now counts as a **write** (it
+  is a read/write handle to the inode), so aliasing the sink is refused at
+  creation; the `realpath` fallback now judges the resolved target against the
+  protected paths too, so a symlink alias is caught on write; and the sink path
+  is canonicalised when created, so `tmpdir()` being a symlink on macOS
+  (`/var` → `/private/var`) can no longer defeat the comparison. The audit log
+  stays intact under `--enforce`, verified end-to-end.
+
 ## [0.6.22] — 2026-08-10
 
 ### Security

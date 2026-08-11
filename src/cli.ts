@@ -312,7 +312,13 @@ interface Sink {
  * neither the directory nor the file inside it can be squatted.
  */
 function createSink(): Sink {
-  const directory = mkdtempSync(join(tmpdir(), 'dephawk-guard-'));
+  // Canonicalise the directory. `tmpdir()` is itself a symlink on macOS
+  // (`/var` -> `/private/var`), so an un-resolved sink path never matches the
+  // `realpath` of a link that points at it — which is how a dependency truncated
+  // the audit log through a symlink alias the tamper check could not recognise.
+  // Resolving here means the protected path and every `realpath` speak the same
+  // canonical language.
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'dephawk-guard-')));
   return { directory, path: join(directory, 'events.jsonl') };
 }
 
