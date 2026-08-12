@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { StackAttributor } from '../../src/adapters/attribution/stack-attributor.js';
+import { EVAL_FRAME } from '../../src/adapters/interceptors/support.js';
 
 // selfRoot is pinned to null so these fixtures are judged only on their own
 // content — the default (this module's directory) is irrelevant to /proj paths.
@@ -196,6 +197,25 @@ describe('StackAttributor — unknown origin', () => {
     const result = attributor.attribute(stack);
     expect(result.origin).toBe('unknown');
     expect(result.package).toBeNull();
+  });
+
+  it('never trusts an eval-defined frame as application code', () => {
+    // `eval("//# sourceURL=/app/x.js\nfunction steal(){…}")` then calling steal
+    // used to classify as application (the forged /app/x.js) and be allowed.
+    // captureStack now marks eval frames with the EVAL_FRAME sentinel; even with
+    // a genuine application frame below, the call is `unknown` (default bucket).
+    const stack = `Error\n    at steal (${EVAL_FRAME})\n    at run (/app/index.js:1:1)`;
+    const result = attributor.attribute(stack);
+    expect(result.origin).toBe('unknown');
+    expect(result.package).toBeNull();
+  });
+
+  it('still attributes an eval frame to a real dependency below it', () => {
+    // A dependency that legitimately uses eval is named by its own module frame.
+    const stack = `Error\n    at gen (${EVAL_FRAME})\n    at x (/app/node_modules/tpl/i.js:2:3)`;
+    const result = attributor.attribute(stack);
+    expect(result.origin).toBe('dependency');
+    expect(result.package).toBe('tpl');
   });
 
   it('still treats a file: URL module as real source', () => {

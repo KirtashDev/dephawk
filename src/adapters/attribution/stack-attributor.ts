@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import type { Origin } from '../../domain/origin.js';
 import type { Attribution, Attributor } from '../../application/ports.js';
+import { EVAL_FRAME } from '../interceptors/support.js';
 
 /**
  * Attributes a call to the package that made it by parsing the raw stack trace.
@@ -47,11 +48,19 @@ type FrameKind =
   | { readonly kind: 'application' }
   /** Runtime internals, native frames, or anything unattributable. */
   | { readonly kind: 'internal' }
+  /**
+   * Dynamically-generated code (`eval`/`new Function`). Its reported location is
+   * attacker-controllable via `//# sourceURL`, so it is never trusted as
+   * application code: seeing one, with no real dependency frame to blame,
+   * downgrades the call to `unknown` (the default bucket) rather than `you`.
+   */
+  | { readonly kind: 'eval' }
   /** dephawk's own frames — dropped from the display stack entirely. */
   | { readonly kind: 'self' };
 
 const APPLICATION: FrameKind = { kind: 'application' };
 const INTERNAL: FrameKind = { kind: 'internal' };
+const EVAL: FrameKind = { kind: 'eval' };
 const SELF: FrameKind = { kind: 'self' };
 
 export class StackAttributor implements Attributor {
@@ -69,6 +78,7 @@ export class StackAttributor implements Attributor {
     const frames: string[] = [];
     let attributed: string | null = null;
     let sawApplication = false;
+    let sawEval = false;
 
     for (const line of rawStack.split('\n')) {
       const trimmed = line.trim();
@@ -90,11 +100,22 @@ export class StackAttributor implements Attributor {
         attributed ??= kind.package;
       } else if (kind.kind === 'application') {
         sawApplication = true;
+      } else if (kind.kind === 'eval') {
+        sawEval = true;
       }
     }
 
+    // A named dependency always wins. Otherwise, dynamically-generated code on
+    // the stack (`eval`/`new Function`) denies application trust: the call is
+    // held to the default bucket instead of waved through as the user's own.
     const origin: Origin =
-      attributed !== null ? 'dependency' : sawApplication ? 'application' : 'unknown';
+      attributed !== null
+        ? 'dependency'
+        : sawEval
+          ? 'unknown'
+          : sawApplication
+            ? 'application'
+            : 'unknown';
     return { package: attributed, origin, frames };
   }
 
@@ -105,6 +126,9 @@ export class StackAttributor implements Attributor {
 
     const location = locationOf(frame);
 
+    if (location === EVAL_FRAME) {
+      return EVAL; // dynamically-generated code — see the `eval` frame kind
+    }
     if (location.startsWith('node:')) {
       return INTERNAL; // node:internal/timers, node:fs, …
     }
