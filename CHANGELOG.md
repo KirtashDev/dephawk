@@ -3,6 +3,20 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.28] — 2026-08-11
+
+### Security
+
+- **`vm.SourceTextModule` ran compiled code past the `code.eval` gate.** With
+  `--experimental-vm-modules`, `new vm.SourceTextModule(src)` compiles a source
+  string and `.evaluate()` runs it — entirely outside the `vm.Script` surface
+  dephawk gates, so a dependency with `eval: false` could execute dynamically
+  compiled code. Reproduced running code under `--enforce` with `eval: false`.
+  The `SourceTextModule` and `SyntheticModule` constructors are now gated as
+  `code.eval`, denied by default and allowlisted with `eval: true` like every
+  other `vm` entry. (Only present when the experimental flag is set; a no-op
+  otherwise.)
+
 ## [0.6.27] — 2026-08-11
 
 ### Security

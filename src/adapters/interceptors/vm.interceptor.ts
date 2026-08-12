@@ -87,7 +87,53 @@ export class VmInterceptor implements CapabilityInterceptor {
       restores.push(scriptRestore);
     }
 
+    // The ESM equivalent, behind `--experimental-vm-modules`:
+    // `new vm.SourceTextModule(src)` compiles a source string and `.evaluate()`
+    // runs it, entirely outside the `Script` surface above — a dependency with
+    // `eval: false` could execute compiled code through it. `SyntheticModule` is
+    // the same primitive without the string. Gated at construction as
+    // `code.eval`, deny-by-default, like every other `vm` entry.
+    for (const key of ['SourceTextModule', 'SyntheticModule'] as const) {
+      const restore = this.patchModuleConstructor(mod, key, record);
+      if (restore) {
+        restores.push(restore);
+      }
+    }
+
     return restorer(restores);
+  }
+
+  /**
+   * Gate a `vm` module constructor (`SourceTextModule`/`SyntheticModule`) as
+   * `code.eval`: constructing one declares the intent to run compiled code, so
+   * it is refused before `super()` in enforce mode. A subclass keeps
+   * `instanceof`/`prototype` intact.
+   */
+  private patchModuleConstructor(
+    mod: Record<string, unknown>,
+    key: string,
+    record: RecordFn,
+  ): (() => void) | null {
+    const Original = mod[key];
+    if (typeof Original !== 'function') {
+      return null; // not on this runtime / flag not set
+    }
+    const Base = Original as unknown as new (...args: unknown[]) => object;
+    const detail = `vm.${key}`;
+    class WatchedModule extends Base {
+      constructor(...args: unknown[]) {
+        const decision = report(record, 'code.eval', detail);
+        if (!decision.allow) {
+          throw blockedError(`dynamic code execution via ${detail}`, decision.reason);
+        }
+        super(...args);
+      }
+    }
+    Object.defineProperty(WatchedModule, 'name', { value: key });
+    mod[key] = WatchedModule;
+    return () => {
+      mod[key] = Original;
+    };
   }
 
   /** Remember the `filename` a `vm.Script` was constructed with. */
