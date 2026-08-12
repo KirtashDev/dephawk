@@ -78,25 +78,6 @@ const NativeError = Error;
 const nativeCaptureStackTrace = Error.captureStackTrace;
 
 /**
- * Capture the current stack as a string, excluding this helper's own frame.
- * Uses V8's `Error.captureStackTrace` when available (fast, no Error object
- * exposed) and degrades to `new Error().stack` elsewhere (Bun/Deno).
- *
- * Both `Error.prepareStackTrace` and `Error.stackTraceLimit` are globals a
- * dependency can write. Left alone, a dependency can **forge attribution**: set
- * `Error.prepareStackTrace` to a function returning a stack string with a fake
- * application frame, and every laundered call reads as the user's own code and
- * is allowed unconditionally — reproduced reading `/etc/passwd` under enforce
- * with a deny-by-default policy. Setting `stackTraceLimit = 0` instead blinds
- * the capture (a weaker attack: the call then reads as `unknown` and is held to
- * the default bucket, not trusted). So for the duration of the capture — and
- * only that — we force V8's own default formatter and a sane frame budget, then
- * restore the dependency's values so its legitimate error handling (source
- * maps, error monitors) is untouched. The set/restore is guarded: a dependency
- * that has frozen these as non-configurable cannot be neutralised, but that is
- * a far narrower and more conspicuous move than a plain assignment.
- */
-/**
  * dephawk's own `Error.prepareStackTrace`, installed only for the duration of a
  * capture. Two jobs:
  *
@@ -150,40 +131,76 @@ function formatFrame(frame: NodeJS.CallSite): string {
   }
 }
 
-export function captureStack(): string {
+/**
+ * Capture a stack string with dephawk's own formatter forcibly in control.
+ *
+ * The formatter is installed with `Object.defineProperty` — a *data* descriptor,
+ * not a plain assignment. Assignment (`Error.prepareStackTrace = formatStack`)
+ * invokes any setter a dependency planted, and an accessor with a no-op setter
+ * swallows the write silently: dephawk would believe its formatter was active
+ * while the dependency's forging getter still ran, forging an application frame
+ * that is trusted for every capability under `--enforce`. A `defineProperty` with
+ * a data value *replaces* that accessor for the duration of the capture.
+ *
+ * After installing, we verify the active value really is our formatter. If a
+ * dependency made the property non-configurable (so `defineProperty` throws) —
+ * the narrower, more conspicuous "frozen" residual — we return an **empty**
+ * stack rather than a forgeable one, so attribution falls to `unknown` (the
+ * default, deny-by-default bucket) instead of believing a planted frame.
+ *
+ * The saved *descriptor* (not just the value) is restored in `finally`, so the
+ * dependency's own error handling is untouched afterwards.
+ */
+function hardenedCapture(boundary: (...args: never[]) => unknown): string {
   const capture = nativeCaptureStackTrace as
     ((target: object, ctor?: (...args: never[]) => unknown) => void) | undefined;
-
-  // Typed loosely: we deliberately set `prepareStackTrace` to `undefined` (the
-  // signal for V8's default formatter), which its declared type forbids.
   const errorGlobal = NativeError as unknown as {
     prepareStackTrace?: unknown;
     stackTraceLimit?: number | undefined;
   };
-  const savedPrepare = errorGlobal.prepareStackTrace;
+  const savedDescriptor = Object.getOwnPropertyDescriptor(
+    NativeError,
+    'prepareStackTrace',
+  );
   const savedLimit = errorGlobal.stackTraceLimit;
+
+  let installed = false;
   try {
-    errorGlobal.prepareStackTrace = formatStack;
+    Object.defineProperty(NativeError, 'prepareStackTrace', {
+      value: formatStack,
+      configurable: true,
+      writable: true,
+      enumerable: false,
+    });
+    installed = errorGlobal.prepareStackTrace === formatStack;
   } catch {
-    // Frozen by a dependency — best effort; fall through with what's there.
+    installed = false; // non-configurable / frozen — documented residual
   }
   if (typeof savedLimit !== 'number' || savedLimit < STACK_CAPTURE_LIMIT) {
     try {
       errorGlobal.stackTraceLimit = STACK_CAPTURE_LIMIT;
     } catch {
-      // Frozen — same.
+      /* frozen — best effort */
     }
   }
   try {
+    if (!installed) {
+      return ''; // could not guarantee our formatter — do not trust a forged stack
+    }
     if (typeof capture === 'function') {
       const holder: { stack?: string } = {};
-      capture(holder, captureStack);
+      capture(holder, boundary);
       return holder.stack ?? '';
     }
     return new NativeError().stack ?? '';
   } finally {
     try {
-      errorGlobal.prepareStackTrace = savedPrepare;
+      if (savedDescriptor !== undefined) {
+        Object.defineProperty(NativeError, 'prepareStackTrace', savedDescriptor);
+      } else {
+        delete (NativeError as unknown as { prepareStackTrace?: unknown })
+          .prepareStackTrace;
+      }
     } catch {
       /* frozen — nothing to restore */
     }
@@ -193,6 +210,10 @@ export function captureStack(): string {
       /* frozen */
     }
   }
+}
+
+export function captureStack(): string {
+  return hardenedCapture(captureStack);
 }
 
 /** Emit a record for a capability and return the decision. */
@@ -223,16 +244,13 @@ export function report(
  * {@link import('./wasm.interceptor.js').WasmInterceptor}.
  */
 export function callerLocation(boundary: (...args: never[]) => unknown): string {
-  const capture = nativeCaptureStackTrace as
-    ((target: object, ctor?: (...args: never[]) => unknown) => void) | undefined;
-  let stack: string;
-  if (typeof capture === 'function') {
-    const holder: { stack?: string } = {};
-    capture(holder, boundary);
-    stack = holder.stack ?? '';
-  } else {
-    stack = new NativeError().stack ?? '';
-  }
+  // Shares captureStack's hardening: without it, a dependency's forged
+  // `Error.prepareStackTrace` governs this output, and it could fake a
+  // `node:internal/deps/` caller to make the WASM interceptor treat its payload
+  // as Node's own undici plumbing and skip it entirely. A defeated install
+  // yields an empty stack here, so the `node:internal/deps/` prefix check fails
+  // closed (the call is recorded, not skipped).
+  const stack = hardenedCapture(boundary);
   for (const line of stack.split('\n')) {
     const trimmed = line.trim();
     if (trimmed.startsWith('at ')) {
