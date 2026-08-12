@@ -64,7 +64,8 @@
     "build": "tsup",
     "prepare": "npm run build",
     "demo": "node dist/cli.js run --config examples/demo/dephawk.config.js node examples/demo/index.js",
-    "demo:enforce": "node dist/cli.js run --config examples/demo/dephawk.config.js --enforce node examples/demo/index.js"
+    "demo:enforce": "node dist/cli.js run --config examples/demo/dephawk.config.js --enforce node examples/demo/index.js",
+    "coverage:count": "node scripts/coverage-count.mjs"
   },
   "dependencies": {},
   "devDependencies": {
