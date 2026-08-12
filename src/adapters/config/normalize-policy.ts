@@ -35,10 +35,19 @@ export function normalizePolicy(input: unknown, options: NormalizeOptions = {}):
 
   const home = options.homeDir ?? safeHomeDir();
 
-  const packages: Record<string, PackagePolicy> = {};
+  // Null-prototype so a later `Object.prototype[<pkgname>] = { spawn: true, … }`
+  // cannot make `packages[name]` inherit an attacker-shaped bucket instead of
+  // falling through to the deny-by-default. Every stored policy object below is
+  // built the same way, so no capability read at runtime can consult a polluted
+  // prototype. Reproduced: a dependency set `Object.prototype[itsOwnName]` to an
+  // allow-all bucket and spawned a process under `--enforce`.
+  const packages = Object.create(null) as Record<string, PackagePolicy>;
   const packagesInput = input['packages'];
   if (isRecord(packagesInput)) {
     for (const [name, value] of Object.entries(packagesInput)) {
+      if (name === '__proto__') {
+        continue; // never let a bucket named __proto__ touch the prototype
+      }
       packages[name] = normalizePackagePolicy(value, home);
     }
   }
@@ -74,9 +83,11 @@ export function applyModeOverride(policy: Policy, mode: string | undefined): Pol
 
 function normalizePackagePolicy(input: unknown, home: string): PackagePolicy {
   if (!isRecord(input)) {
-    return {};
+    return Object.create(null) as PackagePolicy;
   }
-  const policy: {
+  // Null-prototype: a bucket that omits a capability must read as *absent*
+  // (deny-by-default), never inherit `true` from a polluted `Object.prototype`.
+  const policy = Object.create(null) as {
     net?: NetPolicy;
     fs?: FsPolicy;
     spawn?: boolean;
@@ -84,7 +95,7 @@ function normalizePackagePolicy(input: unknown, home: string): PackagePolicy {
     eval?: boolean;
     memory?: boolean;
     env?: EnvPolicy;
-  } = {};
+  };
 
   const net = normalizeNet(input['net']);
   if (net !== undefined) {
@@ -117,7 +128,7 @@ function normalizeNet(input: unknown): NetPolicy | undefined {
   if (!isRecord(input)) {
     return undefined;
   }
-  const net: { connect?: readonly string[]; listen?: boolean } = {};
+  const net = Object.create(null) as { connect?: readonly string[]; listen?: boolean };
   const connect = asStringArray(input['connect']);
   if (connect !== undefined) {
     net.connect = connect;
@@ -137,7 +148,10 @@ function normalizeFs(input: unknown, home: string): FsPolicy | undefined {
 
   const read = asStringArray(input['read']);
   const write = asStringArray(input['write']);
-  const fs: { read?: readonly string[]; write?: readonly string[] } = {};
+  const fs = Object.create(null) as {
+    read?: readonly string[];
+    write?: readonly string[];
+  };
   if (read !== undefined) {
     fs.read = expand(read);
   }
