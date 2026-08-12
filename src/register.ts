@@ -1,6 +1,8 @@
 import { resolveEnvPolicy } from './adapters/config/policy-loader.js';
 import { buildMonitor } from './composition/build-monitor.js';
 import { JsonlSink } from './adapters/sink/jsonl-sink.js';
+import { ConsoleReporter } from './adapters/reporting/console-reporter.js';
+import { HtmlReporter } from './adapters/reporting/html-reporter.js';
 
 /**
  * The `--import dephawk/register` entrypoint.
@@ -96,13 +98,29 @@ function canonicalise(target: string): string | null {
 
 /**
  * Standalone `run`: report on exit with the human console + HTML reporters.
- * These are async (HTML writes a file), so we drain on `beforeExit`.
+ *
+ * The full report (console + the async HTML file) is drained on `beforeExit`.
+ * But `beforeExit` does not fire when the program ends via `process.exit()` or a
+ * hard crash — and a dependency can call `process.exit(0)` right after its
+ * exfiltration to make the whole observe-mode report vanish, which is the only
+ * signal in observe mode (calls are recorded, not blocked). The synchronous
+ * `exit` event *does* fire in those cases, so the console report — the primary
+ * signal — is rendered there too. The HTML file needs async I/O and cannot be
+ * written from an `exit` handler, so it is best-effort; the console report is
+ * what a dependency's `process.exit()` must not be able to erase. (`guard` mode
+ * has no equivalent gap: it streams every event to the sink as it happens.)
  */
 function installStandaloneMode(
   policy: ReturnType<typeof resolveEnvPolicy>,
   protectedPaths: readonly string[],
 ): void {
-  const monitor = buildMonitor({ policy, protectedPaths, registerUrl: REGISTER_URL });
+  const consoleReporter = new ConsoleReporter({ mode: policy.mode });
+  const monitor = buildMonitor({
+    policy,
+    protectedPaths,
+    registerUrl: REGISTER_URL,
+    reporters: [consoleReporter, new HtmlReporter()],
+  });
   monitor.start();
 
   let finished = false;
@@ -117,6 +135,20 @@ function installStandaloneMode(
 
   process.once('beforeExit', () => {
     void finish();
+  });
+
+  // Synchronous fallback for `process.exit()` / uncaught crash, which skip
+  // `beforeExit`. Only the sync console reporter can run here; never throw.
+  process.on('exit', () => {
+    if (finished) {
+      return;
+    }
+    finished = true;
+    try {
+      consoleReporter.report(monitor.snapshot());
+    } catch {
+      /* an exit handler must not throw */
+    }
   });
 
   const onSignal = (code: number): void => {
