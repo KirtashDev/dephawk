@@ -3,6 +3,33 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.34] — 2026-08-12
+
+### Security
+
+- **Two ways to defeat the stack-formatter install are closed.** dephawk installs
+  its own `Error.prepareStackTrace` during a capture so a dependency's forged
+  formatter cannot run. Two holes remained:
+  - The formatter was installed with a plain **assignment**. A dependency that
+    had redefined `Error.prepareStackTrace` as an **accessor with a no-op setter**
+    swallowed that assignment silently — no throw — so dephawk believed its
+    formatter was active while the dependency's forging _getter_ still ran,
+    faking a first-party frame and winning application trust for **any** capability
+    under `--enforce`. Reproduced reading a real secret.
+  - `callerLocation()` (which the WASM interceptor uses to skip Node's own
+    undici/llhttp compilation) was **never hardened at all**, so a plain forged
+    `Error.prepareStackTrace` returning a `node:internal/deps/…` caller made a
+    dependency's WebAssembly run with no event and no block.
+
+  Both now share one hardened capture: the formatter is installed with
+  `Object.defineProperty` (a data descriptor that **replaces** a planted
+  accessor), the active value is verified to be dephawk's, and if the install
+  cannot be guaranteed (a non-configurable/frozen property — the narrower,
+  conspicuous residual) the capture returns an **empty** stack, so attribution
+  falls to `unknown`/deny-by-default and the `node:internal/deps` skip fails
+  closed. The saved property _descriptor_ is restored afterwards. Node's own
+  `fetch` still compiles its parser and reaches the network.
+
 ## [0.6.33] — 2026-08-11
 
 ### Security
