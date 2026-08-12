@@ -163,6 +163,30 @@ describe('isPersistenceTarget — shell startup files (write-side persistence)',
   });
 });
 
+describe('isSensitivePath — /proc and more credential files', () => {
+  it.each([
+    '/proc/self/environ',
+    '/proc/1234/environ',
+    '/proc/1234/task/1250/environ', // thread form
+    '/proc/self/mem',
+    '/proc/self/maps',
+    '/proc/1234/pagemap',
+    '/home/alice/.pgpass',
+    '/home/alice/.vault-token',
+    '/home/alice/.terraform.d/credentials.tfrc.json',
+    '/home/alice/.terraform.d', // listing the store is recon too
+  ])('flags %s', (path) => {
+    expect(isSensitivePath(path)).toBe(true);
+  });
+
+  it('does not flag mundane /proc files or lookalikes', () => {
+    expect(isSensitivePath('/proc/cpuinfo')).toBe(false);
+    expect(isSensitivePath('/proc/self/status')).toBe(false);
+    expect(isSensitivePath('/home/alice/project/memory.js')).toBe(false);
+    expect(isSensitivePath('/home/alice/proc/app/mem')).toBe(false); // not under /proc
+  });
+});
+
 describe('isSensitiveEnv', () => {
   it.each([
     'NPM_TOKEN',
@@ -172,6 +196,8 @@ describe('isSensitiveEnv', () => {
     'DATABASE_PASSWORD',
     'SESSION_SECRET',
     'PRIVATE_KEY',
+    'MYSQL_PWD', // the MySQL client password variable
+    'DB_PWD',
   ])('flags secret var %s', (name) => {
     expect(isSensitiveEnv(name)).toBe(true);
   });
@@ -186,6 +212,8 @@ describe('isSensitiveEnv', () => {
     'NODE_TLS_REJECT_UNAUTHORIZED', // contains "AUTH"
     'MONKEY', // contains "KEY"
     'KEYBOARD_LAYOUT', // starts with "KEY" but not a delimited word
+    'PWD', // the working-directory variable, not a password
+    'OLDPWD', // ditto — no delimiter before PWD
   ])('does not flag mundane var %s', (name) => {
     expect(isSensitiveEnv(name)).toBe(false);
   });
