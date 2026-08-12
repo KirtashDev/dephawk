@@ -108,6 +108,9 @@ export class StackAttributor implements Attributor {
     if (location.startsWith('node:')) {
       return INTERNAL; // node:internal/timers, node:fs, …
     }
+    if (hasForeignScheme(location)) {
+      return INTERNAL; // data:, blob:, http: — evaluated code, not a file on disk
+    }
     if (this.selfRoot !== null && location.includes(this.selfRoot)) {
       return SELF;
     }
@@ -177,6 +180,38 @@ const FILE_LOCATION = /\.[cm]?[jt]sx?:\d+:\d+$/;
 /** True for anything that names a real source file rather than an internal. */
 function isSourceLocation(location: string): boolean {
   return location.includes('/') || FILE_LOCATION.test(location);
+}
+
+/**
+ * A URL scheme of two or more characters, with no `.` in it. Excludes
+ * single-letter Windows drives (`C:`) and bare filenames whose extension puts a
+ * dot before the `:line:col` (`bundle.js:1:1`) — the schemes that matter
+ * (`data`, `blob`, `http`, `https`, `ws`, `node`, `file`) contain none.
+ */
+const URL_SCHEME = /^([a-z][a-z0-9+-]+):/i;
+
+/**
+ * Whether a frame location is a URL with a scheme other than `file:` —
+ * `data:`, `blob:`, `http:`, … Such a frame is *evaluated code*, not a file on
+ * disk: `import('data:text/javascript,…')` runs a module whose frames read
+ * `data:text/javascript,…:3:15`. The `/` in the MIME type made
+ * {@link isSourceLocation} return true, so a deferred call from inside such a
+ * module — with no importer frame left on the stack — classified as
+ * `application` and was waved through under `--enforce`, blaming "your code".
+ * Reproduced: a dependency `import()`ed a data: URL that read `/etc/passwd`
+ * from a `setTimeout`, and the report credited the read to your own code.
+ * Worse, the data body can contain the literal `node_modules/<pkg>/` to forge a
+ * dependency frame, so this is checked *before* the `node_modules` match.
+ *
+ * Treated as internal: nobody is accountable, so the call is evaluated against
+ * the default bucket rather than trusted. A `file:` URL is a real on-disk module
+ * and is deliberately allowed through; Windows drive letters (`C:/…`) are a
+ * single character and do not match {@link URL_SCHEME}, so real paths still
+ * count as source.
+ */
+function hasForeignScheme(location: string): boolean {
+  const scheme = URL_SCHEME.exec(location)?.[1];
+  return scheme !== undefined && scheme.toLowerCase() !== 'file';
 }
 
 /** Extract the owning package name from a (normalised) frame location. */
