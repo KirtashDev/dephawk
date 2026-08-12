@@ -3,6 +3,25 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.36] — 2026-08-12
+
+### Security
+
+- **Two ways an `eval` worker escaped re-attach are closed.** dephawk keeps
+  monitoring attached to a `worker_threads` worker by adding `--require` to its
+  `execArgv` (an eval worker ignores `--import`). Two gaps let a worker run
+  unmonitored:
+  - the eval branch triggered only on a strict `eval === true`, so
+    `new Worker(code, { eval: 1 })` — any truthy value runs the code just the
+    same — took the file-worker path and got only the `--import` it ignores;
+  - the "already attached?" check was a **substring** match, so an unrelated
+    `--conditions=<registerPath>` execArgv entry (which embeds the path but does
+    not load it) looked like monitoring was already present, and none was added.
+
+  The reattach now triggers on any truthy `eval`, and matches the actual
+  `--require`/`--import` flag (the `--flag=value` element, or the two-element
+  `--flag value` form) rather than a substring of the whole argv element.
+
 ## [0.6.35] — 2026-08-12
 
 ### Security
