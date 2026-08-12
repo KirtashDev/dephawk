@@ -81,3 +81,22 @@ export function redactSecrets(text: string): string {
   }
   return redacted;
 }
+
+/** C0 control characters (NUL-US incl. TAB/LF/CR/ESC) and DEL. */
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHARS = /[\x00-\x1f\x7f]/g;
+
+/**
+ * Replace every control character (including ESC, CR and LF) with a space.
+ *
+ * A `detail` is attacker-chosen text — a path, host, or command line a dependency
+ * picked — and it is interpolated into the terminal report, the drafted config's
+ * comments and quoted strings, and the JSONL sink. Left raw it could inject ANSI
+ * escapes to spoof or erase findings on the TTY, or a newline to smuggle a second
+ * `default:` bucket (an allow-all self-grant) or a `SyntaxError` into a generated
+ * config. Stripping runs *before* {@link redactSecrets}, so a control character
+ * cannot split a token to slip past redaction either.
+ */
+export function stripControlChars(text: string): string {
+  return text.replace(CONTROL_CHARS, ' ');
+}

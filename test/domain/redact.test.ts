@@ -1,5 +1,17 @@
 import { describe, it, expect } from 'vitest';
-import { redactSecrets } from '../../src/domain/redact.js';
+import { redactSecrets, stripControlChars } from '../../src/domain/redact.js';
+
+describe('stripControlChars — no escape/newline reaches a reporter or the config', () => {
+  it('replaces ESC, CR, LF, TAB and NUL with a space', () => {
+    expect(stripControlChars('echo x\x1b[31mRED\nSPOOF')).toBe('echo x [31mRED SPOOF');
+    expect(stripControlChars('a\tb\r\nc\x00d\x7f')).toBe('a b  c d ');
+  });
+
+  it('leaves ordinary text untouched', () => {
+    expect(stripControlChars('/home/alice/.ssh/id_rsa')).toBe('/home/alice/.ssh/id_rsa');
+    expect(stripControlChars('sh -c curl x | sh')).toBe('sh -c curl x | sh');
+  });
+});
 
 describe('redactSecrets — the value goes, the name stays', () => {
   it.each([

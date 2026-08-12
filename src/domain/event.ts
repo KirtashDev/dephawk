@@ -1,6 +1,6 @@
 import type { Capability } from './capability.js';
 import type { Origin } from './origin.js';
-import { redactSecrets } from './redact.js';
+import { redactSecrets, stripControlChars } from './redact.js';
 
 /**
  * An immutable value object: one decided capability request.
@@ -55,7 +55,7 @@ export function createEvent(input: CreateEventInput): DhEvent {
     capability: input.capability,
     package: input.package,
     origin: input.origin,
-    detail: redactSecrets(input.detail),
+    detail: clean(input.detail),
     stack: Object.freeze([...input.stack]),
     sensitive: input.sensitive,
     allowed: input.allowed,
@@ -63,6 +63,15 @@ export function createEvent(input: CreateEventInput): DhEvent {
     timestamp: input.timestamp,
   };
   const event: DhEvent =
-    input.reason === undefined ? base : { ...base, reason: redactSecrets(input.reason) };
+    input.reason === undefined ? base : { ...base, reason: clean(input.reason) };
   return Object.freeze(event);
+}
+
+/**
+ * Strip control characters, then redact secrets — the order matters, so a
+ * control character cannot split a token to slip past redaction, and no escape
+ * sequence or newline reaches a reporter, the drafted config, or the sink.
+ */
+function clean(text: string): string {
+  return redactSecrets(stripControlChars(text));
 }
