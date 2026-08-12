@@ -43,7 +43,10 @@ export class ProcessMemoryInterceptor implements CapabilityInterceptor {
     }
 
     const v8 = loadBuiltin<Record<string, unknown>>('node:v8');
-    for (const key of ['writeHeapSnapshot', 'getHeapSnapshot'] as const) {
+    // `queryObjects(Ctor)` (Node ≥22) returns every live instance of a
+    // constructor — the same heap-secret disclosure as a snapshot, at finer
+    // grain: hand it `Buffer` or a token class and read the secrets straight out.
+    for (const key of ['writeHeapSnapshot', 'getHeapSnapshot', 'queryObjects'] as const) {
       this.patch(v8, key, `v8.${key}`, record, restores);
     }
 

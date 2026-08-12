@@ -3,6 +3,26 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.32] — 2026-08-11
+
+### Security
+
+- **File metadata mutations are now watched.** `chmod`/`chown`/`utimes` (and
+  their `l`/sync variants) were not intercepted, so a dependency could loosen the
+  permissions on `~/.ssh/id_rsa` (a read-enabler that fires no read event), mark a
+  dropped payload executable, or back-date a tampered file — all unseen. They are
+  now recorded as `fs.write` on the target path, denied by default for a sensitive
+  or protected path. (The `f`-variants take a descriptor, not a path, and stay out
+  of scope like the rest of the fd surface.)
+- **`v8.queryObjects()` is now `process.memory`.** On Node ≥22 it returns every
+  live instance of a constructor — the same heap-secret disclosure as a heap
+  snapshot, at finer grain — and was unpatched. Now denied by default alongside
+  the snapshot and diagnostic-report dumps.
+- **`/private/etc/passwd` and `/private/etc/shadow`** — the macOS canonical
+  spellings of `/etc/passwd`/`/etc/shadow` (`/etc` is a symlink to `/private/etc`)
+  — are now sensitive too; reading the canonical form directly resolved to itself,
+  so the `realpath` fallback could not map it back to the `/etc` spelling.
+
 ## [0.6.31] — 2026-08-11
 
 ### Security

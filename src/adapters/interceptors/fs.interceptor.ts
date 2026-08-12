@@ -90,6 +90,23 @@ const SINGLE_PATH: readonly FsMethod[] = [
   writes('rmdirSync'),
   writes('truncate'),
   writes('truncateSync'),
+  // Changing a file's mode, owner, or timestamps is a write to it: loosening the
+  // permissions on `~/.ssh/id_rsa` (a read-enabler with no read of its own),
+  // marking a dropped payload executable, or back-dating a tampered file to hide
+  // it. The `f`-variants take a descriptor, not a path, so they are out of scope
+  // like the rest of the fd-based surface.
+  writes('chmod'),
+  writes('chmodSync'),
+  writes('lchmod'),
+  writes('lchmodSync'),
+  writes('chown'),
+  writes('chownSync'),
+  writes('lchown'),
+  writes('lchownSync'),
+  writes('utimes'),
+  writes('utimesSync'),
+  writes('lutimes'),
+  writes('lutimesSync'),
 ];
 
 /** `fs` members taking a source and a destination. */

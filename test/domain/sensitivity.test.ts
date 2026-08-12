@@ -171,6 +171,8 @@ describe('isSensitivePath — /proc and more credential files', () => {
     '/proc/self/mem',
     '/proc/self/maps',
     '/proc/1234/pagemap',
+    '/private/etc/passwd', // macOS canonical form of /etc/passwd
+    '/private/etc/shadow',
     '/home/alice/.pgpass',
     '/home/alice/.vault-token',
     '/home/alice/.terraform.d/credentials.tfrc.json',

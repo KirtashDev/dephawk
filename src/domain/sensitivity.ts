@@ -126,8 +126,18 @@ const KEY_MATERIAL_EXTENSIONS: readonly string[] = [
   '.kdbx', // KeePass database
 ];
 
-/** Absolute paths that are always sensitive. */
-const SENSITIVE_ABSOLUTE: readonly string[] = ['/etc/passwd', '/etc/shadow'];
+/**
+ * Absolute paths that are always sensitive. The `/private/…` spellings are the
+ * macOS canonical form (`/etc` is a symlink to `/private/etc`): reading
+ * `/private/etc/passwd` directly resolves to itself, so the `realpath` fallback
+ * cannot map it back to `/etc/passwd` — both spellings have to be listed.
+ */
+const SENSITIVE_ABSOLUTE: readonly string[] = [
+  '/etc/passwd',
+  '/etc/shadow',
+  '/private/etc/passwd',
+  '/private/etc/shadow',
+];
 
 /**
  * Shell startup files, by basename. *Writing* one is persistence: a line
