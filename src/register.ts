@@ -48,14 +48,50 @@ if (globals[INSTALLED] !== true) {
  * the un-monitored parent after the observed run has exited — never from here.
  */
 function collectProtectedPaths(env: NodeJS.ProcessEnv): string[] {
-  const paths: string[] = [];
+  const paths = new Set<string>();
   for (const key of ['DEPHAWK_SINK', 'DEPHAWK_CONFIG', 'DEPHAWK_BASELINE'] as const) {
     const value = env[key];
-    if (value !== undefined && value.length > 0) {
-      paths.push(value);
+    if (value === undefined || value.length === 0) {
+      continue;
+    }
+    // Keep the value as given *and* its canonical (symlink-resolved) form. The
+    // CLI canonicalises the sink, but the config and baseline are only
+    // `path.resolve`d, so on a symlinked path (macOS `/tmp` -> `/private/tmp`,
+    // `$TMPDIR` -> `/private/var/…`) a dependency could rewrite the same file
+    // through its canonical name: the lexical tamper check missed it, and the
+    // interceptor's realpath fallback then saw an already-canonical path resolve
+    // to itself and let it pass. Protecting both spellings closes that — a write
+    // via either name matches lexically, and a symlink alias still resolves into
+    // the canonical one.
+    paths.add(value);
+    const canonical = canonicalise(value);
+    if (canonical !== null) {
+      paths.add(canonical);
     }
   }
-  return paths;
+  return [...paths];
+}
+
+/**
+ * The canonical, symlink-resolved form of `target`, or null. Acquired through
+ * `process.getBuiltinModule` — importing `node:fs` here would build its ESM
+ * facade before the interceptors patch it, reopening the named-import bypass.
+ * Falls back to resolving the parent directory when the file does not exist yet
+ * (a `--record` baseline is written only after the run).
+ */
+function canonicalise(target: string): string | null {
+  try {
+    const fs = process.getBuiltinModule('node:fs');
+    const realpath = fs.realpathSync.native ?? fs.realpathSync;
+    try {
+      return realpath(target);
+    } catch {
+      const path = process.getBuiltinModule('node:path');
+      return path.join(realpath(path.dirname(target)), path.basename(target));
+    }
+  } catch {
+    return null; // unresolvable — the as-given value still protects the direct path
+  }
 }
 
 /**

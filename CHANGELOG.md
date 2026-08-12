@@ -3,6 +3,26 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.25] — 2026-08-11
+
+### Security
+
+- **The config and baseline could be overwritten through their canonical path
+  alias.** dephawk protects `dephawk.config.js` and the behaviour baseline from
+  being written by monitored code — rewriting the config grants a dependency
+  anything on the next run, rewriting the baseline hides new behaviour from
+  `--replay --fail-on new`. But those two paths were only `path.resolve`d, not
+  canonicalised (unlike the guard sink, fixed in 0.6.23). On a symlinked location
+  — macOS `$TMPDIR`/`/tmp` resolving to `/private/…` — a dependency could write
+  the same file through its **canonical** name: the lexical tamper check compared
+  against the non-canonical spelling and missed it, and the interceptor's
+  `realpath` fallback then saw an already-canonical path resolve to itself and
+  let it pass with no event. Reproduced overwriting the config with an allow-all
+  policy under `--enforce`. Both spellings of every protected path (sink, config,
+  baseline) are now refused: `collectProtectedPaths` records each path as given
+  and its canonical form, so a write via either name matches, and a symlink alias
+  still resolves into the canonical one.
+
 ## [0.6.24] — 2026-08-11
 
 ### Security
