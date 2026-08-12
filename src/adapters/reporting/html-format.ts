@@ -1,5 +1,10 @@
 import { CAPABILITY_META } from '../../domain/capability.js';
 import type { DhEvent } from '../../domain/event.js';
+import {
+  detectExfilChains,
+  detectTechnique,
+  TECHNIQUE_GLOSS,
+} from '../../domain/threat.js';
 import { displayPackage, summarize, type Row } from './report-model.js';
 
 export interface HtmlReportMeta {
@@ -41,6 +46,16 @@ export function renderHtmlReport(
     summarize(events);
 
   const cards = flagged.map(renderRow).join('\n');
+  const chains = detectExfilChains(events);
+  const exfil =
+    chains.length === 0
+      ? ''
+      : `<div class="exfil"><b>🚨 Likely credential exfiltration</b> — a dependency read a secret, then reached the network:<ul>${chains
+          .map(
+            (c) =>
+              `<li><b>${esc(c.package)}</b>: read <code>${esc(c.secret)}</code> → out to <code>${esc(c.sink)}</code></li>`,
+          )
+          .join('')}</ul></div>`;
 
   return `<!doctype html>
 <html lang="en">
@@ -75,7 +90,13 @@ export function renderHtmlReport(
   .detail { color: #b8c0d0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85rem; word-break: break-all; }
   .tag { font-size: .72rem; padding: .12rem .5rem; border-radius: 999px; white-space: nowrap; }
   .tag.blocked { background: #3a1414; color: #ff9d9d; border: 1px solid #5a1f1f; }
+  .tag.threat { background: #3a1414; color: #ff6b6b; border: 1px solid #7a2020; font-weight: 600; }
   .tag.count { background: #1c2330; color: #8b93a7; }
+  .technique { margin-top: .35rem; padding: .35rem .6rem; background: #2a1212; border-left: 3px solid #ff6b6b; border-radius: 6px; color: #ffb3b3; font-size: .82rem; }
+  .exfil { background: #2a1212; border: 1px solid #7a2020; border-radius: 12px; padding: 1rem 1.2rem; margin-bottom: 1.5rem; color: #ffb3b3; }
+  .exfil b { color: #ff6b6b; }
+  .exfil ul { margin: .5rem 0 0; padding-left: 1.2rem; }
+  .exfil code { background: #1c2330; }
   .empty { text-align: center; padding: 3rem 1rem; color: #8b93a7; }
   footer { margin-top: 2rem; padding-top: 1.25rem; border-top: 1px solid #232a3a; color: #8b93a7; font-size: .82rem; }
   footer b { color: #cbd2e0; }
@@ -94,6 +115,8 @@ export function renderHtmlReport(
     <div class="stat ok"><b>${normalCount}</b><span>normal calls</span></div>
   </div>
 
+  ${exfil}
+
   ${flagged.length === 0 ? '<div class="empty">No packages tried anything sensitive. 🎉</div>' : cards}
 
   <footer>
@@ -110,7 +133,13 @@ function renderRow(row: Row): string {
   const pkg = esc(displayPackage(row));
   const label = esc(CAPABILITY_META[row.capability].label);
   const detail = esc(row.detail);
+  const technique = detectTechnique(row.capability, row.detail);
+  const banner =
+    technique === null
+      ? ''
+      : `\n    <div class="technique">⚑ known attack technique — ${esc(TECHNIQUE_GLOSS[technique])}</div>`;
   const tags = [
+    technique !== null ? '<span class="tag threat">attack technique</span>' : '',
     row.blocked ? '<span class="tag blocked">blocked</span>' : '',
     row.count > 1 ? `<span class="tag count">×${row.count}</span>` : '',
     `<span class="tag count">${SEVERITY_LABEL[row.severity]}</span>`,
@@ -119,7 +148,7 @@ function renderRow(row: Row): string {
     .join(' ');
   return `  <div class="row ${row.severity}">
     <div class="icon">${icon}</div>
-    <div><span class="pkg">${pkg}</span> &nbsp; <span class="cap">${label}</span> <span class="detail">${detail}</span></div>
+    <div><span class="pkg">${pkg}</span> &nbsp; <span class="cap">${label}</span> <span class="detail">${detail}</span>${banner}</div>
     <div>${tags}</div>
   </div>`;
 }

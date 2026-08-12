@@ -2,6 +2,7 @@ import type { CapabilityRequest } from './capability-request.js';
 import type { Policy, PackagePolicy } from './policy.js';
 import type { Verdict } from './verdict.js';
 import { isPersistenceTarget, isSensitiveEnv, isSensitivePath } from './sensitivity.js';
+import { detectTechnique } from './threat.js';
 import { protectedPathAffectedBy } from './protected-path.js';
 import { isCrossPackageWrite, packageOwningPath } from './package-dir.js';
 import { extractHost, hostMatchesAny } from './host.js';
@@ -88,6 +89,14 @@ export class RulePolicyEngine implements PolicyEngine {
 }
 
 function detectSensitive(req: CapabilityRequest): boolean {
+  // A recognised attack technique (cloud-metadata SSRF, CI-workflow persistence,
+  // registry self-publish) is always sensitive, so it surfaces even in observe
+  // mode and even for a capability that is otherwise mundane (a plain outbound
+  // connection is not sensitive — but a connection to the instance-metadata
+  // endpoint is).
+  if (detectTechnique(req.capability, req.detail) !== null) {
+    return true;
+  }
   switch (req.capability) {
     case 'fs.write':
       // Writing into another package's directory installs code that will run

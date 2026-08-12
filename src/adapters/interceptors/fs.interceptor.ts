@@ -1,6 +1,7 @@
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isPersistenceTarget, isSensitivePath } from '../../domain/sensitivity.js';
+import { isCiWorkflowPath } from '../../domain/threat.js';
 import { protectedPathAffectedBy } from '../../domain/protected-path.js';
 import { packageOwningPath } from '../../domain/package-dir.js';
 import type { Capability } from '../../domain/capability.js';
@@ -291,9 +292,11 @@ export class FsInterceptor implements CapabilityInterceptor {
     // package writing into another's is a takeover of that package's identity.
     // See {@link import('../../domain/package-dir.js')}.
     const intoPackage = capability === 'fs.write' && packageOwningPath(path) !== null;
-    // Writing a shell startup file is persistence, not a secret read — judged on
-    // writes only, and lexically (no realpath needed for a basename match).
-    const persistence = capability === 'fs.write' && isPersistenceTarget(path);
+    // Writing a shell startup file, or a CI workflow (`.github/workflows/*.yml` —
+    // the Shai-Hulud worm's self-persistence move), is a write-side attack: judged
+    // on writes only, lexically. See {@link import('../../domain/threat.js')}.
+    const persistence =
+      capability === 'fs.write' && (isPersistenceTarget(path) || isCiWorkflowPath(path));
 
     let target = path;
     if (!isProtected && !intoPackage && !persistence && !isSensitivePath(path)) {
@@ -310,7 +313,9 @@ export class FsInterceptor implements CapabilityInterceptor {
       // `link` resolves to the protected sink) or to a shell rc just as it would
       // launder a read of a secret.
       const realProtected = protectedPathAffectedBy(real, this.protectedPaths) !== null;
-      const realPersistence = capability === 'fs.write' && isPersistenceTarget(real);
+      const realPersistence =
+        capability === 'fs.write' &&
+        (isPersistenceTarget(real) || isCiWorkflowPath(real));
       if (!realProtected && !realPersistence && !isSensitivePath(real)) {
         return; // genuinely mundane: no stack capture, no event
       }

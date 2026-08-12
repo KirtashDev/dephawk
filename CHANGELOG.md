@@ -3,6 +3,45 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.0] — 2026-08-12
+
+### Added — dephawk now recognises attacks, not just capabilities
+
+A **known-attack-technique layer** that names the concrete moves of the 2025-2026
+npm worms (Shai-Hulud, ChainDrop, the axios RAT) on top of the capability model.
+These are the durable invariants that never change and never fire legitimately at
+install time — not a rotating indicator feed. Each finding carries a one-line,
+plain-English gloss so an on-call engineer knows what it means and what to check.
+
+**Named techniques (deny-by-default in enforce, flagged as critical in observe):**
+
+- **Cloud instance-metadata SSRF** — an outbound connection or DNS lookup to a
+  cloud metadata endpoint (`169.254.169.254`, `169.254.170.2`, `100.100.100.200`,
+  `fd00:ec2::254`, `metadata.google.internal`) — the way ephemeral CI/cloud
+  credentials get stolen. The match is **evasion-resistant**: decimal
+  (`2852039166`), hex (`0xA9FEA9FE`), octal, mixed-radix, and IPv4-mapped-IPv6
+  spellings of a metadata address are all normalised first.
+- **CI-workflow persistence** — a write to `.github/workflows/*.yml`, the worm's
+  literal self-persistence step (a scheduled action that re-runs the payload on
+  every push). Nothing legitimate writes there from inside a dependency.
+- **Registry self-replication** — spawning `npm`/`pnpm`/`yarn publish`, how a worm
+  republishes itself with a stolen token.
+
+**Behavioural exfiltration detection (observe-only):**
+
+- **Likely credential exfiltration** — the host-agnostic, campaign-agnostic
+  signature every stealer shares: the _same dependency_ reads a secret (`~/.ssh`,
+  `.npmrc`, cloud creds, a secret-shaped env var) and _then_ reaches the network.
+  Derived from the causal order of the attributed events already recorded — no
+  timer (which would flake in CI), no host blocklist. It annotates the report with
+  the exact `read → out-to` chain; it never blocks (each leaf is gated on its own),
+  so it can be measured against real CI traffic before any future promotion to
+  enforce.
+
+Direction chosen with an LLM-council review: durable invariants over a rotating
+OOB-host blocklist (which rots hourly and gives false confidence), and causal
+attribution over a time-window correlator (which cries wolf in CI).
+
 ## [0.6.37] — 2026-08-12
 
 ### Security
