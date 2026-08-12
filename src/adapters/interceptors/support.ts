@@ -200,8 +200,14 @@ export function report(
   record: RecordFn,
   capability: Capability,
   detail: string,
+  valueSensitive = false,
 ): Decision {
-  return record({ capability, detail, rawStack: captureStack() });
+  return record({
+    capability,
+    detail,
+    rawStack: captureStack(),
+    ...(valueSensitive ? { valueSensitive: true } : {}),
+  });
 }
 
 /**

@@ -58,7 +58,7 @@ code 2.
 
 > 🛡️ **Hardened release by release.** dephawk watches **11 capability classes**
 > across **18 interceptors**, and every version closes another real bypass —
-> **45 reproduced attack techniques blocked, and counting.** Each was
+> **46 reproduced attack techniques blocked, and counting.** Each was
 > demonstrated against a published build _before_ it was fixed; the running list
 > is in the [CHANGELOG](CHANGELOG.md). Recent additions: `import('data:…')`
 > attribution laundering, hard-link/symlink secret aliases, `console.log(process.env)`
@@ -218,7 +218,7 @@ this for you.)
 | `process.native` | `process.dlopen` **and `process.binding`** — raw runtime power outside the JS sandbox                                                                                                                                              |
 | `code.eval`      | `vm.*` (incl. `SourceTextModule`), **WebAssembly**, the **module-loader** (`_compile`/`require.extensions`/`module.register`), and **`node:inspector`** — staged payloads, code injected into another package, a debugger backdoor |
 | `process.memory` | `v8.writeHeapSnapshot`/`getHeapSnapshot` and `process.report.getReport` — dumping every in-memory secret and env var at once                                                                                                       |
-| `env.read`       | a dependency reading `NPM_TOKEN`, `AWS_SECRET_ACCESS_KEY`, `MYSQL_PWD`, … — including `console.log(process.env)` whole-env dumps                                                                                                   |
+| `env.read`       | a dependency reading `NPM_TOKEN`, `AWS_SECRET_ACCESS_KEY`, `MYSQL_PWD`, a `DATABASE_URL` password, … — including `console.log(process.env)` whole-env dumps                                                                        |
 | `os.info`        | `os.userInfo`/`networkInterfaces`/`hostname` host profiling                                                                                                                                                                        |
 
 Each event is **attributed to the specific package** that triggered it, so you

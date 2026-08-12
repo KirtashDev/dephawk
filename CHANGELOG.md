@@ -3,6 +3,24 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.33] — 2026-08-11
+
+### Security
+
+- **A secret hiding in an env var's value, under an innocuous name, is now
+  caught.** Env sensitivity was decided purely by the variable's name, so a
+  dependency could read `DATABASE_URL=postgres://user:pass@host/db` (or
+  `REDIS_URL`, a var holding a PEM key, …) and lift the embedded password with no
+  event — the name `DATABASE_URL` matches no secret keyword. The env interceptor
+  now also inspects the value: a connection string with an embedded
+  `://user:pass@`, or inline `BEGIN … PRIVATE KEY` material, makes the read
+  sensitive (denied by default, and its `.value` hidden from
+  `getOwnPropertyDescriptor` too). Only a boolean flag crosses into the policy
+  engine — the value itself never leaves the interceptor — and cheap `includes`
+  guards keep the scan off the hot path for ordinary values, so a plain
+  `PUBLIC_URL=https://cdn…` (no credentials) or `NODE_ENV=production` is not
+  flagged.
+
 ## [0.6.32] — 2026-08-11
 
 ### Security

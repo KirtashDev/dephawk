@@ -19,4 +19,10 @@ export interface CapabilityRequest {
   readonly detail: string;
   /** Attributed stack frames (dephawk frames already stripped). */
   readonly stack: readonly string[];
+  /**
+   * True when the value behind {@link detail} is a secret even though its name
+   * is not — a connection-string env var, say. Makes the read sensitive without
+   * the value ever leaving the interceptor.
+   */
+  readonly valueSensitive?: boolean;
 }

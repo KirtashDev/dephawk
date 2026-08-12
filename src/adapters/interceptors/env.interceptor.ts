@@ -1,4 +1,4 @@
-import { isSensitiveEnv } from '../../domain/sensitivity.js';
+import { isSensitiveEnv, looksLikeSecretValue } from '../../domain/sensitivity.js';
 import type { CapabilityInterceptor, Disposable } from '../../application/ports.js';
 import {
   blockedError,
@@ -56,14 +56,23 @@ export class EnvInterceptor implements CapabilityInterceptor {
     const inspectCustom = (loadBuiltin('node:util') as { inspect: { custom: symbol } })
       .inspect.custom;
 
-    const guard = (prop: string): void => {
+    const guard = (prop: string, value: unknown): void => {
       // Skip reads made by another built-in's own implementation — see
       // `inRuntimeInternals`. Those are plumbing, not anyone's decision.
-      if (isSensitiveEnv(prop) && !inRuntimeInternals()) {
-        const decision = report(record, 'env.read', prop);
-        if (!decision.allow) {
-          throw blockedError(`env read of ${prop}`, decision.reason);
-        }
+      if (inRuntimeInternals()) {
+        return;
+      }
+      // Sensitive by name, or by value: `DATABASE_URL=postgres://u:pass@host` is
+      // a secret its innocuous name hides. Only a boolean flag is reported — the
+      // value never leaves this interceptor.
+      const byName = isSensitiveEnv(prop);
+      const byValue = !byName && looksLikeSecretValue(value);
+      if (!byName && !byValue) {
+        return;
+      }
+      const decision = report(record, 'env.read', prop, byValue);
+      if (!decision.allow) {
+        throw blockedError(`env read of ${prop}`, decision.reason);
       }
     };
 
@@ -111,7 +120,9 @@ export class EnvInterceptor implements CapabilityInterceptor {
           return Reflect.get(decoy, prop, receiver);
         }
         if (typeof prop === 'string') {
-          guard(prop);
+          const value = Reflect.get(original, prop);
+          guard(prop, value);
+          return value;
         }
         return Reflect.get(original, prop);
       },
@@ -170,22 +181,25 @@ export class EnvInterceptor implements CapabilityInterceptor {
       },
       getOwnPropertyDescriptor(_target, prop): PropertyDescriptor | undefined {
         const real = Reflect.getOwnPropertyDescriptor(original, prop);
+        // Hide the value behind a getter for a secret var — by name, or by value
+        // (a connection string) — so `getOwnPropertyDescriptor(...).value` cannot
+        // lift it past the `get` trap.
         if (
           real === undefined ||
           typeof prop !== 'string' ||
-          !isSensitiveEnv(prop) ||
           real.configurable === false ||
-          inRuntimeInternals()
+          inRuntimeInternals() ||
+          !(isSensitiveEnv(prop) || looksLikeSecretValue(real.value))
         ) {
           return real;
         }
-        // Hide the value behind a getter so the descriptor cannot leak it.
         return {
           enumerable: real.enumerable ?? true,
           configurable: true,
           get(): unknown {
-            guard(prop);
-            return Reflect.get(original, prop);
+            const value = Reflect.get(original, prop);
+            guard(prop, value);
+            return value;
           },
           set(value: unknown): void {
             Reflect.set(original, prop, value);
