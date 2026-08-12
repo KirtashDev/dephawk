@@ -3,6 +3,23 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.30] — 2026-08-11
+
+### Security
+
+- **Prototype pollution turned deny-by-default into allow-all.** The resolved
+  policy stored packages and their capability buckets as ordinary object
+  literals, so every runtime check (`policy.packages[pkg]`, `pkg.spawn === true`,
+  `pkg.eval`, `pkg.env`, …) read through the prototype chain. A dependency that
+  ran `Object.prototype[itsOwnName] = { spawn: true, native: true, … }` — or even
+  just `Object.prototype.spawn = true` — made the package lookup inherit an
+  attacker-shaped allow-all bucket, or a bucket that simply omitted a capability
+  inherit `true` for it. Reproduced: a dependency spawned a process under
+  `--enforce` with a deny-by-default policy after one line of pollution. Every
+  stored policy object (the packages map and each `net`/`fs`/capability bucket) is
+  now built with a **null prototype**, so no capability read can consult
+  `Object.prototype`; a config key literally named `__proto__` is skipped.
+
 ## [0.6.29] — 2026-08-11
 
 ### Security

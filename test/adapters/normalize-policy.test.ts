@@ -1,8 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import {
   applyModeOverride,
   normalizePolicy,
 } from '../../src/adapters/config/normalize-policy.js';
+import { RulePolicyEngine } from '../../src/domain/policy-engine.js';
+import type { CapabilityRequest } from '../../src/domain/capability-request.js';
 
 describe('normalizePolicy', () => {
   it('falls back to permissive for non-objects', () => {
@@ -117,5 +119,55 @@ describe('normalizePolicy — portable fs patterns', () => {
       { homeDir: home },
     );
     expect(policy.default.fs?.read).toEqual(['/home/alice/.npmrc']);
+  });
+});
+
+describe('normalizePolicy — prototype pollution cannot flip deny-by-default', () => {
+  const proto = Object.prototype as unknown as Record<string, unknown>;
+  afterEach(() => {
+    delete proto['evil'];
+    delete proto['spawn'];
+  });
+
+  const req = (partial: Partial<CapabilityRequest>): CapabilityRequest => ({
+    package: 'evil',
+    origin: 'dependency',
+    detail: '',
+    stack: [],
+    capability: 'process.spawn',
+    ...partial,
+  });
+
+  it('a package cannot inherit an allow-all bucket from Object.prototype', () => {
+    const policy = normalizePolicy({
+      mode: 'enforce',
+      default: { spawn: false },
+      packages: {},
+    });
+    const engine = new RulePolicyEngine(policy);
+
+    // A dependency pollutes the prototype AFTER the policy is built, keyed by its
+    // own package name — the packages map must not consult it.
+    proto['evil'] = { spawn: true, native: true, eval: true, memory: true };
+    expect(
+      engine.evaluate(req({ capability: 'process.spawn', detail: 'id' })).allowed,
+    ).toBe(false);
+  });
+
+  it('a bucket that omits a capability does not inherit true from Object.prototype', () => {
+    // `some-lib` is allowlisted for network but says nothing about spawn.
+    const policy = normalizePolicy({
+      mode: 'enforce',
+      default: { spawn: false },
+      packages: { 'some-lib': { net: { connect: ['api.example.com'] } } },
+    });
+    const engine = new RulePolicyEngine(policy);
+
+    proto['spawn'] = true; // pollute the capability key itself
+    expect(
+      engine.evaluate(
+        req({ package: 'some-lib', capability: 'process.spawn', detail: 'id' }),
+      ).allowed,
+    ).toBe(false);
   });
 });
