@@ -2,9 +2,11 @@ import type { CapabilityInterceptor, Disposable } from '../../application/ports.
 import {
   asRuntimeInternals,
   blockedError,
+  inRuntimeInternals,
   patchMethod,
   report,
   restorer,
+  type AnyFn,
   type RecordFn,
   loadBuiltin,
 } from './support.js';
@@ -103,8 +105,103 @@ export class ChildProcessInterceptor implements CapabilityInterceptor {
       }
     }
 
+    // The seven functions above all funnel — for the *async* ones — through
+    // `ChildProcess.prototype.spawn`, which is also reachable directly:
+    // `new ChildProcess().spawn({ file, args, envPairs, … })` starts a process
+    // without touching the module surface at all, so it was neither recorded nor
+    // re-attached. Patch the chokepoint too. A re-entrancy guard keeps the async
+    // module entrypoints from reporting twice: their original runs inside
+    // `asRuntimeInternals`, so a nested prototype call is skipped.
+    const ChildProc = mod['ChildProcess'] as { prototype?: Record<string, unknown> };
+    const proto = ChildProc?.prototype;
+    if (proto !== undefined && typeof proto['spawn'] === 'function') {
+      const restore = patchMethod(
+        proto,
+        'spawn',
+        (original) =>
+          function (this: unknown, ...args: unknown[]): unknown {
+            if (inRuntimeInternals()) {
+              return (original as AnyFn).apply(this, args);
+            }
+            const options = args[0];
+            const restored = isObject(options)
+              ? reattachEnvPairs(options, monitoring)
+              : [];
+            const detail = describeProtoSpawn(options, restored);
+            const decision = report(record, 'process.spawn', detail);
+            if (!decision.allow) {
+              throw blockedError(`spawn of ${detail}`, decision.reason);
+            }
+            return asRuntimeInternals(() => (original as AnyFn).apply(this, args));
+          },
+      );
+      if (restore) {
+        restores.push(restore);
+      }
+    }
+
     return restorer(restores);
   }
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+/**
+ * Re-attach monitoring to a `ChildProcess.prototype.spawn` options object, whose
+ * environment is an `envPairs` array of `KEY=value` strings rather than the
+ * `env` object the module functions take. Reuses the tested {@link restoreMonitoring}
+ * by converting to an object and back; with no explicit `envPairs` the child
+ * inherits `process.env`, so that is repaired in place instead (reading every
+ * variable through the env proxy would invent secret-read findings for a spawn).
+ */
+function reattachEnvPairs(
+  options: Record<string, unknown>,
+  monitoring: MonitoringEnv,
+): readonly string[] {
+  const envPairs = options['envPairs'];
+  if (!Array.isArray(envPairs)) {
+    const missing = missingMonitoring(process.env, monitoring);
+    for (const [name, value] of missing) {
+      process.env[name] = value;
+    }
+    return missing.map(([name]) => name);
+  }
+  const env: NodeJS.ProcessEnv = {};
+  for (const pair of envPairs) {
+    if (typeof pair !== 'string') {
+      continue;
+    }
+    const eq = pair.indexOf('=');
+    if (eq !== -1) {
+      env[pair.slice(0, eq)] = pair.slice(eq + 1);
+    }
+  }
+  const { env: patched, restored } = restoreMonitoring(env, monitoring);
+  if (restored.length > 0) {
+    options['envPairs'] = Object.entries(patched).map(
+      ([key, value]) => `${key}=${value ?? ''}`,
+    );
+  }
+  return restored;
+}
+
+function describeProtoSpawn(options: unknown, restored: readonly string[]): string {
+  const file =
+    isObject(options) && typeof options['file'] === 'string'
+      ? options['file']
+      : 'unknown';
+  const args =
+    isObject(options) && Array.isArray(options['args'])
+      ? options['args'].filter((a): a is string => typeof a === 'string')
+      : [];
+  // args[0] duplicates the executable path; show the file plus the real args.
+  const rest = args.length > 1 ? args.slice(1).join(' ') : '';
+  const command = rest.length > 0 ? `${file} ${rest}` : file;
+  return restored.length === 0
+    ? command
+    : `${command} [dephawk re-attached: ${restored.join(', ')}]`;
 }
 
 /**

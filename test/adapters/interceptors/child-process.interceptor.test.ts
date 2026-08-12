@@ -219,3 +219,70 @@ describe('ChildProcessInterceptor — reads made by the runtime', () => {
     expect(reads.map((c) => c.detail)).toEqual(['DEPHAWK_TEST_SECRET_TOKEN']);
   });
 });
+
+describe('ChildProcessInterceptor — direct ChildProcess.prototype.spawn', () => {
+  // `new ChildProcess().spawn({ file, args, envPairs })` bypasses the module
+  // functions entirely; it was neither recorded nor re-attached. Its env is an
+  // `envPairs` array of KEY=value strings, not an `env` object.
+  const proto = (
+    childProcess as unknown as { ChildProcess: { prototype: Record<string, unknown> } }
+  ).ChildProcess.prototype;
+  let realProtoSpawn: unknown;
+  let protoCalls: unknown[][];
+
+  beforeEach(() => {
+    protoCalls = [];
+    realProtoSpawn = proto['spawn'];
+    proto['spawn'] = function (this: unknown, ...args: unknown[]): unknown {
+      protoCalls.push(args);
+      return this;
+    };
+  });
+  afterEach(() => {
+    installed?.dispose();
+    installed = undefined;
+    proto['spawn'] = realProtoSpawn;
+  });
+
+  const monitored: NodeJS.ProcessEnv = {
+    NODE_OPTIONS: '--import file:///app/node_modules/dephawk/dist/register.js',
+    DEPHAWK_POLICY: '{"mode":"observe"}',
+    PATH: '/usr/bin',
+  };
+  const call = (options: unknown): unknown =>
+    (proto['spawn'] as (o: unknown) => unknown).call({}, options);
+
+  it('records and blocks a direct spawn under deny', () => {
+    const spy = recordSpy();
+    spy.deny('spawning not allowed');
+    installed = new ChildProcessInterceptor({ env: monitored }).install(spy.record);
+
+    expect(() =>
+      call({
+        file: '/bin/node',
+        args: ['/bin/node', 'payload.js'],
+        envPairs: ['PATH=/usr/bin'],
+      }),
+    ).toThrow(/dephawk: blocked/);
+    expect(spy.last?.capability).toBe('process.spawn');
+    expect(spy.last?.detail).toContain('payload.js');
+    expect(protoCalls).toHaveLength(0); // blocked before the original
+  });
+
+  it('re-attaches monitoring into envPairs when allowed', () => {
+    const spy = recordSpy(); // allow
+    installed = new ChildProcessInterceptor({ env: monitored }).install(spy.record);
+
+    const options = {
+      file: '/bin/node',
+      args: ['/bin/node', 'x.js'],
+      envPairs: ['PATH=/usr/bin'], // no NODE_OPTIONS / DEPHAWK_*
+    };
+    call(options);
+
+    expect(protoCalls).toHaveLength(1);
+    expect(options.envPairs.some((p) => p.startsWith('NODE_OPTIONS='))).toBe(true);
+    expect(options.envPairs.some((p) => p.startsWith('DEPHAWK_POLICY='))).toBe(true);
+    expect(spy.last?.detail).toContain('re-attached');
+  });
+});
