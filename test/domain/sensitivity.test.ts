@@ -3,6 +3,7 @@ import {
   isSensitivePath,
   isSensitiveEnv,
   isPersistenceTarget,
+  looksLikeSecretValue,
 } from '../../src/domain/sensitivity.js';
 
 describe('isSensitivePath', () => {
@@ -186,6 +187,29 @@ describe('isSensitivePath — /proc and more credential files', () => {
     expect(isSensitivePath('/proc/self/status')).toBe(false);
     expect(isSensitivePath('/home/alice/project/memory.js')).toBe(false);
     expect(isSensitivePath('/home/alice/proc/app/mem')).toBe(false); // not under /proc
+  });
+});
+
+describe('looksLikeSecretValue — a credential hiding under an innocuous name', () => {
+  it.each([
+    'postgres://user:secretpass@db.example.com:5432/app',
+    'redis://default:hunter2@cache:6379',
+    'mongodb+srv://admin:p@ss@cluster0.mongodb.net',
+    '-----BEGIN RSA PRIVATE KEY-----\nMIIE...\n-----END RSA PRIVATE KEY-----',
+    '-----BEGIN OPENSSH PRIVATE KEY-----\nb3Blb...\n',
+  ])('flags a credential value', (value) => {
+    expect(looksLikeSecretValue(value)).toBe(true);
+  });
+
+  it.each([
+    'production',
+    '/usr/local/bin:/usr/bin',
+    'https://cdn.example.com/assets', // a URL, but no embedded user:pass@
+    'https://user@host.com/path', // a user, but no password
+    'postgres://localhost:5432/app', // no credentials
+    '', // empty
+  ])('does not flag a mundane value', (value) => {
+    expect(looksLikeSecretValue(value)).toBe(false);
   });
 });
 

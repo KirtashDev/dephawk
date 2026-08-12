@@ -35,6 +35,42 @@ describe('EnvInterceptor', () => {
     expect(spy.calls).toHaveLength(0);
   });
 
+  it('catches a secret VALUE under a mundane name (connection string)', () => {
+    // DATABASE_URL is not a secret-looking *name*, but its value carries a
+    // password. The read is flagged, marked value-sensitive, and its .value is
+    // hidden from the descriptor too.
+    process.env['DATABASE_URL'] = 'postgres://user:secretpass@db.example.com/app';
+    try {
+      const spy = recordSpy();
+      spy.deny('no secrets');
+      installed = new EnvInterceptor().install(spy.record);
+
+      expect(() => process.env['DATABASE_URL']).toThrow(/dephawk: blocked/);
+      expect(spy.last?.capability).toBe('env.read');
+      expect(spy.last?.detail).toBe('DATABASE_URL');
+      expect(spy.last?.valueSensitive).toBe(true);
+
+      const descriptor = Object.getOwnPropertyDescriptor(process.env, 'DATABASE_URL');
+      expect(descriptor?.value).toBeUndefined(); // hidden behind a getter
+    } finally {
+      delete process.env['DATABASE_URL'];
+    }
+  });
+
+  it('does NOT flag a mundane URL value with no embedded credentials', () => {
+    process.env['PUBLIC_URL'] = 'https://cdn.example.com/assets';
+    try {
+      const spy = recordSpy();
+      spy.deny();
+      installed = new EnvInterceptor().install(spy.record);
+
+      expect(process.env['PUBLIC_URL']).toBe('https://cdn.example.com/assets');
+      expect(spy.calls).toHaveLength(0);
+    } finally {
+      delete process.env['PUBLIC_URL'];
+    }
+  });
+
   it('returns the value when the read is allowed', () => {
     const spy = recordSpy(); // allow
     installed = new EnvInterceptor().install(spy.record);

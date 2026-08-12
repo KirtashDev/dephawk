@@ -62,6 +62,7 @@ export class Monitor {
       origin: attribution.origin,
       detail: call.detail,
       stack: attribution.frames,
+      ...(call.valueSensitive === true ? { valueSensitive: true } : {}),
     };
 
     const verdict = this.deps.policyEngine.evaluate(request);

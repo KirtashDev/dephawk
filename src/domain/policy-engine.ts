@@ -101,7 +101,9 @@ function detectSensitive(req: CapabilityRequest): boolean {
     case 'fs.read':
       return isSensitivePath(req.detail);
     case 'env.read':
-      return isSensitiveEnv(req.detail);
+      // Sensitive by name, or by value (a connection string carrying a password
+      // under an innocuous name like `DATABASE_URL`).
+      return isSensitiveEnv(req.detail) || req.valueSensitive === true;
     case 'process.spawn':
       // Spawning a process is always high signal — that's the curl-pipe-sh move.
       return true;

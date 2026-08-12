@@ -34,6 +34,12 @@ export interface InterceptedCall {
   readonly detail: string;
   /** The full, unparsed stack trace string captured at the call site. */
   readonly rawStack: string;
+  /**
+   * Set by the interceptor when the *value* behind {@link detail} is a secret
+   * even though its name is not (an env var holding a connection string with an
+   * embedded password). Only the flag crosses this boundary — never the value.
+   */
+  readonly valueSensitive?: boolean;
 }
 
 /** The result handed back to an interceptor: allow the call, or deny it. */

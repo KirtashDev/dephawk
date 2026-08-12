@@ -268,3 +268,26 @@ export function isPersistenceTarget(path: string): boolean {
 export function isSensitiveEnv(name: string): boolean {
   return STRONG_SECRET.test(name) || WEAK_SECRET.test(name) || SECRET_PWD.test(name);
 }
+
+/** A connection string with an embedded password: `scheme://user:pass@host`. */
+const CREDENTIAL_URL = /:\/\/[^/\s:@]+:[^/\s:@]+@/;
+/** Inline private-key material (PEM). */
+const PEM_PRIVATE_KEY = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/;
+
+/**
+ * True when an environment variable's *value* carries a credential even though
+ * its name does not look secret — the classic `DATABASE_URL` /
+ * `REDIS_URL=redis://user:pass@host` shape, or a variable holding a PEM key.
+ * The value's name is often mundane (`DATABASE_URL`, `CONFIG`), so name-based
+ * detection misses it. Cheap `includes` guards keep the regexes off the hot path
+ * for the overwhelmingly common ordinary values.
+ */
+export function looksLikeSecretValue(value: unknown): boolean {
+  if (typeof value !== 'string' || value.length < 8) {
+    return false;
+  }
+  if (value.includes('://') && CREDENTIAL_URL.test(value)) {
+    return true;
+  }
+  return value.includes('BEGIN') && PEM_PRIVATE_KEY.test(value);
+}
