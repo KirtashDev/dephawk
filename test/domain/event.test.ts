@@ -42,3 +42,16 @@ describe('createEvent', () => {
     expect('reason' in event).toBe(false);
   });
 });
+
+describe('createEvent — control characters are stripped', () => {
+  it('replaces ESC and newline in detail and reason with spaces', () => {
+    const event = createEvent({
+      ...base,
+      capability: 'process.spawn',
+      detail: 'echo x\x1b[31mRED\nSPOOFED default:',
+      reason: 'blocked\x1b[2K line',
+    });
+    expect(event.detail).toBe('echo x [31mRED SPOOFED default:');
+    expect(event.reason).toBe('blocked [2K line');
+  });
+});
