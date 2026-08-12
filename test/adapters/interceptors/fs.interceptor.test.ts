@@ -98,6 +98,26 @@ describe('FsInterceptor', () => {
     expect(spy.last?.capability).toBe('fs.write');
   });
 
+  it.each([
+    ['Buffer', () => fs.readFileSync(Buffer.from(FAKE_SSH))],
+    // Node accepts a plain Uint8Array path at runtime; @types/node does not type
+    // it, so cast — the whole point is that dephawk must handle what Node accepts.
+    [
+      'plain Uint8Array',
+      () => fs.readFileSync(new TextEncoder().encode(FAKE_SSH) as unknown as Buffer),
+    ],
+  ])('catches a sensitive read whose path is a %s', (_name, act) => {
+    // Node accepts any Uint8Array as a path, not only a Buffer. A plain
+    // Uint8Array used to slip past the path decoder so check() never ran.
+    const spy = recordSpy();
+    spy.deny('not allowed');
+    installed = new FsInterceptor().install(spy.record);
+
+    expect(act).toThrow(/dephawk: blocked/);
+    expect(spy.last?.capability).toBe('fs.read');
+    expect(spy.last?.detail).toContain('.ssh');
+  });
+
   it('restores the original methods on dispose', () => {
     const before = fs.readFileSync;
     const local = new FsInterceptor().install(recordSpy().record);

@@ -3,6 +3,23 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.29] — 2026-08-11
+
+### Security
+
+- **A `Uint8Array` path argument bypassed the entire filesystem interceptor.**
+  Node accepts any `Uint8Array` as a path, not only a `Buffer` — but the path
+  decoder recognised only strings, `file:` URLs, and `Buffer`s. A plain
+  `fs.readFileSync(new TextEncoder().encode('/etc/passwd'))` therefore resolved to
+  nothing, so `check()` never ran: no sensitivity test, no protected-path test, no
+  persistence test, no symlink `realpath` fallback — every `fs.read`/`fs.write`
+  target (secrets, the audit log, into-package writes, shell-rc persistence) was
+  readable and writable with **no event and no block**, on every platform, while
+  the string form was blocked. Reproduced reading a real file under `--enforce`
+  with a deny-by-default policy. The decoder now accepts any `Uint8Array` (via
+  Node's own cross-realm `util.types.isUint8Array`), decoding it the way Node
+  does.
+
 ## [0.6.28] — 2026-08-11
 
 ### Security

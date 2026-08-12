@@ -19,6 +19,11 @@ const fs = loadBuiltin('node:fs') as Record<string, unknown> & {
   promises?: Record<string, unknown>;
 };
 
+/** Node's own path-type check: true for a Buffer *and* any plain Uint8Array. */
+const isUint8Array = (
+  loadBuiltin('node:util') as { types: { isUint8Array(value: unknown): boolean } }
+).types.isUint8Array;
+
 /** One path argument of an `fs` member, and what touching it amounts to. */
 interface PathArgument {
   readonly index: number;
@@ -369,8 +374,18 @@ function resolvePath(arg: unknown): string | null {
   if (arg instanceof URL) {
     return arg.protocol === 'file:' ? fileURLToPath(arg) : null;
   }
-  if (Buffer.isBuffer(arg)) {
-    return resolve(arg.toString('utf8'));
+  // Node accepts any Uint8Array as a path, not only a Buffer — and a plain
+  // `new TextEncoder().encode('/etc/passwd')` is NOT a Buffer, so it used to slip
+  // past this decoder entirely: `resolvePaths` returned `[]`, `check()` never
+  // ran, and the file was read or written with no event. Decode it the way Node
+  // does. `isUint8Array` (util.types) also matches a Buffer and works across
+  // realms, so the old `Buffer.isBuffer` branch is subsumed.
+  if (isUint8Array(arg)) {
+    const view = arg as Uint8Array;
+    const bytes = Buffer.isBuffer(view)
+      ? view
+      : Buffer.from(view.buffer, view.byteOffset, view.byteLength);
+    return resolve(bytes.toString('utf8'));
   }
   return null; // file descriptor or unsupported argument
 }
