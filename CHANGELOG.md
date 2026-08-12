@@ -3,6 +3,23 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.35] — 2026-08-12
+
+### Security
+
+- **`new ChildProcess().spawn(…)` launched a fully unmonitored, unrecorded
+  child.** The interceptor patched the seven `child_process` module functions
+  (`spawn`/`exec`/`fork` + sync), but the lower-level chokepoint the async ones
+  funnel through — `ChildProcess.prototype.spawn` — was reachable directly:
+  `new ChildProcess().spawn({ file, args, envPairs, … })` started a process with
+  **no `process.spawn` event and no re-attach**, so the child ran with zero
+  interceptors and read a real secret under `--enforce` with a deny-by-default
+  policy. `ChildProcess.prototype.spawn` is now intercepted too: recorded,
+  blocked when spawning is not allowed, and re-attached — its environment is an
+  `envPairs` array of `KEY=value` strings rather than an `env` object, handled
+  accordingly. A re-entrancy guard keeps the module functions (which call it
+  internally) from reporting the same spawn twice.
+
 ## [0.6.34] — 2026-08-12
 
 ### Security
