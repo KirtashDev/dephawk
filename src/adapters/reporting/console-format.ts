@@ -1,6 +1,11 @@
 import { CAPABILITY_META } from '../../domain/capability.js';
 import type { DhEvent } from '../../domain/event.js';
 import type { Mode } from '../../domain/policy.js';
+import {
+  detectExfilChains,
+  detectTechnique,
+  TECHNIQUE_GLOSS,
+} from '../../domain/threat.js';
 import { createStyler, type StyleName } from './ansi.js';
 import { displayPackage, summarize, type Row, type Severity } from './report-model.js';
 
@@ -68,6 +73,25 @@ export function formatConsoleReport(
 
   for (const row of flagged) {
     lines.push(formatRow(row, width, style));
+    const technique = detectTechnique(row.capability, row.detail);
+    if (technique !== null) {
+      lines.push(
+        `      ${style('red', '⚑ known attack technique')} — ${TECHNIQUE_GLOSS[technique]}`,
+      );
+    }
+  }
+
+  const chains = detectExfilChains(events);
+  if (chains.length > 0) {
+    lines.push('');
+    lines.push(
+      `  ${style('red', '🚨 likely credential exfiltration')} — a dependency read a secret, then reached the network:`,
+    );
+    for (const chain of chains) {
+      lines.push(
+        `      ${style('bold', chain.package)}: read ${truncate(chain.secret, MAX_DETAIL)} → out to ${truncate(chain.sink, MAX_DETAIL)}`,
+      );
+    }
   }
 
   lines.push('');

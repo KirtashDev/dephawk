@@ -64,6 +64,15 @@ code 2.
 > attribution laundering, hard-link/symlink secret aliases, `console.log(process.env)`
 > dumps, shell-rc persistence, and tamper-proofing dephawk's own audit log.
 
+> 🎯 **New in 0.7 — dephawk recognises _attacks_, not just capabilities.** It names
+> the concrete moves of the 2025-2026 npm worms (Shai-Hulud, ChainDrop, the axios
+> RAT): **cloud instance-metadata SSRF** (`169.254.169.254` & co, evasion-resistant
+> to decimal/hex/IPv6 spellings), **CI-workflow persistence** (`.github/workflows`
+> writes), **registry self-replication** (`npm publish`), and — the signature every
+> stealer shares — **likely credential exfiltration**: the same dependency read a
+> secret and _then_ reached the network. Each finding says, in one plain line, what
+> it is and what to check.
+
 ## Why
 
 Supply-chain attacks on npm are now routine: typosquats, hijacked maintainer
