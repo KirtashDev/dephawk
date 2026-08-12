@@ -32,6 +32,9 @@ const SENSITIVE_DIRECTORIES: readonly string[] = [
   // Developer-platform tokens. `gh` keeps a GitHub token in hosts.yml, which is
   // enough to push to every repository the user can.
   '/.config/gh',
+  // Terraform Cloud/Enterprise API tokens live under here (credentials.tfrc.json
+  // is also matched by basename, but the directory catches the whole store).
+  '/.terraform.d',
   // OS credential stores. Reading these is how a stealer gets everything at
   // once, including credentials dephawk never sees pass through Node.
   '/library/keychains', // macOS, both ~/Library and /Library
@@ -75,6 +78,11 @@ const SENSITIVE_BASENAMES: readonly string[] = [
   '.env',
   '.netrc',
   '.pypirc',
+  // Postgres password file, HashiCorp Vault token, and the Terraform Cloud
+  // credential file — plaintext tokens a build step has no reason to read.
+  '.pgpass',
+  '.vault-token',
+  'credentials.tfrc.json',
   // Git storing credentials in plaintext, which `git config credential.helper
   // store` does by default.
   '.git-credentials',
@@ -160,6 +168,13 @@ const PERSISTENCE_BASENAMES: readonly string[] = [
  */
 const STRONG_SECRET = /(TOKEN|SECRET|PASSWORD|PASSWD|PASSPHRASE|CREDENTIALS?|APIKEY)/i;
 const WEAK_SECRET = /(?:^|[_-])(KEY|KEYS|AUTH|SESSION|COOKIE|PRIVATE)(?:[_-]|$)/i;
+/**
+ * A variable ending in a delimited `PWD` — `MYSQL_PWD` (the MySQL client
+ * password), `DB_PWD`, … A leading delimiter is required so the bare shell
+ * variables `PWD` and `OLDPWD` (working-directory paths, not secrets) are not
+ * flagged.
+ */
+const SECRET_PWD = /[_-]PWD$/i;
 
 /**
  * Normalise Windows separators, drop any trailing slash (`readdir('~/.ssh/')`
@@ -193,7 +208,7 @@ export function isSensitivePath(path: string): boolean {
   if (inSensitiveDirectory) {
     return true;
   }
-  if (isProcEnviron(padded)) {
+  if (isProcSensitive(padded)) {
     return true;
   }
 
@@ -206,12 +221,20 @@ export function isSensitivePath(path: string): boolean {
 }
 
 /**
- * True for `/proc/self/environ` and `/proc/<pid>/environ`, which hand over every
- * environment variable in a single read — every secret at once, and without ever
- * touching `process.env`, so the env interceptor never sees it.
+ * True for the Linux `/proc` files that hand over secrets without touching the
+ * interceptors' usual surfaces:
+ * - `environ` — every environment variable in one read (past `process.env`).
+ *   Matched at any depth so the thread form `/proc/<pid>/task/<tid>/environ`
+ *   counts too, not only `/proc/<pid>/environ`.
+ * - `mem` / `maps` / `pagemap` — the process address space, where every
+ *   decrypted secret lives (a heap dump by another name).
+ *
+ * Reading these still goes through a patched `open`, so flagging the path is
+ * enough even though the descriptor-based `read(fd, …)` family is not itself
+ * intercepted.
  */
-function isProcEnviron(padded: string): boolean {
-  return /^\/proc\/[^/]+\/environ$/.test(padded);
+function isProcSensitive(padded: string): boolean {
+  return /^\/proc\/.+\/(environ|mem|maps|pagemap)$/.test(padded);
 }
 
 /** True when the *name* says key material, outside `node_modules`. */
@@ -233,5 +256,5 @@ export function isPersistenceTarget(path: string): boolean {
 
 /** True when an environment variable name looks like a secret. */
 export function isSensitiveEnv(name: string): boolean {
-  return STRONG_SECRET.test(name) || WEAK_SECRET.test(name);
+  return STRONG_SECRET.test(name) || WEAK_SECRET.test(name) || SECRET_PWD.test(name);
 }

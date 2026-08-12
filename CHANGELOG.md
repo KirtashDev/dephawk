@@ -3,6 +3,24 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.26] — 2026-08-11
+
+### Security
+
+- **Broadened secret coverage (found by the audit).**
+  - `/proc/<pid>/task/<tid>/environ` — the per-thread form of the environment
+    file — now counts, not only `/proc/<pid>/environ`; the single-segment rule
+    let a thread-directory path leak the whole environment through the covered
+    `readFileSync`.
+  - `/proc/<pid>/mem`, `/maps`, and `/pagemap` are now sensitive — reading them
+    dumps the process address space (every in-memory secret). The read goes
+    through a patched `open`, so flagging the path is enough.
+  - New credential files: `.pgpass` (Postgres), `.vault-token` (HashiCorp Vault),
+    and `~/.terraform.d/` incl. `credentials.tfrc.json` (Terraform Cloud).
+  - `MYSQL_PWD` (and other `*_PWD` names) are now recognised as secret env vars,
+    with a delimited rule so the working-directory variables `PWD` and `OLDPWD`
+    are not flagged.
+
 ## [0.6.25] — 2026-08-11
 
 ### Security
