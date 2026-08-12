@@ -56,6 +56,14 @@ code 2.
 > `.invalid` host (RFC 6761) and a `203.0.113.x` documentation address (RFC 5737) that routes nowhere
 > ([see for yourself](examples/demo/node_modules/sneaky-dependency/index.js)).
 
+> 🛡️ **Hardened release by release.** dephawk watches **11 capability classes**
+> across **18 interceptors**, and every version closes another real bypass —
+> **39 reproduced attack techniques blocked, and counting.** Each was
+> demonstrated against a published build _before_ it was fixed; the running list
+> is in the [CHANGELOG](CHANGELOG.md). Recent additions: `import('data:…')`
+> attribution laundering, hard-link/symlink secret aliases, `console.log(process.env)`
+> dumps, shell-rc persistence, and tamper-proofing dephawk's own audit log.
+
 ## Why
 
 Supply-chain attacks on npm are now routine: typosquats, hijacked maintainer
@@ -199,18 +207,19 @@ this for you.)
 
 ## What it watches
 
-| Capability       | Examples caught                                                                                                                     |
-| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `fs.read`        | reading, **listing**, globbing, **copying**, **watching** or **blob-opening** `~/.ssh`, keychains, wallets, `.env`                  |
-| `fs.write`       | overwriting or **deleting** `~/.npmrc`, `authorized_keys`, other secret files                                                       |
-| `net.connect`    | `http`/`https`/`fetch`/`http2`, plus **raw `net`/`tls` sockets — even a bare `new Socket().connect(port, ip)`** — and UDP (`dgram`) |
-| `net.resolve`    | `dns.lookup`/`resolve*` — recon and DNS-tunnel exfil (no TCP to see)                                                                |
-| `net.listen`     | `net`/`http`/`http2` servers and `dgram.bind` — an inbound backdoor/C2 listener                                                     |
-| `process.spawn`  | `child_process.exec`/`spawn`/`fork`, and `worker_threads` (the curl-pipe-sh)                                                        |
-| `process.native` | `process.dlopen` **and `process.binding`** — raw runtime power outside the JS sandbox                                               |
-| `code.eval`      | `vm.*`, **WebAssembly** compile/instantiate, and **`node:inspector`** — running staged payloads / opening a debugger backdoor       |
-| `env.read`       | a dependency reading `NPM_TOKEN`, `AWS_SECRET_ACCESS_KEY`, …                                                                        |
-| `os.info`        | `os.userInfo`/`networkInterfaces`/`hostname` host profiling                                                                         |
+| Capability       | Examples caught                                                                                                                                                                                                                    |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fs.read`        | reading, **listing**, globbing, **copying**, **watching** or **blob-opening** `~/.ssh`, keychains, wallets, `.env`                                                                                                                 |
+| `fs.write`       | overwriting or **deleting** `~/.npmrc`, `authorized_keys`, other secret files                                                                                                                                                      |
+| `net.connect`    | `http`/`https`/`fetch`/`http2`, plus **raw `net`/`tls` sockets — even a bare `new Socket().connect(port, ip)`** — and UDP (`dgram`)                                                                                                |
+| `net.resolve`    | `dns.lookup`/`resolve*` — recon and DNS-tunnel exfil (no TCP to see)                                                                                                                                                               |
+| `net.listen`     | `net`/`http`/`http2` servers and `dgram.bind` — an inbound backdoor/C2 listener                                                                                                                                                    |
+| `process.spawn`  | `child_process.exec`/`spawn`/`fork`, and `worker_threads` (the curl-pipe-sh)                                                                                                                                                       |
+| `process.native` | `process.dlopen` **and `process.binding`** — raw runtime power outside the JS sandbox                                                                                                                                              |
+| `code.eval`      | `vm.*` (incl. `SourceTextModule`), **WebAssembly**, the **module-loader** (`_compile`/`require.extensions`/`module.register`), and **`node:inspector`** — staged payloads, code injected into another package, a debugger backdoor |
+| `process.memory` | `v8.writeHeapSnapshot`/`getHeapSnapshot` and `process.report.getReport` — dumping every in-memory secret and env var at once                                                                                                       |
+| `env.read`       | a dependency reading `NPM_TOKEN`, `AWS_SECRET_ACCESS_KEY`, `MYSQL_PWD`, … — including `console.log(process.env)` whole-env dumps                                                                                                   |
+| `os.info`        | `os.userInfo`/`networkInterfaces`/`hostname` host profiling                                                                                                                                                                        |
 
 Each event is **attributed to the specific package** that triggered it, so you
 know exactly who's misbehaving.
@@ -224,11 +233,18 @@ vaults like MetaMask — the payload of choice in recent npm compromises),
 **browser credential stores** (Chrome/Brave/Edge `Login Data` + `Local State`,
 Firefox `logins.json` + `key4.db`, cookie DBs — what the 2025-26 stealer
 campaigns went after), `.npmrc`, `.netrc`, `.env*`, `.git-credentials`,
-`.pypirc`, `*.pem`/`*.key`/`*.p12`/`*.kdbx` outside `node_modules`, `/etc/passwd`,
-and `/proc/*/environ` (every env var in one read).
+`.pypirc`, `.pgpass`, `.vault-token`, `~/.terraform.d`, `*.pem`/`*.key`/`*.p12`/`*.kdbx`
+outside `node_modules`, `/etc/passwd`, and `/proc/*/(environ|mem|maps)` (every env
+var, or the whole process memory, in one read).
 Matching is case-insensitive, and **listing** one of those directories counts as
 reading it — `readdir('~/.ssh')` names every key on the machine without opening
 one, and `readlink` says where a key really lives.
+
+Aliases don't help either: a **hard link or symlink** that points a mundane name
+at a secret is judged by what it really resolves to, caught at the moment the
+alias is made or read. And **writing** a shell startup file (`~/.bashrc`,
+`~/.zshrc`, …) is flagged as persistence — a payload that would run on every
+future shell — even though _reading_ those files is left alone.
 
 ## Catching what a policy would allow
 
