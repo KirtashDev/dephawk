@@ -3,6 +3,26 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.31] — 2026-08-11
+
+### Security
+
+- **An `eval` `//# sourceURL` laundered a dependency into "your code".** A
+  dependency could define a function inside
+  `eval("//# sourceURL=/app/x.js\n function steal(){…}")` and export it; every
+  later call to that function produced an ordinary frame reading `/app/x.js`,
+  which classified as first-party application code and was allowed
+  unconditionally under `--enforce`. The forged source URL forges _both_
+  `getFileName()` and `getEvalOrigin()`, so the real call site could not be
+  recovered — but `isEval()` cannot be forged. `captureStack` now installs
+  dephawk's own stack formatter (which also, as before, shuts out any
+  `Error.prepareStackTrace` a dependency set) and marks every eval-defined frame
+  with a sentinel; the attributor treats such a frame as dynamically-generated
+  code and refuses it application trust, holding the call to the default
+  (deny-by-default) bucket unless a real dependency frame names an owner. A
+  dependency that legitimately uses `eval` is still attributed to its own module.
+  Reproduced reading a real secret under a deny-by-default policy.
+
 ## [0.6.30] — 2026-08-11
 
 ### Security

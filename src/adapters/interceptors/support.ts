@@ -96,6 +96,60 @@ const nativeCaptureStackTrace = Error.captureStackTrace;
  * that has frozen these as non-configurable cannot be neutralised, but that is
  * a far narrower and more conspicuous move than a plain assignment.
  */
+/**
+ * dephawk's own `Error.prepareStackTrace`, installed only for the duration of a
+ * capture. Two jobs:
+ *
+ * 1. It replaces whatever formatter a dependency may have set, so a forged one
+ *    cannot run while we capture (the same reason we used to force `undefined`).
+ * 2. It marks every **eval-defined** frame with the sentinel location
+ *    {@link EVAL_FRAME}, discarding the file name and eval origin V8 reports for
+ *    it. A `//# sourceURL=/app/x.js` comment inside evaluated source forges
+ *    *both* `getFileName()` and `getEvalOrigin()`, so a dependency could define a
+ *    function in `eval("//# sourceURL=/app/x.js\n…")` and have every later call
+ *    to it read as first-party application code, unconditionally allowed under
+ *    `--enforce`. `isEval()` cannot be forged, so the attributor is told the
+ *    frame is dynamically-generated code and refuses it application trust (see
+ *    the `eval` frame kind in the stack attributor).
+ *
+ * Defensive throughout: any failure falls back to the frame's own default
+ * string, and the whole thing to `'Error'` — a formatter that throws would break
+ * every capture.
+ */
+export const EVAL_FRAME = '[eval]';
+
+function formatStack(_error: unknown, frames: readonly NodeJS.CallSite[]): string {
+  try {
+    let out = 'Error';
+    for (const frame of frames) {
+      out += `\n    at ${formatFrame(frame)}`;
+    }
+    return out;
+  } catch {
+    return 'Error';
+  }
+}
+
+function formatFrame(frame: NodeJS.CallSite): string {
+  try {
+    const name = frame.getFunctionName() ?? frame.getMethodName() ?? '';
+    if (frame.isEval()) {
+      // Its reported location is attacker-controllable via `//# sourceURL`; the
+      // only trustworthy fact is that it is eval-defined.
+      return name.length > 0 ? `${name} (${EVAL_FRAME})` : EVAL_FRAME;
+    }
+    const file = frame.getFileName() ?? (frame.isNative() ? 'native' : '<anonymous>');
+    const location = `${file}:${frame.getLineNumber() ?? 0}:${frame.getColumnNumber() ?? 0}`;
+    return name.length > 0 ? `${name} (${location})` : location;
+  } catch {
+    try {
+      return String(frame);
+    } catch {
+      return '<frame>';
+    }
+  }
+}
+
 export function captureStack(): string {
   const capture = nativeCaptureStackTrace as
     ((target: object, ctor?: (...args: never[]) => unknown) => void) | undefined;
@@ -109,7 +163,7 @@ export function captureStack(): string {
   const savedPrepare = errorGlobal.prepareStackTrace;
   const savedLimit = errorGlobal.stackTraceLimit;
   try {
-    errorGlobal.prepareStackTrace = undefined;
+    errorGlobal.prepareStackTrace = formatStack;
   } catch {
     // Frozen by a dependency — best effort; fall through with what's there.
   }
