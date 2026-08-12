@@ -135,18 +135,21 @@ export function restoreWorkerOptions(
     ? execArgv.filter((arg): arg is string => typeof arg === 'string')
     : null;
 
-  if (options['eval'] === true) {
-    // An `eval: true` worker does not honour `--import` in execArgv — verified
-    // on Node 20 and 22 — and with no execArgv it inherits `process.execArgv`,
-    // whose `--import` is equally useless to it. So it runs entirely unmonitored
-    // unless we switch to `--require`, which it does honour (register.js has no
+  // `new Worker(code, { eval: 1 })` runs code just as `eval: true` does — any
+  // truthy value enables it — so the reattach has to trigger on truthiness, not
+  // on a strict `=== true` a dependency sidesteps with `eval: 1`.
+  if (options['eval']) {
+    // An `eval` worker does not honour `--import` in execArgv — verified on Node
+    // 20 and 22 — and with no execArgv it inherits `process.execArgv`, whose
+    // `--import` is equally useless to it. So it runs entirely unmonitored unless
+    // we switch to `--require`, which it does honour (register.js has no
     // top-level await, so it loads through `require`). We seed from whatever
     // execArgv would otherwise apply — the caller's, or the parent's — so any
     // other flags on it survive.
     const base = explicit ?? [...baseExecArgv];
     const missing = monitoring.imports
       .map(asRequireFlag)
-      .filter((flag) => !base.some((arg) => arg.includes(requiredPath(flag))));
+      .filter((flag) => !execArgvLoads(base, flag));
     if (missing.length > 0) {
       patched['execArgv'] = [...base, ...missing];
       restored.push('execArgv');
@@ -157,7 +160,7 @@ export function restoreWorkerOptions(
     // parent's, which already carries monitoring).
     const missing = monitoring.imports
       .map(asExecArgvFlag)
-      .filter((flag) => !explicit.some((arg) => arg.includes(importedUrl(flag))));
+      .filter((flag) => !execArgvLoads(explicit, flag));
     if (missing.length > 0) {
       patched['execArgv'] = [...explicit, ...missing];
       restored.push('execArgv');
@@ -177,16 +180,35 @@ export function restoreWorkerOptions(
 }
 
 /**
+ * Whether `argv` already loads exactly what `flag` (`--require=<path>` or
+ * `--import=<path>`) asks for — the `--flag=value` element itself, or the
+ * two-element `--flag value` form. A *substring* check was the bug: an unrelated
+ * flag such as `--conditions=<registerPath>` embeds the path and satisfied
+ * `arg.includes(path)`, so the reattach thought monitoring was present and never
+ * added its own `--require`, leaving the worker unmonitored even under `eval`.
+ */
+function execArgvLoads(argv: readonly string[], flag: string): boolean {
+  const eq = flag.indexOf('=');
+  const name = flag.slice(0, eq); // --require / --import
+  const value = flag.slice(eq + 1); // the path or url
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === flag) {
+      return true; // --require=<path>
+    }
+    if (argv[i] === name && argv[i + 1] === value) {
+      return true; // --require <path>
+    }
+  }
+  return false;
+}
+
+/**
  * `--import <url>` as a single `execArgv` entry. `NODE_OPTIONS` is one string
  * and tolerates the space-separated form; an argv array does not, because each
  * element is exactly one argument.
  */
 function asExecArgvFlag(fragment: string): string {
   return `--import=${fragment.replace(/^--import(?:=|\s+)/, '')}`;
-}
-
-function importedUrl(flag: string): string {
-  return flag.slice('--import='.length);
 }
 
 /**
@@ -198,10 +220,6 @@ function asRequireFlag(fragment: string): string {
   const url = fragment.replace(/^--import(?:=|\s+)/, '');
   const path = url.startsWith('file:') ? fileURLToPath(url) : url;
   return `--require=${path}`;
-}
-
-function requiredPath(flag: string): string {
-  return flag.slice('--require='.length);
 }
 
 /** The outcome of putting monitoring back into an environment. */

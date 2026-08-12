@@ -181,6 +181,35 @@ describe('restoreWorkerOptions', () => {
     ).toEqual([]);
   });
 
+  it.each([1, 'yes', {}])(
+    'treats any truthy eval value as an eval worker (eval: %s)',
+    (evalValue) => {
+      // `eval: 1` runs code just like `eval: true`; a strict `=== true` check let
+      // it through with only the (ignored) --import, unmonitored.
+      const { options, restored } = restoreWorkerOptions(
+        { eval: evalValue, execArgv: [] },
+        monitoring,
+      );
+      expect(options['execArgv']).toEqual([`--require=${REGISTER_PATH}`]);
+      expect(restored).toEqual(['execArgv']);
+    },
+  );
+
+  it('is not fooled by an unrelated flag that merely embeds the register path', () => {
+    // `--conditions=<registerPath>` embeds the path but does NOT load it. A
+    // substring presence check thought monitoring was already there and skipped
+    // the reattach, leaving the eval worker unmonitored.
+    const { options, restored } = restoreWorkerOptions(
+      { eval: true, execArgv: [`--conditions=${REGISTER_PATH}`] },
+      monitoring,
+    );
+    expect(options['execArgv']).toEqual([
+      `--conditions=${REGISTER_PATH}`,
+      `--require=${REGISTER_PATH}`,
+    ]);
+    expect(restored).toEqual(['execArgv']);
+  });
+
   it('restores monitoring in an emptied env', () => {
     const { options, restored } = restoreWorkerOptions({ env: {} }, monitoring);
 

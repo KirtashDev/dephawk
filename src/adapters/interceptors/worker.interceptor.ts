@@ -124,8 +124,8 @@ function describeWorker(args: readonly unknown[], restored: readonly string[]): 
 function describeTarget(args: readonly unknown[]): string {
   const filename = args[0];
   const options = args[1];
-  if (isObject(options) && options['eval'] === true) {
-    return '<inline eval>';
+  if (isObject(options) && options['eval']) {
+    return '<inline eval>'; // any truthy `eval` runs the first arg as source
   }
   if (typeof filename === 'string') {
     return filename;
