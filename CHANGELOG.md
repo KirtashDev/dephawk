@@ -3,6 +3,21 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.27] — 2026-08-11
+
+### Security
+
+- **`process.exit()` silenced the standalone observe-mode report.** Running
+  dephawk as `node --import dephawk/register app.js` drained its report on
+  `beforeExit` — which Node skips when the program ends via `process.exit()` or a
+  hard crash. In observe mode the report is the _only_ signal (calls are recorded,
+  not blocked), so a dependency could read a secret and then `process.exit(0)` to
+  make the whole report vanish, with nothing printed. The console report — the
+  primary signal — is now also rendered from a synchronous `exit` handler, which
+  fires in those cases, so a dependency's `process.exit()` can no longer erase it.
+  (The HTML file needs async I/O and stays best-effort; `guard` mode was never
+  affected — it streams every event to the sink as it happens.)
+
 ## [0.6.26] — 2026-08-11
 
 ### Security
