@@ -149,6 +149,22 @@ describe('FsInterceptor — destructive members', () => {
     });
   }
 
+  it.each([
+    ['chmodSync', () => fs.chmodSync(FAKE_SSH, 0o777)],
+    ['chownSync', () => fs.chownSync(FAKE_SSH, 0, 0)],
+    ['utimesSync', () => fs.utimesSync(FAKE_SSH, new Date(), new Date())],
+  ])('catches %s of a sensitive path as fs.write', (_name, act) => {
+    // Changing mode/owner/timestamps is a write: loosening a key's permissions,
+    // marking a payload executable, or back-dating a tampered file.
+    const spy = recordSpy();
+    spy.deny();
+    installed = new FsInterceptor().install(spy.record);
+
+    expect(act).toThrow(/dephawk: blocked/);
+    expect(spy.last?.capability).toBe('fs.write');
+    expect(spy.last?.detail).toContain('.ssh');
+  });
+
   it('checks both paths of a rename, whichever one is sensitive', () => {
     const spy = recordSpy();
     spy.deny();

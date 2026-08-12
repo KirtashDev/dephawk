@@ -36,6 +36,24 @@ describe('ProcessMemoryInterceptor', () => {
     expect(spy.last?.detail).toBe('v8.getHeapSnapshot');
   });
 
+  it('blocks v8.queryObjects as process.memory (Node >=22)', () => {
+    const queryObjects = (v8 as unknown as { queryObjects?: unknown }).queryObjects;
+    if (typeof queryObjects !== 'function') {
+      return; // not on this runtime
+    }
+    const spy = recordSpy();
+    spy.deny();
+    installed = new ProcessMemoryInterceptor().install(spy.record);
+
+    expect(() =>
+      (
+        v8 as unknown as { queryObjects: (c: unknown, o: unknown) => unknown }
+      ).queryObjects(Buffer, { format: 'count' }),
+    ).toThrow(/dephawk: blocked/);
+    expect(spy.last?.capability).toBe('process.memory');
+    expect(spy.last?.detail).toBe('v8.queryObjects');
+  });
+
   it('lets a dump through when policy allows it', () => {
     const spy = recordSpy(); // allow
     installed = new ProcessMemoryInterceptor().install(spy.record);
