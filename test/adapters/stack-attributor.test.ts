@@ -171,4 +171,40 @@ describe('StackAttributor — unknown origin', () => {
   it('recognises a bare filename location as application code', () => {
     expect(attributor.attribute('    at run (bundle.js:1:1)').origin).toBe('application');
   });
+
+  it('does not launder a data: URL module into application code', () => {
+    // `import('data:text/javascript,…')` runs a module whose frames read
+    // `data:text/javascript,…`. The `/` in the MIME type used to satisfy
+    // isSourceLocation, so a deferred call from inside it — with the importer
+    // frame gone — classified as `application` and was allowed under --enforce.
+    const stack =
+      'Error\n' +
+      "    at evil (data:text/javascript,%0Afs.readFileSync('/etc/passwd'):3:15)\n" +
+      '    at listOnTimeout (node:internal/timers:594:17)';
+    const result = attributor.attribute(stack);
+    expect(result.origin).toBe('unknown'); // not 'application'
+    expect(result.package).toBeNull();
+  });
+
+  it('does not let a data: URL body forge a node_modules frame', () => {
+    // The data body is attacker-controlled text and can contain the literal
+    // `node_modules/<pkg>/` — it must not be parsed as a real dependency frame.
+    const stack =
+      'Error\n' +
+      '    at evil (data:text/javascript,/*node_modules/innocent/index.js*/x:1:1)\n' +
+      '    at listOnTimeout (node:internal/timers:594:17)';
+    const result = attributor.attribute(stack);
+    expect(result.origin).toBe('unknown');
+    expect(result.package).toBeNull();
+  });
+
+  it('still treats a file: URL module as real source', () => {
+    // file: URLs are genuine on-disk modules — ESM app code shows up this way.
+    expect(attributor.attribute('    at run (file:///app/index.js:1:1)').origin).toBe(
+      'application',
+    );
+    expect(
+      attributor.attribute('    at x (file:///app/node_modules/dep/i.js:1:1)').package,
+    ).toBe('dep');
+  });
 });

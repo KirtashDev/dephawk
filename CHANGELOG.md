@@ -3,6 +3,30 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.24] — 2026-08-11
+
+### Security
+
+- **`import()` of a `data:` URL laundered a dependency's actions into "your
+  code" — a full deny-by-default bypass.** The attributor decides a stack frame
+  is application code when its location "looks like a source file", and that test
+  counted any location containing `/`. A `data:text/javascript,…` frame satisfied
+  it because of the `/` in the MIME type, so a dependency could
+  `import('data:text/javascript,<payload>')` and, from a `setTimeout` inside the
+  data module (so no importer frame is left on the stack), read `/etc/passwd`,
+  the environment, or open a socket — every call credited to `(your code)` and
+  **allowed under `--enforce`**, with the dependency never named. Reproduced
+  end-to-end reading a real secret against a deny-by-default policy. The data
+  body, being attacker-controlled text, could also contain the literal
+  `node_modules/<pkg>/` to forge a specific package.
+
+  Attribution now treats any frame whose location is a URL with a scheme other
+  than `file:` (`data:`, `blob:`, `http:`, …) as internal — nobody accountable —
+  so the call is evaluated against the default (deny-by-default) bucket instead
+  of trusted. Checked before the `node_modules` match, so a forged body cannot
+  impersonate a package. Real on-disk modules (`file:` URLs, plain paths, Windows
+  `C:\` drives) are unaffected.
+
 ## [0.6.23] — 2026-08-11
 
 ### Security
