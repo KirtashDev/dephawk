@@ -18,8 +18,16 @@ describe('normalizeIpv4 — evasion-resistant IPv4 parsing', () => {
     ['0xa9.0xfe.0xa9.0xfe', '169.254.169.254'], // dotted hex
     ['0251.0376.0251.0376', '169.254.169.254'], // dotted octal
     ['::ffff:169.254.169.254', '169.254.169.254'], // IPv4-mapped IPv6
+    ['169.16689662', '169.254.169.254'], // inet_aton 2-part (a.rest24)
+    ['169.254.43518', '169.254.169.254'], // inet_aton 3-part (a.b.rest16)
+    ['0xa9.0xfea9fe', '169.254.169.254'], // 2-part with hex tail
   ])('normalizes %s → %s', (input, expected) => {
     expect(normalizeIpv4(input)).toBe(expected);
+  });
+
+  it('leaves numeric-looking non-IPs and out-of-range parts unchanged', () => {
+    expect(normalizeIpv4('169.999999999999')).toBe('169.999999999999'); // tail overflow
+    expect(normalizeIpv4('300.1')).toBe('300.1'); // first octet > 255
   });
 
   it('leaves non-integer hosts unchanged', () => {
@@ -40,6 +48,12 @@ describe('isCloudMetadataHost — cloud instance-metadata endpoints', () => {
     '[fd00:ec2::254]:80', // AWS IMDS over IPv6
     'http://metadata.google.internal/computeMetadata/v1/', // GCP
     'metadata.goog',
+    'metadata.google.internal.', // trailing DNS root dot
+    'http://169.16689662/latest/meta-data/', // inet_aton 2-part AWS IMDS
+    'http://instance-data/latest/meta-data/', // AWS VPC DNS alias
+    'instance-data.ec2.internal',
+    'metadata.tencentyun.com', // Tencent Cloud
+    '169.254.0.23', // Tencent Cloud metadata IP
   ])('flags %s', (detail) => {
     expect(isCloudMetadataHost(detail)).toBe(true);
   });
