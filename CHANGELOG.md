@@ -3,6 +3,26 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.8] — 2026-08-15
+
+### Security — armed memory/report dumps and legacy `vm.createScript`
+
+More of the exotic-interceptor audit, all confirmed on Node 24:
+
+- **Armed heap snapshot** — `v8.setHeapSnapshotNearHeapLimit(n)` schedules a heap
+  snapshot (every live secret) to be written to disk when the heap nears its
+  limit. It was the one v8 dump member not covered; arming it is now recorded as
+  `process.memory` and denied by default.
+- **Armed diagnostic report** — setting `process.report.reportOnSignal` /
+  `reportOnUncaughtException` / `reportOnFatalError` (and `signal` / `directory` /
+  `filename`) makes Node dump the full report — every environment variable and the
+  heap — later, with no further call. Only `getReport()`/`writeReport()` were
+  guarded; the config **setters** are now guarded too (as `process.memory`).
+- **`vm.createScript`** — the legacy alias builds a `Script` through the internal
+  binding, so its `filename` option skipped the constructor that records compiled
+  filenames, letting a script claim a victim package's path for attribution. It is
+  now recorded like the other `vm` entry points.
+
 ## [0.7.7] — 2026-08-15
 
 ### Security — node:sqlite URL/Buffer paths and `ATTACH`

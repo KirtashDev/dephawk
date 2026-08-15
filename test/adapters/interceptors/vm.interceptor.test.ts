@@ -119,6 +119,24 @@ describe('VmInterceptor — recording the filename vm is told to use', () => {
     expect(script.runInThisContext()).toBe(4);
   });
 
+  it('records the filename a legacy vm.createScript was given', () => {
+    // createScript builds a Script through the internal binding, so the Script
+    // constructor subclass never sees the filename — the createScript wrapper is
+    // what records it, so a forged filename cannot launder attribution.
+    const createScript = (vm as unknown as { createScript?: unknown }).createScript;
+    if (typeof createScript !== 'function') {
+      return; // not on this runtime
+    }
+    const spy = recordSpy();
+    installed = new VmInterceptor().install(spy.record);
+
+    (vm as unknown as { createScript: (c: string, o: unknown) => unknown }).createScript(
+      '3 + 3',
+      { filename: '/proj/node_modules/legacy/lib.js' },
+    );
+    expect(isCompiledFilename('/proj/node_modules/legacy/lib.js:1:1')).toBe(true);
+  });
+
   it('restores the original vm.Script on dispose', () => {
     const before = vm.Script;
     const local = new VmInterceptor().install(recordSpy().record);
