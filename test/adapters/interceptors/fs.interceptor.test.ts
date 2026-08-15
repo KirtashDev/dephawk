@@ -1,8 +1,15 @@
-import { describe, it, expect, afterEach, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach, beforeAll, afterAll } from 'vitest';
 import fs from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import { mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { FsInterceptor } from '../../../src/adapters/interceptors/fs.interceptor.js';
 import type { Disposable } from '../../../src/application/ports.js';
 import { recordSpy } from './spy.js';
@@ -198,6 +205,75 @@ describe('FsInterceptor — open() is judged by its flags, not a fixed role', ()
     const fd = fs.openSync(join(dir, 'mundane.txt'), 'w');
     fs.closeSync(fd);
     expect(spy.calls).toHaveLength(0);
+  });
+});
+
+describe('FsInterceptor — recursive cp/rename judges the destination leaves', () => {
+  // Node's internal directory copy creates every leaf without calling a patched
+  // member, so a payload staged in a mundane directory and copied onto .github,
+  // .git/hooks or node_modules/<pkg> used to land with no event and no block.
+  let base: string;
+  beforeEach(() => {
+    base = realpathSync(mkdtempSync(join(tmpdir(), 'dephawk-cp-')));
+    mkdirSync(join(base, 'stage/workflows'), { recursive: true });
+    writeFileSync(join(base, 'stage/workflows/deploy.yml'), 'name: x');
+    mkdirSync(join(base, 'hookstage'), { recursive: true });
+    writeFileSync(join(base, 'hookstage/pre-commit'), '#!/bin/sh');
+    mkdirSync(join(base, 'mundane/sub'), { recursive: true });
+    writeFileSync(join(base, 'mundane/sub/a.txt'), 'a');
+  });
+  afterEach(() => {
+    installed?.dispose();
+    installed = undefined;
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  it('blocks cpSync of a staged tree onto .github (CI-workflow persistence leaf)', () => {
+    const spy = recordSpy();
+    spy.deny('no persistence');
+    installed = new FsInterceptor().install(spy.record);
+
+    expect(() =>
+      fs.cpSync(join(base, 'stage'), join(base, '.github'), { recursive: true }),
+    ).toThrow(/dephawk: blocked/);
+    expect(spy.last?.capability).toBe('fs.write');
+    expect(spy.last?.detail).toContain('.github/workflows/deploy.yml');
+    // Blocked before the internal copy ran — the workflow never landed.
+    expect(() => fs.accessSync(join(base, '.github/workflows/deploy.yml'))).toThrow();
+  });
+
+  it('blocks renameSync of a staged tree onto .git/hooks (git-hook leaf)', () => {
+    const spy = recordSpy();
+    spy.deny('no persistence');
+    installed = new FsInterceptor().install(spy.record);
+
+    expect(() =>
+      fs.renameSync(join(base, 'hookstage'), join(base, '.git/hooks')),
+    ).toThrow(/dephawk: blocked/);
+    expect(spy.last?.detail).toContain('.git/hooks/pre-commit');
+  });
+
+  it('blocks cpSync into another package (cross-package takeover leaf)', () => {
+    const spy = recordSpy();
+    spy.deny('no cross-package');
+    installed = new FsInterceptor().install(spy.record);
+
+    expect(() =>
+      fs.cpSync(join(base, 'mundane'), join(base, 'node_modules/victim'), {
+        recursive: true,
+      }),
+    ).toThrow(/dephawk: blocked/);
+    expect(spy.last?.capability).toBe('fs.write');
+    expect(spy.last?.detail).toContain('node_modules/victim');
+  });
+
+  it('does NOT flag a recursive copy between mundane directories', () => {
+    const spy = recordSpy(); // allow
+    installed = new FsInterceptor().install(spy.record);
+
+    fs.cpSync(join(base, 'mundane'), join(base, 'dest-ok'), { recursive: true });
+    expect(spy.calls).toHaveLength(0);
+    expect(() => fs.accessSync(join(base, 'dest-ok/sub/a.txt'))).not.toThrow();
   });
 });
 

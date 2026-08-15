@@ -3,6 +3,28 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.10] — 2026-08-15
+
+### Security (critical) — recursive `cp`/`rename` could plant persistence past every check
+
+A surfaces audit found that a **directory** `cp`/`rename` writes its leaves through
+Node's internal C++ copy, calling no patched `fs` member — so `check()` only ever
+saw the destination **root**. Copying a payload directory onto `.github`,
+`.git/hooks`, `node_modules/<pkg>`, or the repo root created
+`.github/workflows/x.yml`, `.git/hooks/pre-commit`, a sibling package's
+`index.js`, or `dephawk.config.js` with **no event and no block, even under
+`--enforce`** — silently defeating the CI-workflow, git-hook, cross-package and
+config-plant defenses added in 0.7.2/0.7.5/0.7.6. Reproduced against 0.7.9: a
+dependency planted `.github/workflows/deploy.yml` under enforce.
+
+- **Recursive `cp`/`cpSync`/`fs.promises.cp` and directory `rename`/`renameSync`
+  now enumerate the leaves they will create** (walking the source tree with the
+  uninstrumented `readdir`/`lstat`) and judge each destination leaf as an
+  `fs.write` — so a planted workflow, hook, cross-package file, or config is
+  reported and blocked exactly as a direct write would be. Mundane copies stay
+  fast (a leaf that matches no rule returns after a few string tests, no syscall)
+  and are bounded against a pathological tree.
+
 ## [0.7.9] — 2026-08-15
 
 ### Security — the console report can no longer be swallowed by hijacking stderr
