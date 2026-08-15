@@ -35,6 +35,14 @@ const SENSITIVE_DIRECTORIES: readonly string[] = [
   // Terraform Cloud/Enterprise API tokens live under here (credentials.tfrc.json
   // is also matched by basename, but the directory catches the whole store).
   '/.terraform.d',
+  // Container/orchestrator secret mounts. `/var/run/secrets/kubernetes.io/
+  // serviceaccount/{token,ca.crt,namespace}` is the Kubernetes service-account
+  // token — with it a payload queries the cluster API for every secret in the
+  // namespace (the keyv worm and the Red Hat Cloud Services / Miasma campaigns of
+  // 2026 do exactly this), and `/run/secrets/` is where Docker/Swarm/BuildKit
+  // mount secrets. `/var/run` symlinks to `/run`, and the `endsWith`/`includes`
+  // match covers both spellings. Nothing legitimate reads another package's here.
+  '/run/secrets',
   // OS credential stores. Reading these is how a stealer gets everything at
   // once, including credentials dephawk never sees pass through Node.
   '/library/keychains', // macOS, both ~/Library and /Library

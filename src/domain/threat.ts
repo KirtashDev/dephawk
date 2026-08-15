@@ -37,7 +37,8 @@ export const TECHNIQUE_GLOSS: Record<Technique, string> = {
  */
 const METADATA_IPS: ReadonlySet<string> = new Set([
   '169.254.169.254', // AWS IMDS, Azure IMDS, GCP, DigitalOcean, Oracle
-  '169.254.170.2', // AWS ECS/EKS task metadata
+  '169.254.170.2', // AWS ECS task metadata / container credentials
+  '169.254.170.23', // AWS EKS Pod Identity credentials
   '100.100.100.200', // Alibaba Cloud
   'fd00:ec2::254', // AWS IMDS over IPv6
 ]);

@@ -34,6 +34,7 @@ describe('isCloudMetadataHost — cloud instance-metadata endpoints', () => {
     'http://2852039166/', // decimal-encoded AWS IMDS
     'http://0xA9FEA9FE/latest/', // hex-encoded
     '169.254.170.2', // ECS task metadata
+    'http://169.254.170.23/v1/credentials', // EKS Pod Identity
     '100.100.100.200', // Alibaba
     '[fd00:ec2::254]:80', // AWS IMDS over IPv6
     'http://metadata.google.internal/computeMetadata/v1/', // GCP
