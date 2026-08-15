@@ -58,11 +58,13 @@ code 2.
 
 > 🛡️ **Hardened release by release.** dephawk watches **11 capability classes**
 > across **18 interceptors**, and every version closes another real bypass —
-> **67 reproduced attack techniques blocked, and counting.** Each was
+> **68 reproduced attack techniques blocked, and counting.** Each was
 > demonstrated against a published build _before_ it was fixed; the running list
-> is in the [CHANGELOG](CHANGELOG.md). Recent additions: report-integrity (the
-> console report can't be swallowed by hijacking `stderr`), armed heap-snapshot &
-> diagnostic-report dumps (`v8.setHeapSnapshotNearHeapLimit`, `process.report.*`),
+> is in the [CHANGELOG](CHANGELOG.md). Recent additions: recursive `cp`/`rename`
+> that planted persistence past every check (directory-destination leaves),
+> report-integrity (the console report can't be swallowed by hijacking `stderr`),
+> armed heap-snapshot & diagnostic-report dumps (`v8.setHeapSnapshotNearHeapLimit`,
+> `process.report.*`),
 > `node:sqlite` URL/Buffer paths & `ATTACH` (browser-credential theft), closing an
 > `Object.defineProperty` bypass of the module-loader guard (code injection into
 > allowlisted packages), blocking a dependency from planting dephawk's own config,

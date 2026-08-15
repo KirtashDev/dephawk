@@ -48,6 +48,13 @@ interface FsMethod {
    * past every write-side rule.
    */
   readonly flagsIndex?: number;
+  /**
+   * A member that copies/moves a whole directory tree (`cp`/`rename`). Its leaves
+   * are created by Node's internal copy, invisible to every per-member patch, so
+   * when the source is a directory the wrapper enumerates them and judges each
+   * destination leaf as an `fs.write`.
+   */
+  readonly treeCopy?: boolean;
 }
 
 const reads = (key: string): FsMethod => ({
@@ -155,6 +162,7 @@ const TWO_PATHS: readonly FsMethod[] = [
   // Renaming removes the original and creates the target: both are writes.
   {
     key: 'rename',
+    treeCopy: true,
     paths: [
       { index: 0, capability: 'fs.write' },
       { index: 1, capability: 'fs.write' },
@@ -162,6 +170,7 @@ const TWO_PATHS: readonly FsMethod[] = [
   },
   {
     key: 'renameSync',
+    treeCopy: true,
     paths: [
       { index: 0, capability: 'fs.write' },
       { index: 1, capability: 'fs.write' },
@@ -188,6 +197,7 @@ const TWO_PATHS: readonly FsMethod[] = [
   // not enough.
   {
     key: 'cp',
+    treeCopy: true,
     paths: [
       { index: 0, capability: 'fs.read' },
       { index: 1, capability: 'fs.write' },
@@ -195,6 +205,7 @@ const TWO_PATHS: readonly FsMethod[] = [
   },
   {
     key: 'cpSync',
+    treeCopy: true,
     paths: [
       { index: 0, capability: 'fs.read' },
       { index: 1, capability: 'fs.write' },
@@ -331,6 +342,9 @@ export class FsInterceptor implements CapabilityInterceptor {
                 }
               }
             }
+            if (method.treeCopy) {
+              this.checkTreeCopy(record, method, args);
+            }
             return original(...args);
           },
       );
@@ -404,6 +418,62 @@ export class FsInterceptor implements CapabilityInterceptor {
       throw blockedError(`${capability} of ${target}`, decision.reason);
     }
   }
+
+  /**
+   * For a directory `cp`/`rename`, judge each destination leaf the recursive copy
+   * will create as an `fs.write`. The leaves never pass through a patched member
+   * (Node copies them internally), so without this a payload staged in a mundane
+   * directory and copied onto `.github`, `.git/hooks`, `node_modules/<pkg>` or the
+   * repo root lands unseen and unblocked.
+   */
+  private checkTreeCopy(
+    record: RecordFn,
+    method: FsMethod,
+    args: readonly unknown[],
+  ): void {
+    const source = resolvePath(args[0]);
+    const destination = resolvePath(args[1]);
+    if (source === null || destination === null || !isDirectory(source)) {
+      return; // a file source is already covered by the per-path fs.write check
+    }
+    // `cp` needs `{ recursive: true }` to copy a directory; a directory `rename`
+    // always moves the whole tree.
+    const isRename = method.key.startsWith('rename');
+    if (!isRename && !isRecursiveCp(args)) {
+      return;
+    }
+    for (const rel of relativeLeaves(source)) {
+      this.checkWriteLeaf(record, join(destination, rel));
+    }
+  }
+
+  /**
+   * The `fs.write` gate for a leaf a recursive copy will create — the lexical
+   * checks only. `realPathOf` is deliberately skipped: the leaf does not exist
+   * yet (it is about to be created), so there is no symlink to resolve, and
+   * skipping it keeps a large legitimate copy fast (mundane leaves return after a
+   * few string tests, with no syscall).
+   */
+  private checkWriteLeaf(record: RecordFn, path: string): void {
+    const isProtected = protectedPathAffectedBy(path, this.protectedPaths) !== null;
+    const intoPackage = packageOwningPath(path) !== null;
+    const persistence =
+      isPersistenceTarget(path) || isCiWorkflowPath(path) || isGitHookPath(path);
+    const configTamper = isDephawkConfigPath(path);
+    if (
+      !isProtected &&
+      !intoPackage &&
+      !persistence &&
+      !configTamper &&
+      !isSensitivePath(path)
+    ) {
+      return; // mundane leaf
+    }
+    const decision = report(record, 'fs.write', path);
+    if (!decision.allow) {
+      throw blockedError(`fs.write of ${path}`, decision.reason);
+    }
+  }
 }
 
 /**
@@ -428,6 +498,84 @@ const nativeRealpath: ((p: string) => string) | undefined =
     : typeof fs.realpathSync === 'function'
       ? fs.realpathSync
       : undefined;
+
+/**
+ * `readdir`/`lstat` captured at module load — the genuine implementations, before
+ * `install()` patches `readdirSync`. Used to walk a recursive-copy source tree
+ * *without* re-entering this interceptor. `cp`/`rename` of a directory create
+ * every leaf through Node's internal C++ copy, calling no patched `fs` member, so
+ * the leaves must be enumerated here or a whole class of writes (a planted
+ * `.github/workflows/x.yml`, `.git/hooks/pre-commit`, `node_modules/victim/…`, or
+ * `dephawk.config.js`) lands with no event and no block.
+ */
+type Dirent = { name: string; isDirectory(): boolean; isSymbolicLink(): boolean };
+const nativeReaddir: ((p: string, opts: object) => Dirent[]) | undefined =
+  typeof fs['readdirSync'] === 'function'
+    ? (fs['readdirSync'] as (p: string, opts: object) => Dirent[])
+    : undefined;
+const nativeLstat: ((p: string) => { isDirectory(): boolean }) | undefined =
+  typeof fs['lstatSync'] === 'function'
+    ? (fs['lstatSync'] as (p: string) => { isDirectory(): boolean })
+    : undefined;
+
+/** True when `path` is a directory on disk (via the uninstrumented `lstat`). */
+function isDirectory(path: string): boolean {
+  if (nativeLstat === undefined) {
+    return false;
+  }
+  try {
+    return nativeLstat(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/** A recursive-copy `cp`/`cpSync` call (dir sources need `{ recursive: true }`). */
+function isRecursiveCp(args: readonly unknown[]): boolean {
+  const options = args[2];
+  return (
+    typeof options === 'object' &&
+    options !== null &&
+    (options as { recursive?: unknown }).recursive === true
+  );
+}
+
+/** A cap so a genuine large recursive copy cannot turn the walk into a hang. */
+const MAX_TREE_LEAVES = 20_000;
+
+/**
+ * Yield every file/symlink leaf under `root` as a path relative to it, using the
+ * uninstrumented `readdir`/`lstat`. Directory symlinks are not followed (a leaf,
+ * not descended) so a cycle cannot trap the walk.
+ */
+function* relativeLeaves(root: string): Iterable<string> {
+  if (nativeReaddir === undefined) {
+    return;
+  }
+  const stack: string[] = [''];
+  let seen = 0;
+  while (stack.length > 0) {
+    const rel = stack.pop() as string;
+    const abs = rel === '' ? root : join(root, rel);
+    let entries: Dirent[];
+    try {
+      entries = nativeReaddir(abs, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const childRel = rel === '' ? entry.name : `${rel}/${entry.name}`;
+      if (entry.isDirectory() && !entry.isSymbolicLink()) {
+        stack.push(childRel);
+      } else {
+        yield childRel;
+        if (++seen >= MAX_TREE_LEAVES) {
+          return;
+        }
+      }
+    }
+  }
+}
 
 function realPathOf(path: string): string | null {
   if (nativeRealpath === undefined) {
