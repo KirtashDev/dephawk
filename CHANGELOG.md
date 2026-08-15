@@ -3,6 +3,24 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.3] — 2026-08-15
+
+### Security — `open()` is judged by its flags, closing an fd-write bypass
+
+The same adversarial audit found that `open()`/`openSync()`/`fs.promises.open()`
+were always classed as **reads**, so opening a persistence or sensitive path for
+*writing* ran none of the write-side rules — and the bytes then went through the
+returned descriptor (`fs.writeSync(fd, …)`, which is fd-based and unpatched). A
+dependency could plant `.github/workflows/evil.yml` (or any secret/persistence
+file) with `openSync(path, 'w')` + `writeSync(fd)` and dephawk recorded **nothing**
+(reproduced against 0.7.2). This undid the persistence detection shipped in 0.7.2.
+
+- `open`-family calls are now judged by their **flags** (both the string forms
+  `'w'`/`'a'`/`'r+'`/… and the numeric `O_WRONLY`/`O_RDWR` bitmask): a write-intent
+  open runs the full write gate (persistence, into-package, sensitive write), a
+  read-intent open runs the read gate, and `r+`/`w+`/`a+` run both. Read-only opens
+  are unchanged, and opening an ordinary file for writing stays silent.
+
 ## [0.7.2] — 2026-08-15
 
 ### Security — persistence detection beyond GitHub Actions
