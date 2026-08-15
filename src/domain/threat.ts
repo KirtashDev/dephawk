@@ -18,14 +18,20 @@ import type { DhEvent } from './event.js';
 import { extractHost } from './host.js';
 
 /** A recognised attack technique. */
-export type Technique = 'cloud-metadata' | 'ci-workflow-persistence' | 'registry-publish';
+export type Technique =
+  | 'cloud-metadata'
+  | 'ci-workflow-persistence'
+  | 'git-hook-persistence'
+  | 'registry-publish';
 
 /** One-line, plain-English gloss + what to check — shown next to the finding. */
 export const TECHNIQUE_GLOSS: Record<Technique, string> = {
   'cloud-metadata':
     'cloud instance-metadata endpoint — the way CI/cloud credentials are stolen; no npm package should fetch instance credentials',
   'ci-workflow-persistence':
-    'writing a CI workflow — the self-persistence move of the Shai-Hulud worm; nothing legitimate writes .github/workflows during an install',
+    'writing a CI/CD pipeline definition — the self-persistence move of the Shai-Hulud worm; nothing legitimate writes .github/workflows, .gitlab-ci.yml, Jenkinsfile & co. from inside a dependency',
+  'git-hook-persistence':
+    'writing a git hook (.git/hooks or .husky) — a payload here re-runs on every commit/checkout/push; nothing legitimate installs one from inside a dependency',
   'registry-publish':
     'publishing to the package registry — how a worm self-replicates with a stolen token',
 };
@@ -101,14 +107,114 @@ export function isCloudMetadataHost(detail: string): boolean {
 }
 
 /**
- * True when a write targets a CI workflow definition — `.github/workflows/`.
- * Writing one during an install/build is the worm's persistence step (a
- * scheduled action that re-runs the payload and re-exfiltrates on every push);
- * nothing legitimate does it from inside a dependency.
+ * Normalise a path for lexical persistence matching: `\` → `/`, then strip
+ * trailing spaces and dots from every segment before lowercasing. Windows
+ * silently drops trailing dots/spaces from filenames, so `ci.yml ` and `ci.yml.`
+ * open the same file as `ci.yml` — without this a one-character suffix would
+ * dodge the `$`-anchored patterns below.
+ */
+function normalizeForPersistence(path: string): string {
+  return path
+    .replace(/\\/g, '/')
+    .replace(/[ .]+(?=\/|$)/g, '')
+    .toLowerCase();
+}
+
+/**
+ * Repo-root, single-file CI/CD pipeline definitions, matched by basename. Every
+ * one of these auto-runs on the CI host when the repo is pushed, so planting or
+ * rewriting one from inside a dependency is a self-persistence + re-exfiltration
+ * move — symmetric to the Shai-Hulud `.github/workflows` plant, just on a
+ * different provider. Matched anywhere in the tree (consistent with the workflow
+ * dir rule) because the attack is the write itself.
+ */
+const CI_ROOT_BASENAMES: ReadonlySet<string> = new Set([
+  '.gitlab-ci.yml',
+  '.gitlab-ci.yaml',
+  'azure-pipelines.yml',
+  'azure-pipelines.yaml',
+  '.travis.yml',
+  'bitbucket-pipelines.yml',
+  '.drone.yml',
+  'appveyor.yml',
+  'appveyor.yaml',
+  '.appveyor.yml',
+  '.cirrus.yml',
+  'jenkinsfile',
+]);
+
+/** Dot-dir CI configs: CircleCI, Buildkite, Woodpecker. */
+const CI_DOTDIR_CONFIG =
+  /(^|\/)(\.circleci\/config|\.buildkite\/[^/]+|\.woodpecker(\/[^/]+)?)\.ya?ml$/;
+
+/**
+ * True when a write targets a CI/CD pipeline definition. Covers GitHub Actions
+ * and the compatible forges (Gitea, Forgejo), local/composite GitHub Action
+ * manifests (`.github/actions/<x>/action.yml` — overwriting one plants CI-run
+ * code), the dot-dir configs (CircleCI/Buildkite/Woodpecker), and the
+ * single-file pipeline definitions of the other major providers. Writing any of
+ * them during an install/build is the worm's persistence step; nothing
+ * legitimate does it from inside a dependency.
  */
 export function isCiWorkflowPath(path: string): boolean {
-  const p = path.replace(/\\/g, '/').toLowerCase();
-  return /(^|\/)\.github\/workflows\/[^/]+\.ya?ml$/.test(p);
+  const p = normalizeForPersistence(path);
+  if (
+    // GitHub / Gitea / Forgejo workflow directories.
+    /(^|\/)\.(github|gitea|forgejo)\/workflows\/[^/]+\.ya?ml$/.test(p) ||
+    // Local / composite GitHub Action manifests.
+    /(^|\/)\.github\/actions\/[^/]+\/action\.ya?ml$/.test(p) ||
+    CI_DOTDIR_CONFIG.test(p)
+  ) {
+    return true;
+  }
+  const name = p.slice(p.lastIndexOf('/') + 1);
+  return CI_ROOT_BASENAMES.has(name);
+}
+
+/**
+ * The git hook names git will actually execute (the `.sample` templates git
+ * ships are inert and excluded). A hook is an arbitrary executable that runs on
+ * a git event, so a payload dropped here re-runs on every commit/checkout/push —
+ * classic local persistence.
+ */
+const GIT_HOOK_NAMES: ReadonlySet<string> = new Set([
+  'applypatch-msg',
+  'pre-applypatch',
+  'post-applypatch',
+  'pre-commit',
+  'pre-merge-commit',
+  'prepare-commit-msg',
+  'commit-msg',
+  'post-commit',
+  'pre-rebase',
+  'post-checkout',
+  'post-merge',
+  'pre-push',
+  'post-rewrite',
+  'pre-receive',
+  'update',
+  'post-receive',
+  'post-update',
+  'push-to-checkout',
+  'pre-auto-gc',
+  'post-index-change',
+  'sendemail-validate',
+]);
+
+/**
+ * True when a write targets a git hook — under `.git/hooks/` (git's own hook
+ * dir) or `.husky/` (the Husky manager's committed hooks). Restricted to the
+ * names git actually runs so Husky's own internals (`.husky/_/husky.sh`) and
+ * arbitrary files do not trip it. Only a dependency dropping one is flagged;
+ * the user wiring up their own hooks is application-origin and always allowed.
+ */
+export function isGitHookPath(path: string): boolean {
+  const p = normalizeForPersistence(path);
+  const m = /(^|\/)(\.git\/hooks|\.husky)\/([^/]+)$/.exec(p);
+  if (m === null) {
+    return false;
+  }
+  return GIT_HOOK_NAMES.has(m[3] ?? '');
 }
 
 /** True when a spawned command publishes to a package registry. */
@@ -135,7 +241,9 @@ export function detectTechnique(
     case 'net.resolve':
       return isCloudMetadataHost(detail) ? 'cloud-metadata' : null;
     case 'fs.write':
-      return isCiWorkflowPath(detail) ? 'ci-workflow-persistence' : null;
+      if (isCiWorkflowPath(detail)) return 'ci-workflow-persistence';
+      if (isGitHookPath(detail)) return 'git-hook-persistence';
+      return null;
     case 'process.spawn':
       return isRegistryPublish(detail) ? 'registry-publish' : null;
     default:

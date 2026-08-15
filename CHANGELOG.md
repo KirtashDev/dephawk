@@ -3,6 +3,35 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.2] — 2026-08-15
+
+### Security — persistence detection beyond GitHub Actions
+
+An adversarial audit of the 0.7 attack-recognition layer found that persistence
+detection was **GitHub-Actions-only**: a dependency could plant a pipeline
+definition or a git hook for _any other_ provider and dephawk recorded **nothing**
+(reproduced against 0.7.1 — `no monitored activity recorded`). The 2026 worms
+target 18+ CI/CD platforms, so this closes the blind spot:
+
+- **CI/CD pipeline definitions across providers** — the `ci-workflow-persistence`
+  technique now also names writes to GitLab (`.gitlab-ci.yml`), Azure Pipelines,
+  Travis, Bitbucket, Drone, AppVeyor, Cirrus, CircleCI (`.circleci/config.yml`),
+  Buildkite, Woodpecker, and `Jenkinsfile`, plus the Gitea/Forgejo workflow
+  directories and local/composite GitHub Action manifests
+  (`.github/actions/*/action.yml`).
+- **Git-hook persistence** (new `git-hook-persistence` technique) — writes to
+  `.git/hooks/<hook>` or `.husky/<hook>` (any name git actually executes:
+  `pre-commit`, `post-checkout`, `pre-push`, …). A payload here re-runs on every
+  commit/checkout/push. Husky's own internals (`.husky/_/…`) and the inert
+  `.sample` templates are excluded, and only dependency-origin writes are flagged.
+- **Windows trailing-junk hardening** — trailing spaces/dots (which the OS
+  silently drops, so `ci.yml ` opens `ci.yml`) can no longer dodge the
+  `$`-anchored persistence patterns.
+
+Wired through the one predicate the fs interceptor's persistence gate and
+`detectTechnique` both consume, so each new path is reported in observe mode and
+blocked deny-by-default in enforce.
+
 ## [0.7.1] — 2026-08-15
 
 ### Security — container & Kubernetes credential mounts
