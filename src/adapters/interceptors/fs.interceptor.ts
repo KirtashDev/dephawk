@@ -35,6 +35,16 @@ interface PathArgument {
 interface FsMethod {
   readonly key: string;
   readonly paths: readonly PathArgument[];
+  /**
+   * The argument index carrying open flags, if this is an `open`-family member.
+   * When set, the path at index 0 is judged by the *flags* — a read when the
+   * file is opened for reading, a write when opened for writing — instead of the
+   * static {@link paths} list. Without this, `open(path, 'w')` was classed as a
+   * read, so a write to a persistence/sensitive path through the returned
+   * descriptor (`fs.writeSync(fd, …)`, which is fd-based and unpatched) slipped
+   * past every write-side rule.
+   */
+  readonly flagsIndex?: number;
 }
 
 const reads = (key: string): FsMethod => ({
@@ -47,13 +57,40 @@ const writes = (key: string): FsMethod => ({
   paths: [{ index: 0, capability: 'fs.write' }],
 });
 
+/** `open`/`openSync`/`promises.open` — path at index 0, flags at index 1. */
+const opens = (key: string): FsMethod => ({
+  key,
+  paths: [{ index: 0, capability: 'fs.read' }],
+  flagsIndex: 1,
+});
+
+/**
+ * Whether an open-flags argument requests read / write access. Handles both the
+ * string forms (`'r'`, `'w'`, `'a'`, `'r+'`, `'as'`, …) and the numeric bitmask
+ * (`O_RDONLY`/`O_WRONLY`/`O_RDWR` in the low two bits). A missing/unknown flag
+ * defaults to `'r'` — read-only — which is Node's own default.
+ */
+function accessMode(flags: unknown): { read: boolean; write: boolean } {
+  if (typeof flags === 'number') {
+    const access = flags & 0o3; // O_ACCMODE
+    return {
+      read: access === 0 /* O_RDONLY */ || access === 2 /* O_RDWR */,
+      write: access === 1 /* O_WRONLY */ || access === 2 /* O_RDWR */,
+    };
+  }
+  if (typeof flags === 'string') {
+    return { read: /[r+]/.test(flags), write: /[wa+]/.test(flags) };
+  }
+  return { read: true, write: false };
+}
+
 /** `fs` members taking a single path. */
 const SINGLE_PATH: readonly FsMethod[] = [
   reads('readFile'),
   reads('readFileSync'),
   reads('createReadStream'),
-  reads('open'),
-  reads('openSync'),
+  opens('open'),
+  opens('openSync'),
   // `openAsBlob('~/.ssh/id_rsa')` hands back a Blob whose `.text()`/`.stream()`
   // reads the file without ever calling a named read member — a quiet way in.
   reads('openAsBlob'),
@@ -270,9 +307,25 @@ export class FsInterceptor implements CapabilityInterceptor {
         method.key,
         (original) =>
           (...args: unknown[]): unknown => {
-            for (const { index, capability } of method.paths) {
-              for (const path of resolvePaths(args[index])) {
-                this.check(record, capability, path);
+            if (method.flagsIndex !== undefined) {
+              // `open`-family: judge the path by the flags, not a fixed role. A
+              // write-intent open runs the full write-side gate (persistence,
+              // into-package, sensitive write); a read-intent open runs the read
+              // gate. `r+`/`w+`/`a+` are both, so both fire.
+              const mode = accessMode(args[method.flagsIndex]);
+              for (const path of resolvePaths(args[0])) {
+                if (mode.read) {
+                  this.check(record, 'fs.read', path);
+                }
+                if (mode.write) {
+                  this.check(record, 'fs.write', path);
+                }
+              }
+            } else {
+              for (const { index, capability } of method.paths) {
+                for (const path of resolvePaths(args[index])) {
+                  this.check(record, capability, path);
+                }
               }
             }
             return original(...args);

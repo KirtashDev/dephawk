@@ -127,6 +127,80 @@ describe('FsInterceptor', () => {
   });
 });
 
+describe('FsInterceptor — open() is judged by its flags, not a fixed role', () => {
+  // A write-flag open of a persistence/sensitive path used to be classed as a
+  // read (so the write-side gate never ran), and the actual bytes went through
+  // the fd (fs.writeSync(fd, …), unpatched) — a total bypass of every write rule.
+  let dir: string;
+  beforeAll(() => {
+    const base = join(tmpdir(), `dephawk-open-${process.pid}`);
+    mkdirSync(join(base, '.github/workflows'), { recursive: true });
+    mkdirSync(join(base, '.husky'), { recursive: true });
+    dir = realpathSync(base);
+  });
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+
+  it('catches opening a CI-workflow path for write (persistence) as fs.write', () => {
+    const spy = recordSpy();
+    spy.deny();
+    installed = new FsInterceptor().install(spy.record);
+
+    const wf = join(dir, '.github/workflows/evil.yml');
+    expect(() => fs.openSync(wf, 'w')).toThrow(/dephawk: blocked/);
+    expect(spy.last?.capability).toBe('fs.write');
+    expect(spy.last?.detail).toContain('.github/workflows/evil.yml');
+  });
+
+  it('catches opening a git-hook path for write (persistence) as fs.write', () => {
+    const spy = recordSpy();
+    spy.deny();
+    installed = new FsInterceptor().install(spy.record);
+
+    expect(() => fs.openSync(join(dir, '.husky/pre-commit'), 'a')).toThrow(
+      /dephawk: blocked/,
+    );
+    expect(spy.last?.capability).toBe('fs.write');
+  });
+
+  it('still catches opening a sensitive path for READ as fs.read', () => {
+    const spy = recordSpy();
+    spy.deny();
+    installed = new FsInterceptor().install(spy.record);
+
+    expect(() => fs.openSync(FAKE_SSH, 'r')).toThrow(/dephawk: blocked/);
+    expect(spy.last?.capability).toBe('fs.read');
+    // The no-flags default is read too: @types/node requires the flags arg, so
+    // exercise the default branch through the untyped signature.
+    const openSync = fs.openSync as unknown as (p: string) => number;
+    expect(() => openSync(FAKE_SSH)).toThrow(/dephawk: blocked/);
+    expect(spy.last?.capability).toBe('fs.read');
+  });
+
+  it('reports both read and write for an r+ open of a sensitive path', () => {
+    const spy = recordSpy(); // allow, so both checks run without throwing
+    installed = new FsInterceptor().install(spy.record);
+
+    try {
+      fs.openSync(FAKE_SSH, 'r+');
+    } catch {
+      // ENOENT from the original — the fake path does not exist. The checks
+      // already ran before the original was called.
+    }
+    const caps = new Set(spy.calls.map((c) => c.capability));
+    expect(caps.has('fs.read')).toBe(true);
+    expect(caps.has('fs.write')).toBe(true);
+  });
+
+  it('does NOT flag opening an ordinary path for write', () => {
+    const spy = recordSpy();
+    installed = new FsInterceptor().install(spy.record);
+
+    const fd = fs.openSync(join(dir, 'mundane.txt'), 'w');
+    fs.closeSync(fd);
+    expect(spy.calls).toHaveLength(0);
+  });
+});
+
 describe('FsInterceptor — destructive members', () => {
   // Erasing a file changes it as surely as rewriting it, and these are what an
   // attacker reaches for to remove traces.
