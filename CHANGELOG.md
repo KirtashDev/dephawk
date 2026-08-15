@@ -3,6 +3,24 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.4] — 2026-08-15
+
+### Security — cloud-metadata naming completeness
+
+The adversarial audit also found spellings of a metadata endpoint that reached it
+but were **not named** `cloud-metadata` (so they surfaced as a plain, non-sensitive
+connection in observe mode — the mode where naming matters most; deny-by-default
+still blocked them in enforce). Closed:
+
+- **`inet_aton` short forms** — `normalizeIpv4` now canonicalises the 2-part
+  (`169.16689662`) and 3-part (`169.254.43518`) integer spellings, not just the
+  1-part and dotted-quad forms its contract already claimed to cover.
+- **Trailing DNS root dot** — `metadata.google.internal.` is matched (it resolves
+  to the same name).
+- **More metadata endpoints** — AWS VPC DNS aliases `instance-data` /
+  `instance-data.ec2.internal`, and Tencent Cloud (`metadata.tencentyun.com`,
+  `169.254.0.23`).
+
 ## [0.7.3] — 2026-08-15
 
 ### Security — `open()` is judged by its flags, closing an fd-write bypass

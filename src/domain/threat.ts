@@ -45,6 +45,7 @@ const METADATA_IPS: ReadonlySet<string> = new Set([
   '169.254.169.254', // AWS IMDS, Azure IMDS, GCP, DigitalOcean, Oracle
   '169.254.170.2', // AWS ECS task metadata / container credentials
   '169.254.170.23', // AWS EKS Pod Identity credentials
+  '169.254.0.23', // Tencent Cloud CVM metadata
   '100.100.100.200', // Alibaba Cloud
   'fd00:ec2::254', // AWS IMDS over IPv6
 ]);
@@ -52,6 +53,9 @@ const METADATA_IPS: ReadonlySet<string> = new Set([
 const METADATA_HOSTS: ReadonlySet<string> = new Set([
   'metadata.google.internal',
   'metadata.goog',
+  'instance-data', // AWS VPC DNS alias for 169.254.169.254
+  'instance-data.ec2.internal',
+  'metadata.tencentyun.com', // Tencent Cloud
 ]);
 
 /**
@@ -89,6 +93,45 @@ export function normalizeIpv4(host: string): string {
     return [(n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff].join('.');
   }
 
+  // The `inet_aton` short forms: the last part absorbs the remaining bytes.
+  // `a.b` → a is the top octet, b the low 24 bits; `a.b.c` → c the low 16 bits.
+  // These are as much a metadata-SSRF disguise as the single-integer form, and
+  // this function's contract is to catch every `inet_aton` spelling.
+  if (parts.length === 2) {
+    const a = toNum(parts[0] ?? '');
+    const rest = toNum(parts[1] ?? '');
+    if (
+      a !== null &&
+      rest !== null &&
+      a >= 0 &&
+      a <= 255 &&
+      rest >= 0 &&
+      rest <= 0xffffff
+    ) {
+      return [a, (rest >>> 16) & 0xff, (rest >>> 8) & 0xff, rest & 0xff].join('.');
+    }
+    return h;
+  }
+  if (parts.length === 3) {
+    const a = toNum(parts[0] ?? '');
+    const b = toNum(parts[1] ?? '');
+    const rest = toNum(parts[2] ?? '');
+    if (
+      a !== null &&
+      b !== null &&
+      rest !== null &&
+      a >= 0 &&
+      a <= 255 &&
+      b >= 0 &&
+      b <= 255 &&
+      rest >= 0 &&
+      rest <= 0xffff
+    ) {
+      return [a, b, (rest >>> 8) & 0xff, rest & 0xff].join('.');
+    }
+    return h;
+  }
+
   // Dotted quad with possibly hex/octal octets.
   if (parts.length === 4) {
     const octets = parts.map(toNum);
@@ -101,7 +144,9 @@ export function normalizeIpv4(host: string): string {
 
 /** True when an outbound target is a cloud instance-metadata endpoint. */
 export function isCloudMetadataHost(detail: string): boolean {
-  const host = extractHost(detail);
+  // Strip a trailing DNS root dot (`metadata.google.internal.` resolves to the
+  // same name), then match by host and by canonicalised IP.
+  const host = extractHost(detail).replace(/\.$/, '');
   if (METADATA_HOSTS.has(host)) return true;
   return METADATA_IPS.has(normalizeIpv4(host));
 }
