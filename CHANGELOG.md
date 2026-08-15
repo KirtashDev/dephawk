@@ -3,6 +3,31 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.6] — 2026-08-15
+
+### Security (critical) — the module-loader guard could be dodged by `Object.defineProperty`
+
+A continued audit found a **critical** hole in the very guard meant to stop
+loader-hook injection. The guard turned `Module.prototype._compile`,
+`Module._load`, `Module._resolveFilename` and `require.extensions` into accessors
+whose _setter_ reports `code.eval` — but a JS setter fires only on assignment
+(`x = v`), never on `Object.defineProperty`, and the accessors were
+`configurable`. So a dependency did
+`Object.defineProperty(Module.prototype, '_compile', { value })` and rewrote the
+loader with **no event reported and nothing blocked**, injecting code into an
+allowlisted package under `--enforce` (reproduced against 0.7.5:
+`DP_LEAK=<hostname>` proved the injection ran while the report said "nothing
+sensitive touched"). This is the same `[[DefineOwnProperty]]` bypass class the env
+Proxy and `hardenedCapture` already defend against.
+
+- **Loader-hook slots are now non-configurable accessors** — assignment is still
+  reported/blocked as before, and `Object.defineProperty` now throws instead of
+  silently replacing the guard, so the injection cannot take hold either way. A
+  small per-process registry keeps this compatible with install/dispose.
+- **`require.extensions` wholesale replacement is caught** — `Module._extensions =
+{ … }` (which bypassed the per-key Proxy by swapping the whole object) is now a
+  guarded slot, and the per-key Proxy also traps `defineProperty`, not just `set`.
+
 ## [0.7.5] — 2026-08-15
 
 ### Security — a dependency can no longer plant dephawk's own config

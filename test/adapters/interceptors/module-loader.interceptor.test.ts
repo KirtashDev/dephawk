@@ -79,4 +79,52 @@ describe('ModuleLoaderInterceptor', () => {
       proto['_compile'] = before;
     }).not.toThrow();
   });
+
+  it('cannot be dodged by Object.defineProperty on _compile (the setter-skip bypass)', () => {
+    // A JS setter fires only on assignment, never on defineProperty. A configurable
+    // accessor could be replaced wholesale with defineProperty and never report —
+    // that let a dependency rewrite the loader under --enforce. The accessor is now
+    // non-configurable, so the redefinition throws and the original stays in place.
+    const spy = recordSpy();
+    spy.deny('no loader hooks');
+    installed = new ModuleLoaderInterceptor().install(spy.record);
+
+    const proto = Module['prototype'] as Record<string, unknown>;
+    const original = proto['_compile'];
+    const injected = (): void => undefined;
+    expect(() => {
+      Object.defineProperty(proto, '_compile', {
+        value: injected,
+        configurable: true,
+        writable: true,
+      });
+    }).toThrow();
+    // The loader was not replaced — the injection never took hold.
+    expect(proto['_compile']).toBe(original);
+    expect(proto['_compile']).not.toBe(injected);
+  });
+
+  it('blocks replacing the whole require.extensions object (wholesale reassignment)', () => {
+    const spy = recordSpy();
+    spy.deny();
+    installed = new ModuleLoaderInterceptor().install(spy.record);
+
+    expect(() => {
+      (Module as Record<string, unknown>)['_extensions'] = Object.create(null) as object;
+    }).toThrow(/dephawk: blocked/);
+    expect(spy.last?.capability).toBe('code.eval');
+    expect(spy.last?.detail).toContain('require.extensions');
+  });
+
+  it('blocks a require.extensions handler installed via Object.defineProperty', () => {
+    const spy = recordSpy();
+    spy.deny();
+    installed = new ModuleLoaderInterceptor().install(spy.record);
+
+    const extensions = Module['_extensions'] as Record<string, unknown>;
+    expect(() => {
+      Object.defineProperty(extensions, '.jsx', { value: (): void => undefined });
+    }).toThrow(/dephawk: blocked/);
+    expect(spy.last?.detail).toContain('require.extensions');
+  });
 });
