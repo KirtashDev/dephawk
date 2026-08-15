@@ -30,6 +30,7 @@ import {
 } from './domain/behaviour-baseline.js';
 import { draftPolicy } from './domain/policy-draft.js';
 import { PERMISSIVE_POLICY, type Mode } from './domain/policy.js';
+import { DEPHAWK_CONFIG_BASENAMES } from './domain/protected-path.js';
 import { FileConfigPolicyLoader } from './adapters/config/policy-loader.js';
 import { renderConfig } from './adapters/config/render-config.js';
 import { formatBaselineDiff } from './adapters/reporting/baseline-format.js';
@@ -98,7 +99,7 @@ Examples:
   DEPHAWK_MODE=enforce dephawk guard npm install
 `;
 
-const CONFIG_NAMES = ['dephawk.config.js', 'dephawk.config.mjs', 'dephawk.config.cjs'];
+const CONFIG_NAMES = DEPHAWK_CONFIG_BASENAMES;
 
 export async function run(argv: readonly string[]): Promise<number> {
   const subcommand = argv[0];
