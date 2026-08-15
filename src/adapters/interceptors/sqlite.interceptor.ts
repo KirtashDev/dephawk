@@ -1,5 +1,6 @@
 import { isSensitivePath } from '../../domain/sensitivity.js';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { CapabilityInterceptor, Disposable } from '../../application/ports.js';
 import {
   blockedError,
@@ -10,6 +11,11 @@ import {
   restorer,
   type RecordFn,
 } from './support.js';
+
+/** Node's own path-type check: true for a Buffer *and* any plain Uint8Array. */
+const isUint8Array = (
+  loadBuiltin('node:util') as { types: { isUint8Array(value: unknown): boolean } }
+).types.isUint8Array;
 
 /**
  * Intercepts `node:sqlite` (`DatabaseSync`), which opens a database file through
@@ -81,6 +87,24 @@ export class SqliteInterceptor implements CapabilityInterceptor {
           restores.push(restore);
         }
 
+        // `ATTACH DATABASE '<file>'` opens an arbitrary file mid-session, past
+        // the constructor/open() guards. Scan the SQL of both the immediate
+        // (`exec`) and prepared (`prepare`) paths.
+        for (const key of ['exec', 'prepare'] as const) {
+          const attachRestore = patchMethod(
+            proto,
+            key,
+            (original) =>
+              function (this: unknown, ...args: unknown[]): unknown {
+                scanAttach(record, args[0]);
+                return (original as (...a: unknown[]) => unknown).apply(this, args);
+              },
+          );
+          if (attachRestore) {
+            restores.push(attachRestore);
+          }
+        }
+
         // Loading a SQLite extension maps native code into the process.
         const extRestore = patchMethod(
           proto,
@@ -109,21 +133,90 @@ export class SqliteInterceptor implements CapabilityInterceptor {
   }
 }
 
+/**
+ * Decode a `DatabaseSync` location to a filesystem path string, or null when it
+ * names no file. Node accepts a plain string, a `file:` URI string, a `URL`, and
+ * a `Buffer`/`Uint8Array` — the last three used to return early here, so a
+ * dependency opened `~/.config/…/Login Data` as a `URL` or `Buffer` and read it
+ * with no event at all. All four are normalised now, exactly as the fs
+ * interceptor accepts any `Uint8Array` path.
+ */
+function toLocationPath(location: unknown): string | null {
+  let raw: string;
+  if (typeof location === 'string') {
+    raw = location;
+  } else if (location instanceof URL) {
+    try {
+      return fileURLToPath(location);
+    } catch {
+      return null;
+    }
+  } else if (isUint8Array(location)) {
+    try {
+      return Buffer.from(location as Uint8Array).toString('utf8');
+    } catch {
+      return null;
+    }
+  } else {
+    return null;
+  }
+  if (raw.length === 0) {
+    return null;
+  }
+  // A `file:` URI string (`file:/abs/db?mode=ro`) names a real file; anything
+  // else is taken as a plain path.
+  if (raw.startsWith('file:') && !raw.startsWith('file::memory:')) {
+    try {
+      return fileURLToPath(new URL(raw));
+    } catch {
+      return raw;
+    }
+  }
+  return raw;
+}
+
 /** Report opening `location` as an `fs.read`, and throw when it is refused. */
 function checkOpen(record: RecordFn, location: unknown): void {
-  if (typeof location !== 'string' || location.length === 0) {
-    return; // a Buffer/URL location is rare; :memory: and named DBs are not files
-  }
-  if (location === ':memory:' || location.startsWith('file::memory:')) {
+  const raw = toLocationPath(location);
+  if (raw === null || raw.length === 0) {
     return;
   }
-  const path = resolve(location);
+  if (
+    raw === ':memory:' ||
+    raw.startsWith('file::memory:') ||
+    raw.startsWith(':memory:')
+  ) {
+    return; // in-memory database, not a file
+  }
+  const path = resolve(raw);
   if (!isSensitivePath(path)) {
     return; // mundane database: no event, matching the fs interceptor
   }
   const decision = report(record, 'fs.read', path);
   if (!decision.allow) {
     throw blockedError(`fs.read of ${path}`, decision.reason);
+  }
+}
+
+/**
+ * `ATTACH [DATABASE] '<file>' AS name` opens an *arbitrary* file mid-session,
+ * past the constructor/`open()` this interceptor guards — a dependency with a
+ * handle to a harmless database can `ATTACH` a browser credential store and
+ * `SELECT` from it. Match each literal filename in an `exec`/`prepare` SQL string
+ * (single- or double-quoted) so it is judged like any other open. A
+ * parameter-bound filename (`ATTACH ?`) is not a literal and cannot be read here.
+ */
+const ATTACH_LITERAL = /\battach\s+(?:database\s+)?(['"])((?:(?!\1).)*)\1/gi;
+
+function scanAttach(record: RecordFn, sql: unknown): void {
+  if (typeof sql !== 'string') {
+    return;
+  }
+  for (const match of sql.matchAll(ATTACH_LITERAL)) {
+    const file = match[2];
+    if (file !== undefined && file.length > 0) {
+      checkOpen(record, file);
+    }
   }
 }
 
