@@ -71,6 +71,25 @@ export class VmInterceptor implements CapabilityInterceptor {
       this.patchModuleFn(mod, key, record, restores, state);
     }
 
+    // `vm.createScript(code, { filename })` is a legacy alias that builds a
+    // `Script` through the module-internal binding, so the `Script` constructor
+    // subclass never sees its `filename` option — a script could then claim a
+    // victim package's filename and launder its frames. The resulting script's
+    // run methods are still gated at the prototype; wrapping createScript only
+    // records the filename so the attributor distrusts frames that claim it.
+    const createRestore = patchMethod(
+      mod,
+      'createScript',
+      (original) =>
+        function (this: unknown, ...args: unknown[]): unknown {
+          noteFilenameFrom(args);
+          return (original as (...a: unknown[]) => unknown).apply(this, args);
+        },
+    );
+    if (createRestore) {
+      restores.push(createRestore);
+    }
+
     const proto = prototypeOf((vm as unknown as { Script?: unknown }).Script);
     if (proto) {
       for (const key of SCRIPT_RUN_METHODS) {

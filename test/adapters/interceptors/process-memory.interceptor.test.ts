@@ -70,4 +70,52 @@ describe('ProcessMemoryInterceptor', () => {
     local.dispose();
     expect(v8.getHeapSnapshot).toBe(before);
   });
+
+  it('blocks arming a deferred heap snapshot (setHeapSnapshotNearHeapLimit)', () => {
+    const arm = (v8 as unknown as { setHeapSnapshotNearHeapLimit?: unknown })
+      .setHeapSnapshotNearHeapLimit;
+    if (typeof arm !== 'function') {
+      return; // not on this runtime
+    }
+    const spy = recordSpy();
+    spy.deny();
+    installed = new ProcessMemoryInterceptor().install(spy.record);
+
+    expect(() =>
+      (
+        v8 as unknown as { setHeapSnapshotNearHeapLimit: (n: number) => void }
+      ).setHeapSnapshotNearHeapLimit(1),
+    ).toThrow(/dephawk: blocked/);
+    expect(spy.last?.capability).toBe('process.memory');
+    expect(spy.last?.detail).toBe('v8.setHeapSnapshotNearHeapLimit');
+  });
+
+  it('blocks arming a diagnostic report via process.report.reportOnSignal', () => {
+    const report = process.report as unknown as { reportOnSignal?: boolean } | undefined;
+    if (report === undefined) {
+      return;
+    }
+    const spy = recordSpy();
+    spy.deny('no armed dumps');
+    installed = new ProcessMemoryInterceptor().install(spy.record);
+
+    expect(() => {
+      (process.report as unknown as { reportOnSignal: boolean }).reportOnSignal = true;
+    }).toThrow(/dephawk: blocked/);
+    expect(spy.last?.capability).toBe('process.memory');
+    expect(spy.last?.detail).toBe('process.report.reportOnSignal');
+  });
+
+  it('restores the process.report.reportOnSignal setter on dispose', () => {
+    const report = process.report as unknown as { reportOnSignal: boolean } | undefined;
+    if (report === undefined) {
+      return;
+    }
+    const local = new ProcessMemoryInterceptor().install(recordSpy().record);
+    local.dispose();
+    // After dispose the assignment goes straight through with no dephawk block.
+    expect(() => {
+      report.reportOnSignal = false;
+    }).not.toThrow();
+  });
 });
