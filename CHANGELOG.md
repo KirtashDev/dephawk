@@ -9,7 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 The same adversarial audit found that `open()`/`openSync()`/`fs.promises.open()`
 were always classed as **reads**, so opening a persistence or sensitive path for
-*writing* ran none of the write-side rules — and the bytes then went through the
+_writing_ ran none of the write-side rules — and the bytes then went through the
 returned descriptor (`fs.writeSync(fd, …)`, which is fd-based and unpatched). A
 dependency could plant `.github/workflows/evil.yml` (or any secret/persistence
 file) with `openSync(path, 'w')` + `writeSync(fd)` and dephawk recorded **nothing**
