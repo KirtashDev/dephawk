@@ -58,11 +58,12 @@ code 2.
 
 > 🛡️ **Hardened release by release.** dephawk watches **11 capability classes**
 > across **18 interceptors**, and every version closes another real bypass —
-> **50 reproduced attack techniques blocked, and counting.** Each was
+> **53 reproduced attack techniques blocked, and counting.** Each was
 > demonstrated against a published build _before_ it was fixed; the running list
-> is in the [CHANGELOG](CHANGELOG.md). Recent additions: `import('data:…')`
-> attribution laundering, hard-link/symlink secret aliases, `console.log(process.env)`
-> dumps, shell-rc persistence, and tamper-proofing dephawk's own audit log.
+> is in the [CHANGELOG](CHANGELOG.md). Recent additions: Kubernetes
+> service-account tokens & container secret mounts (`/run/secrets`), the AWS EKS
+> Pod Identity endpoint, `import('data:…')` attribution laundering,
+> hard-link/symlink secret aliases, and tamper-proofing dephawk's own audit log.
 
 > 🎯 **New in 0.7 — dephawk recognises _attacks_, not just capabilities.** It names
 > the concrete moves of the 2025-2026 npm worms (Shai-Hulud, ChainDrop, the axios

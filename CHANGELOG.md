@@ -3,6 +3,25 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.1] — 2026-08-15
+
+### Security — container & Kubernetes credential mounts
+
+Coverage for the cloud-native secret stores that the **2026 self-propagating
+worms** steal, confirmed against the keyv (Aug 2026) and Red Hat Cloud Services /
+"Miasma" (June 2026) campaigns:
+
+- **Kubernetes service-account token** — reads under
+  `/var/run/secrets/kubernetes.io/serviceaccount/` (`token`, `ca.crt`,
+  `namespace`) are now sensitive. With that token a payload queries the cluster
+  API for **every secret in the namespace**; the 2026 worms do exactly this. The
+  `/var/run → /run` symlink spelling is covered too.
+- **Container secret mounts** — reads under `/run/secrets/` (Docker / Swarm /
+  BuildKit mounted secrets, e.g. `db_password`, `npm_token`) are now sensitive.
+- **AWS EKS Pod Identity endpoint** — `169.254.170.23` joins the
+  cloud-instance-metadata set, so a dependency fetching pod credentials is named
+  as a **cloud-metadata SSRF** technique (evasion-resistant like the rest).
+
 ## [0.7.0] — 2026-08-12
 
 ### Added — dephawk now recognises attacks, not just capabilities

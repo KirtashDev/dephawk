@@ -190,6 +190,29 @@ describe('isSensitivePath — /proc and more credential files', () => {
   });
 });
 
+describe('isSensitivePath — container & Kubernetes secret mounts (2026 worms)', () => {
+  it.each([
+    // The keyv worm and the Red Hat Cloud Services / Miasma campaigns read the
+    // service-account token, then query the cluster API for every namespace secret.
+    '/var/run/secrets/kubernetes.io/serviceaccount/token',
+    '/var/run/secrets/kubernetes.io/serviceaccount/ca.crt',
+    '/var/run/secrets/kubernetes.io/serviceaccount/namespace',
+    '/var/run/secrets/kubernetes.io/serviceaccount', // listing the dir is recon too
+    '/run/secrets/kubernetes.io/serviceaccount/token', // /var/run -> /run symlink form
+    // Docker / Swarm / BuildKit mount secrets under /run/secrets.
+    '/run/secrets/db_password',
+    '/run/secrets/npm_token',
+    '/run/secrets',
+  ])('flags %s', (path) => {
+    expect(isSensitivePath(path)).toBe(true);
+  });
+
+  it('does not flag lookalike paths outside the secret mount', () => {
+    expect(isSensitivePath('/home/alice/project/run/README.md')).toBe(false);
+    expect(isSensitivePath('/srv/secrets-manager/config.json')).toBe(false);
+  });
+});
+
 describe('looksLikeSecretValue — a credential hiding under an innocuous name', () => {
   it.each([
     'postgres://user:secretpass@db.example.com:5432/app',
