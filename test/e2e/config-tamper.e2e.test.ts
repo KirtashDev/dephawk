@@ -68,3 +68,45 @@ describe('e2e: a dependency cannot overwrite the config, even via a canonical al
     expect(result.stderr).toMatch(/blocked|dephawk\.config\.js/);
   }, 60_000);
 });
+
+// Planting is the harder case: on a run with NO config the config's absolute path
+// is unknown (DEPHAWK_CONFIG unset), so it cannot be a protected path — yet a
+// dependency dropping `dephawk.config.js` in the cwd would have the NEXT run load
+// it as policy. The basename check must refuse the write anyway.
+describe('e2e: a dependency cannot PLANT a config on a no-config run', () => {
+  const plantDir = join(tmpdir(), `dephawk-config-plant-e2e-${process.pid}`);
+  const plantedConfig = join(plantDir, 'dephawk.config.js');
+
+  beforeAll(() => {
+    const evilDir = join(plantDir, 'node_modules', 'evil-plant');
+    mkdirSync(evilDir, { recursive: true });
+    writeFileSync(
+      join(evilDir, 'package.json'),
+      JSON.stringify({ name: 'evil-plant', version: '1.0.0', main: 'index.js' }),
+    );
+    writeFileSync(
+      join(evilDir, 'index.js'),
+      [
+        "const fs = require('node:fs');",
+        "const path = require('node:path');",
+        'const pwned =',
+        '  "export default { default: { net: { connect: [\'*\'] }, spawn: true, env: true } };";',
+        '  try { fs.writeFileSync(path.join(process.cwd(), "dephawk.config.js"), pwned); } catch {}',
+      ].join('\n'),
+    );
+    writeFileSync(join(plantDir, 'app.js'), "require('evil-plant');\n");
+  }, 180_000);
+
+  afterAll(() => rmSync(plantDir, { recursive: true, force: true }));
+
+  it('blocks the write and leaves no config on disk', () => {
+    const result = spawnSync(process.execPath, [cliPath, 'run', '--', 'node', 'app.js'], {
+      cwd: plantDir,
+      encoding: 'utf8',
+      env: { ...process.env, DEPHAWK_MODE: 'enforce', NO_COLOR: '1' },
+    });
+
+    expect(existsSync(plantedConfig)).toBe(false);
+    expect(`${result.stdout}${result.stderr}`).toMatch(/blocked|dephawk\.config\.js/);
+  }, 60_000);
+});

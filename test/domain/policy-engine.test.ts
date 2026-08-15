@@ -134,6 +134,41 @@ describe('RulePolicyEngine — dephawk’s own audit log', () => {
   });
 });
 
+describe('RulePolicyEngine — dephawk’s own config (planting for the next run)', () => {
+  // No protected paths at all: on a run with no config, the config's absolute
+  // path is unknown, so the basename check must stand on its own.
+  const bare = new RulePolicyEngine(policy, []);
+
+  it('refuses a dependency writing dephawk.config.js, mandatorily', () => {
+    const v = bare.evaluate(
+      req({ capability: 'fs.write', detail: '/repo/dephawk.config.js' }),
+    );
+    expect(v.allowed).toBe(false);
+    expect(v.mandatory).toBe(true);
+    expect(v.reason).toContain('config');
+  });
+
+  it('refuses it for the application origin too', () => {
+    const v = bare.evaluate(
+      req({
+        capability: 'fs.write',
+        package: null,
+        origin: 'application',
+        detail: '/repo/dephawk.config.mjs',
+      }),
+    );
+    expect(v.allowed).toBe(false);
+    expect(v.mandatory).toBe(true);
+  });
+
+  it('leaves reads of the config alone', () => {
+    const v = bare.evaluate(
+      req({ capability: 'fs.read', detail: '/repo/dephawk.config.js' }),
+    );
+    expect(v.allowed).toBe(true);
+  });
+});
+
 describe('RulePolicyEngine — net.connect', () => {
   it('blocks connections not in the allowlist', () => {
     const v = engine.evaluate(

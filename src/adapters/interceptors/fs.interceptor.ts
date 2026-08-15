@@ -2,7 +2,10 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isPersistenceTarget, isSensitivePath } from '../../domain/sensitivity.js';
 import { isCiWorkflowPath, isGitHookPath } from '../../domain/threat.js';
-import { protectedPathAffectedBy } from '../../domain/protected-path.js';
+import {
+  isDephawkConfigPath,
+  protectedPathAffectedBy,
+} from '../../domain/protected-path.js';
 import { packageOwningPath } from '../../domain/package-dir.js';
 import type { Capability } from '../../domain/capability.js';
 import type { CapabilityInterceptor, Disposable } from '../../application/ports.js';
@@ -351,9 +354,19 @@ export class FsInterceptor implements CapabilityInterceptor {
     const persistence =
       capability === 'fs.write' &&
       (isPersistenceTarget(path) || isCiWorkflowPath(path) || isGitHookPath(path));
+    // Planting dephawk's own config for the next run to load as policy is a
+    // self-defense attack, matched by basename (its absolute path is unknown on a
+    // no-config run). See {@link import('../../domain/protected-path.js')}.
+    const configTamper = capability === 'fs.write' && isDephawkConfigPath(path);
 
     let target = path;
-    if (!isProtected && !intoPackage && !persistence && !isSensitivePath(path)) {
+    if (
+      !isProtected &&
+      !intoPackage &&
+      !persistence &&
+      !configTamper &&
+      !isSensitivePath(path)
+    ) {
       // Lexically mundane — but `path.resolve` does not follow symlinks, and a
       // link can point anywhere. `readFileSync('notes.txt')` where that is a
       // link to `~/.ssh/id_rsa` used to read the key with no event at all.
@@ -370,7 +383,13 @@ export class FsInterceptor implements CapabilityInterceptor {
       const realPersistence =
         capability === 'fs.write' &&
         (isPersistenceTarget(real) || isCiWorkflowPath(real) || isGitHookPath(real));
-      if (!realProtected && !realPersistence && !isSensitivePath(real)) {
+      const realConfigTamper = capability === 'fs.write' && isDephawkConfigPath(real);
+      if (
+        !realProtected &&
+        !realPersistence &&
+        !realConfigTamper &&
+        !isSensitivePath(real)
+      ) {
         return; // genuinely mundane: no stack capture, no event
       }
       // Report where the bytes actually come from. This stays a bare path on

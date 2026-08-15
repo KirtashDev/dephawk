@@ -29,3 +29,34 @@ export function protectedPathAffectedBy(
   }
   return null;
 }
+
+/**
+ * The basenames dephawk's config file is auto-discovered under. Kept here so the
+ * CLI's discovery and the tamper check share one list — a name added to one is
+ * seen by the other.
+ */
+export const DEPHAWK_CONFIG_BASENAMES: readonly string[] = [
+  'dephawk.config.js',
+  'dephawk.config.mjs',
+  'dephawk.config.cjs',
+];
+
+const CONFIG_BASENAME_SET: ReadonlySet<string> = new Set(DEPHAWK_CONFIG_BASENAMES);
+
+/**
+ * True when a path is one of dephawk's own config files, matched by basename.
+ *
+ * Unlike the sink/baseline (absolute paths known up front and passed in
+ * {@link protectedPathAffectedBy}), the config is auto-discovered from the cwd,
+ * so on a run with no config yet there is no absolute path to protect — and a
+ * dependency could *plant* `dephawk.config.js` in the cwd, which the next run
+ * would load as policy and use to allowlist the attacker everything. Matching by
+ * basename refuses that write in the first place. Nothing legitimate writes
+ * dephawk's config from inside a monitored process: `dephawk init` and hand
+ * edits both happen from the un-monitored parent.
+ */
+export function isDephawkConfigPath(path: string): boolean {
+  const normalised = path.replace(/\\/g, '/');
+  const name = normalised.slice(normalised.lastIndexOf('/') + 1).toLowerCase();
+  return CONFIG_BASENAME_SET.has(name);
+}

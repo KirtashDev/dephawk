@@ -3,7 +3,7 @@ import type { Policy, PackagePolicy } from './policy.js';
 import type { Verdict } from './verdict.js';
 import { isPersistenceTarget, isSensitiveEnv, isSensitivePath } from './sensitivity.js';
 import { detectTechnique } from './threat.js';
-import { protectedPathAffectedBy } from './protected-path.js';
+import { isDephawkConfigPath, protectedPathAffectedBy } from './protected-path.js';
 import { isCrossPackageWrite, packageOwningPath } from './package-dir.js';
 import { extractHost, hostMatchesAny } from './host.js';
 import { pathMatchesAny } from './path-glob.js';
@@ -72,7 +72,22 @@ export class RulePolicyEngine implements PolicyEngine {
    * the program; it is dephawk keeping its audit log intact.
    */
   private detectTampering(req: CapabilityRequest): Verdict | null {
-    if (req.capability !== 'fs.write' || this.protectedPaths.length === 0) {
+    if (req.capability !== 'fs.write') {
+      return null;
+    }
+    // dephawk's own config, matched by basename: refused for every origin in
+    // both modes. Its absolute path is unknown on a run with no config yet, so a
+    // dependency could plant `dephawk.config.js` in the cwd for the next run to
+    // load as policy — the basename check refuses that write up front.
+    if (isDephawkConfigPath(req.detail)) {
+      return {
+        allowed: false,
+        sensitive: true,
+        mandatory: true,
+        reason: `${req.detail} is dephawk's own config and cannot be written by a monitored process`,
+      };
+    }
+    if (this.protectedPaths.length === 0) {
       return null;
     }
     const target = protectedPathAffectedBy(req.detail, this.protectedPaths);

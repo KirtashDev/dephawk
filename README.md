@@ -58,13 +58,14 @@ code 2.
 
 > 🛡️ **Hardened release by release.** dephawk watches **11 capability classes**
 > across **18 interceptors**, and every version closes another real bypass —
-> **59 reproduced attack techniques blocked, and counting.** Each was
+> **60 reproduced attack techniques blocked, and counting.** Each was
 > demonstrated against a published build _before_ it was fixed; the running list
-> is in the [CHANGELOG](CHANGELOG.md). Recent additions: CI/CD-pipeline
-> persistence across 18+ providers (GitLab, Azure, CircleCI, Jenkins & co.),
-> git-hook persistence (`.git/hooks`, `.husky`), the `open(path,'w')`+fd write
-> bypass, Kubernetes service-account tokens & container secret mounts
-> (`/run/secrets`), and the AWS EKS Pod Identity endpoint.
+> is in the [CHANGELOG](CHANGELOG.md). Recent additions: blocking a dependency
+> from planting dephawk's own config, CI/CD-pipeline persistence across 18+
+> providers (GitLab, Azure, CircleCI, Jenkins & co.), git-hook persistence
+> (`.git/hooks`, `.husky`), the `open(path,'w')`+fd write bypass, Kubernetes
+> service-account tokens & container secret mounts (`/run/secrets`), and the AWS
+> EKS Pod Identity endpoint.
 
 > 🎯 **New in 0.7 — dephawk recognises _attacks_, not just capabilities.** It names
 > the concrete moves of the 2025-2026 npm worms (Shai-Hulud, ChainDrop, the axios

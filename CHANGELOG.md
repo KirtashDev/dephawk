@@ -3,6 +3,25 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.5] — 2026-08-15
+
+### Security — a dependency can no longer plant dephawk's own config
+
+A self-defense gap found by continuing the audit. dephawk auto-discovers
+`dephawk.config.{js,mjs,cjs}` in the cwd. On a run with **no config**,
+`DEPHAWK_CONFIG` is unset, so the config path is not among the protected paths —
+and a dependency could drop a `dephawk.config.js` in the cwd that the **next run**
+would load as policy, allowlisting the attacker everything. Reproduced against
+0.7.4: the write was silent (`no monitored activity recorded`) and the file
+landed.
+
+- **Config planting is now refused by basename** — any `fs.write` to a
+  `dephawk.config.*` name is treated as tampering with dephawk's own control
+  plane and blocked **mandatorily, for every origin and in both modes** (like the
+  audit-log sink), whether or not a config currently exists. Covers the flags-aware
+  `open()` and symlink/realpath paths too. `dephawk init` and hand edits are
+  unaffected — they run from the un-monitored parent.
+
 ## [0.7.4] — 2026-08-15
 
 ### Security — cloud-metadata naming completeness
