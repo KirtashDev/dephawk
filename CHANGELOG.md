@@ -3,6 +3,25 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.7] — 2026-08-15
+
+### Security — node:sqlite URL/Buffer paths and `ATTACH`
+
+Two gaps in the `node:sqlite` interceptor (the guard against browser-credential
+theft — Chrome/Brave `Login Data`, `Cookies`, Firefox `key4.db`), both confirmed
+on Node 24:
+
+- **Non-string database locations** — `DatabaseSync` accepts a `file:` URL, a
+  `URL` object, and a `Buffer`/`Uint8Array`, and the interceptor returned early on
+  anything that was not a plain string. A dependency could open
+  `~/.config/…/Login Data` as a `URL` or `Buffer` and read it with no event. All
+  forms are now decoded and checked, matching how the fs interceptor accepts any
+  `Uint8Array` path.
+- **`ATTACH DATABASE '<file>'`** — a handle to a harmless database could `ATTACH`
+  an arbitrary file mid-session (past the constructor/`open()` guards) and
+  `SELECT` from it. `exec()` and `prepare()` SQL is now scanned for a literal
+  `ATTACH` filename, which is judged like any other open.
+
 ## [0.7.6] — 2026-08-15
 
 ### Security (critical) — the module-loader guard could be dodged by `Object.defineProperty`
