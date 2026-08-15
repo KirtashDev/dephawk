@@ -58,18 +58,20 @@ code 2.
 
 > 🛡️ **Hardened release by release.** dephawk watches **11 capability classes**
 > across **18 interceptors**, and every version closes another real bypass —
-> **53 reproduced attack techniques blocked, and counting.** Each was
+> **56 reproduced attack techniques blocked, and counting.** Each was
 > demonstrated against a published build _before_ it was fixed; the running list
-> is in the [CHANGELOG](CHANGELOG.md). Recent additions: Kubernetes
-> service-account tokens & container secret mounts (`/run/secrets`), the AWS EKS
-> Pod Identity endpoint, `import('data:…')` attribution laundering,
-> hard-link/symlink secret aliases, and tamper-proofing dephawk's own audit log.
+> is in the [CHANGELOG](CHANGELOG.md). Recent additions: CI/CD-pipeline
+> persistence across 18+ providers (GitLab, Azure, CircleCI, Jenkins & co.),
+> git-hook persistence (`.git/hooks`, `.husky`), Kubernetes service-account
+> tokens & container secret mounts (`/run/secrets`), and the AWS EKS Pod Identity
+> endpoint.
 
 > 🎯 **New in 0.7 — dephawk recognises _attacks_, not just capabilities.** It names
 > the concrete moves of the 2025-2026 npm worms (Shai-Hulud, ChainDrop, the axios
 > RAT): **cloud instance-metadata SSRF** (`169.254.169.254` & co, evasion-resistant
-> to decimal/hex/IPv6 spellings), **CI-workflow persistence** (`.github/workflows`
-> writes), **registry self-replication** (`npm publish`), and — the signature every
+> to decimal/hex/IPv6 spellings), **CI/CD & git-hook persistence** (`.github/workflows`,
+> `.gitlab-ci.yml`, `Jenkinsfile`, `.git/hooks`, `.husky` & 18+ providers),
+> **registry self-replication** (`npm publish`), and — the signature every
 > stealer shares — **likely credential exfiltration**: the same dependency read a
 > secret and _then_ reached the network. Each finding says, in one plain line, what
 > it is and what to check.

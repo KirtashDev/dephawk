@@ -4,6 +4,7 @@ import {
   detectTechnique,
   isCiWorkflowPath,
   isCloudMetadataHost,
+  isGitHookPath,
   isRegistryPublish,
   normalizeIpv4,
 } from '../../src/domain/threat.js';
@@ -53,12 +54,35 @@ describe('isCloudMetadataHost — cloud instance-metadata endpoints', () => {
   });
 });
 
-describe('isCiWorkflowPath — .github/workflows persistence', () => {
+describe('isCiWorkflowPath — CI/CD pipeline persistence across providers', () => {
   it.each([
+    // GitHub Actions and the compatible forges.
     '/repo/.github/workflows/shai-hulud.yml',
     '/repo/.github/workflows/ci.yaml',
     '.github/workflows/deploy.yml',
     'C:\\proj\\.github\\workflows\\x.yml',
+    '/repo/.gitea/workflows/ci.yml',
+    '/repo/.forgejo/workflows/ci.yaml',
+    // Local / composite GitHub Action manifests.
+    '/repo/.github/actions/build/action.yml',
+    '/repo/.github/actions/setup/action.yaml',
+    // Dot-dir configs.
+    '/repo/.circleci/config.yml',
+    '/repo/.buildkite/pipeline.yml',
+    '/repo/.woodpecker.yml',
+    '/repo/.woodpecker/build.yml',
+    // Single-file root pipeline definitions.
+    '/repo/.gitlab-ci.yml',
+    '/repo/azure-pipelines.yml',
+    '/repo/.travis.yml',
+    '/repo/bitbucket-pipelines.yml',
+    '/repo/.drone.yml',
+    '/repo/appveyor.yml',
+    '/repo/.cirrus.yml',
+    '/repo/Jenkinsfile',
+    // Windows trailing-junk (silently dropped by the OS, so it opens the file).
+    '/repo/.gitlab-ci.yml ',
+    'C:\\proj\\.github\\workflows\\x.yml.',
   ])('flags %s', (path) => {
     expect(isCiWorkflowPath(path)).toBe(true);
   });
@@ -68,8 +92,37 @@ describe('isCiWorkflowPath — .github/workflows persistence', () => {
     '/repo/.github/workflows/', // the directory, no file
     '/repo/src/workflows/x.yml', // not under .github
     '/repo/.github/workflows/notes.txt', // not a yaml file
+    '/repo/.github/actions/build/README.md', // action dir, not the manifest
+    '/repo/config.yml', // a plain config file, not a CI definition
+    '/repo/src/travis.yml', // not the root .travis.yml basename
   ])('does not flag %s', (path) => {
     expect(isCiWorkflowPath(path)).toBe(false);
+  });
+});
+
+describe('isGitHookPath — git-hook persistence', () => {
+  it.each([
+    '/repo/.git/hooks/pre-commit',
+    '/repo/.git/hooks/post-checkout',
+    '/repo/.git/hooks/pre-push',
+    '.git/hooks/prepare-commit-msg',
+    'C:\\proj\\.git\\hooks\\post-merge',
+    '/repo/.husky/pre-commit',
+    '/repo/.husky/post-checkout',
+    '/repo/.git/hooks/pre-commit ', // Windows trailing space
+  ])('flags %s', (path) => {
+    expect(isGitHookPath(path)).toBe(true);
+  });
+
+  it.each([
+    '/repo/.git/hooks/pre-commit.sample', // git's inert template
+    '/repo/.git/hooks/README', // not an executable hook name
+    '/repo/.husky/_/husky.sh', // Husky's own internals
+    '/repo/.husky/_/.gitignore',
+    '/repo/hooks/pre-commit', // not under .git or .husky
+    '/repo/.git/config', // not a hook
+  ])('does not flag %s', (path) => {
+    expect(isGitHookPath(path)).toBe(false);
   });
 });
 
@@ -100,6 +153,15 @@ describe('detectTechnique — capability + detail → named technique', () => {
     expect(detectTechnique('net.resolve', '2852039166')).toBe('cloud-metadata');
     expect(detectTechnique('fs.write', '/r/.github/workflows/x.yml')).toBe(
       'ci-workflow-persistence',
+    );
+    expect(detectTechnique('fs.write', '/r/.gitlab-ci.yml')).toBe(
+      'ci-workflow-persistence',
+    );
+    expect(detectTechnique('fs.write', '/r/.git/hooks/pre-commit')).toBe(
+      'git-hook-persistence',
+    );
+    expect(detectTechnique('fs.write', '/r/.husky/pre-commit')).toBe(
+      'git-hook-persistence',
     );
     expect(detectTechnique('process.spawn', 'npm publish')).toBe('registry-publish');
   });

@@ -1,7 +1,7 @@
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isPersistenceTarget, isSensitivePath } from '../../domain/sensitivity.js';
-import { isCiWorkflowPath } from '../../domain/threat.js';
+import { isCiWorkflowPath, isGitHookPath } from '../../domain/threat.js';
 import { protectedPathAffectedBy } from '../../domain/protected-path.js';
 import { packageOwningPath } from '../../domain/package-dir.js';
 import type { Capability } from '../../domain/capability.js';
@@ -296,7 +296,8 @@ export class FsInterceptor implements CapabilityInterceptor {
     // the Shai-Hulud worm's self-persistence move), is a write-side attack: judged
     // on writes only, lexically. See {@link import('../../domain/threat.js')}.
     const persistence =
-      capability === 'fs.write' && (isPersistenceTarget(path) || isCiWorkflowPath(path));
+      capability === 'fs.write' &&
+      (isPersistenceTarget(path) || isCiWorkflowPath(path) || isGitHookPath(path));
 
     let target = path;
     if (!isProtected && !intoPackage && !persistence && !isSensitivePath(path)) {
@@ -315,7 +316,7 @@ export class FsInterceptor implements CapabilityInterceptor {
       const realProtected = protectedPathAffectedBy(real, this.protectedPaths) !== null;
       const realPersistence =
         capability === 'fs.write' &&
-        (isPersistenceTarget(real) || isCiWorkflowPath(real));
+        (isPersistenceTarget(real) || isCiWorkflowPath(real) || isGitHookPath(real));
       if (!realProtected && !realPersistence && !isSensitivePath(real)) {
         return; // genuinely mundane: no stack capture, no event
       }
