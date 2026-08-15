@@ -23,7 +23,13 @@ export class ConsoleReporter implements Reporter {
   private readonly mode: Mode | undefined;
 
   constructor(options: ConsoleReporterOptions = {}) {
-    this.write = options.write ?? ((text) => process.stderr.write(text));
+    // Capture `stderr.write` once, bound, at construction. The reporter is built
+    // in dephawk/register before any dependency runs, so this is the pristine
+    // function — a dependency that later swaps `process.stderr.write` (to swallow
+    // the console report, which in observe mode is the *only* signal) cannot reach
+    // it. Resolving `process.stderr.write` lazily on each report left that hole.
+    const stderrWrite = process.stderr.write.bind(process.stderr);
+    this.write = options.write ?? ((text) => stderrWrite(text));
     this.color = options.color ?? shouldColor(process.env, Boolean(process.stderr.isTTY));
     this.mode = options.mode;
   }

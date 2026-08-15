@@ -60,7 +60,8 @@ code 2.
 > across **18 interceptors**, and every version closes another real bypass —
 > **67 reproduced attack techniques blocked, and counting.** Each was
 > demonstrated against a published build _before_ it was fixed; the running list
-> is in the [CHANGELOG](CHANGELOG.md). Recent additions: armed heap-snapshot &
+> is in the [CHANGELOG](CHANGELOG.md). Recent additions: report-integrity (the
+> console report can't be swallowed by hijacking `stderr`), armed heap-snapshot &
 > diagnostic-report dumps (`v8.setHeapSnapshotNearHeapLimit`, `process.report.*`),
 > `node:sqlite` URL/Buffer paths & `ATTACH` (browser-credential theft), closing an
 > `Object.defineProperty` bypass of the module-loader guard (code injection into

@@ -3,6 +3,18 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.9] — 2026-08-15
+
+### Security — the console report can no longer be swallowed by hijacking stderr
+
+Last of the exotic-interceptor audit. The `ConsoleReporter` resolved
+`process.stderr.write` lazily on every report, so a dependency that set
+`process.stderr.write = () => true` after dephawk started could **swallow the
+console report** — which in observe mode is the only signal (calls are recorded,
+not blocked). It now binds `stderr.write` **once at construction**, which happens
+in `dephawk/register` before any dependency runs, so a later hijack cannot reach
+it. (`guard` mode was never affected: it streams every event to the shared sink.)
+
 ## [0.7.8] — 2026-08-15
 
 ### Security — armed memory/report dumps and legacy `vm.createScript`
