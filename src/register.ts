@@ -133,13 +133,12 @@ function installStandaloneMode(
     await monitor.report();
   };
 
-  process.once('beforeExit', () => {
+  const onBeforeExit = (): void => {
     void finish();
-  });
-
+  };
   // Synchronous fallback for `process.exit()` / uncaught crash, which skip
   // `beforeExit`. Only the sync console reporter can run here; never throw.
-  process.on('exit', () => {
+  const onExit = (): void => {
     if (finished) {
       return;
     }
@@ -149,13 +148,68 @@ function installStandaloneMode(
     } catch {
       /* an exit handler must not throw */
     }
-  });
-
+  };
   const onSignal = (code: number): void => {
     void finish().finally(() => process.exit(code));
   };
-  process.once('SIGINT', () => onSignal(130));
-  process.once('SIGTERM', () => onSignal(143));
+  const onSigint = (): void => onSignal(130);
+  const onSigterm = (): void => onSignal(143);
+
+  process.once('beforeExit', onBeforeExit);
+  process.on('exit', onExit);
+  process.once('SIGINT', onSigint);
+  process.once('SIGTERM', onSigterm);
+
+  // In standalone mode the whole observe report is these listeners — and a
+  // dependency can `process.removeAllListeners('exit')` (then `process.exit(0)`)
+  // to strip them and vanish, exactly the blinding guard mode dodges by streaming
+  // to its sink. Re-assert dephawk's own handlers after any listener removal so
+  // the report still fires. (Reaching `EventEmitter.prototype` directly can still
+  // bypass this — attribution is high-signal, not tamper-proof; see docs/adr/0002.)
+  hardenExitListeners([
+    ['beforeExit', onBeforeExit],
+    ['exit', onExit],
+    ['SIGINT', onSigint],
+    ['SIGTERM', onSigterm],
+  ]);
+}
+
+/**
+ * Re-assert dephawk's own exit-family listeners after any
+ * `removeAllListeners`/`removeListener`/`off` on `process`, so a dependency
+ * cannot strip the report before exiting. The re-add is idempotent (the handlers
+ * guard themselves with `finished`), so a normal teardown is unaffected.
+ */
+function hardenExitListeners(
+  guarded: ReadonlyArray<readonly [string, (...args: unknown[]) => void]>,
+): void {
+  const proc = process as unknown as {
+    listeners(event: string): unknown[];
+    on(event: string, handler: (...args: unknown[]) => void): unknown;
+  } & Record<string, unknown>;
+  const reassert = (): void => {
+    for (const [event, handler] of guarded) {
+      if (!proc.listeners(event).includes(handler)) {
+        proc.on(event, handler);
+      }
+    }
+  };
+  for (const key of ['removeAllListeners', 'removeListener', 'off'] as const) {
+    const original = proc[key];
+    if (typeof original !== 'function') {
+      continue;
+    }
+    const bound = (original as (...args: unknown[]) => unknown).bind(proc);
+    Object.defineProperty(proc, key, {
+      configurable: true,
+      writable: true,
+      value: (...args: unknown[]): unknown => {
+        const result = bound(...args);
+        reassert();
+        return result;
+      },
+    });
+  }
 }
 
 /**

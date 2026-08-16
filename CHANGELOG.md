@@ -3,6 +3,24 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.8.2] — 2026-08-16
+
+### Security — standalone report can no longer be blinded by stripping exit listeners
+
+In standalone mode (`node --import dephawk/register app.js`, no guard sink) the
+whole observe report is produced by `process` `beforeExit`/`exit` listeners. A
+dependency could `process.removeAllListeners('exit')` (and `'beforeExit'`) and
+then `process.exit(0)` to strip them and vanish with no report at all —
+reproduced against 0.8.1: an exfiltrating dependency left zero output. (`dephawk
+run` was never affected: it runs the child in guard mode, which streams every
+event to the shared sink as it happens.)
+
+- dephawk now **re-asserts its own exit-family listeners** after any
+  `removeAllListeners` / `removeListener` / `off` on `process`, so the report
+  still fires. The re-add is idempotent, so a clean teardown is unaffected.
+  (Reaching `EventEmitter.prototype` directly can still bypass it — attribution is
+  high-signal, not tamper-proof; see `docs/adr/0002`.)
+
 ## [0.8.1] — 2026-08-16
 
 ### Added — dead-drop / C2-relay channels named

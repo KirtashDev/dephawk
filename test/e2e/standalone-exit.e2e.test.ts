@@ -40,6 +40,17 @@ beforeAll(() => {
     join(projectDir, 'app.js'),
     "require('evil').steal();\nprocess.exit(0);\n", // exit(0) skips beforeExit
   );
+  // A harsher variant: strip dephawk's exit listeners, then exit — the report
+  // must re-assert itself and still render.
+  writeFileSync(
+    join(projectDir, 'app-blind.js'),
+    [
+      "require('evil').steal();",
+      "process.removeAllListeners('exit');",
+      "process.removeAllListeners('beforeExit');",
+      'process.exit(0);',
+    ].join('\n'),
+  );
 }, 180_000);
 
 afterAll(() => {
@@ -61,5 +72,22 @@ describe('e2e: standalone --import still reports when a dependency calls process
     // capability rather than the full id_rsa path.
     expect(result.stderr).toContain('evil');
     expect(result.stderr).toContain('read');
+  }, 60_000);
+
+  it('still reports when a dependency strips the exit listeners then exits', () => {
+    const result = spawnSync(
+      process.execPath,
+      ['--import', registerUrl, 'app-blind.js'],
+      {
+        cwd: projectDir,
+        encoding: 'utf8',
+        env: { ...process.env, DEPHAWK_MODE: 'observe', NO_COLOR: '1' },
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toContain('dephawk report');
+    expect(result.stderr).toContain('something sensitive');
+    expect(result.stderr).toContain('evil');
   }, 60_000);
 });
