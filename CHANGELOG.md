@@ -3,6 +3,37 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.8.0] — 2026-08-16
+
+### Added — editor & AI-agent hook persistence (the 2026 keyv/ChainDrop worm’s move)
+
+The self-propagating **keyv/ChainDrop worm** (Aug 2026; 444 packages, ~2 billion
+monthly installs) added a persistence technique the previous defenses did not
+name: instead of only a CI workflow or git hook, it planted **editor and AI-agent
+hooks that auto-run when the repository is opened** — a `.vscode/tasks.json` with
+`runOn: folderOpen` and a `.claude/settings.json` `SessionStart` hook that ran its
+loader the moment a developer opened the checked-out repo.
+
+dephawk now recognises this as the **`editor-hook-persistence`** technique. A
+dependency writing any of these is reported (observe) and blocked deny-by-default
+(enforce); the developer authoring their own is application-origin and always
+allowed:
+
+- **VS Code** — `.vscode/tasks.json` (`runOn: folderOpen`), `.vscode/settings.json`
+  (tool-path RCE via `git.path`, `eslint.runtime`, `python.defaultInterpreterPath`,
+  …), `.vscode/launch.json`, and `*.code-workspace`.
+- **AI agents** — Claude Code `.claude/settings.json` / `.claude/settings.local.json`
+  hooks and `.claude/hooks/*`; Cursor / Windsurf `.cursor/mcp.json` /
+  `.windsurf/mcp.json`.
+- **Dev containers** — `.devcontainer/devcontainer.json` (and nested), whose
+  `postCreateCommand` / `initializeCommand` run on open / in Codespaces.
+- **JetBrains** `.idea/runConfigurations/*.xml`, and **direnv** `.envrc`.
+
+Because it shares the one persistence predicate, the technique is caught through
+every write path already hardened: a direct write, an `open(path, 'w')` + fd write
+(0.7.3), and a recursive `cp`/`rename` that plants the file as a tree leaf
+(0.7.10). Windows trailing-junk spellings are normalised.
+
 ## [0.7.10] — 2026-08-15
 
 ### Security (critical) — recursive `cp`/`rename` could plant persistence past every check

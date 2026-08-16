@@ -1,7 +1,11 @@
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isPersistenceTarget, isSensitivePath } from '../../domain/sensitivity.js';
-import { isCiWorkflowPath, isGitHookPath } from '../../domain/threat.js';
+import {
+  isCiWorkflowPath,
+  isEditorHookPath,
+  isGitHookPath,
+} from '../../domain/threat.js';
 import {
   isDephawkConfigPath,
   protectedPathAffectedBy,
@@ -367,7 +371,10 @@ export class FsInterceptor implements CapabilityInterceptor {
     // on writes only, lexically. See {@link import('../../domain/threat.js')}.
     const persistence =
       capability === 'fs.write' &&
-      (isPersistenceTarget(path) || isCiWorkflowPath(path) || isGitHookPath(path));
+      (isPersistenceTarget(path) ||
+        isCiWorkflowPath(path) ||
+        isGitHookPath(path) ||
+        isEditorHookPath(path));
     // Planting dephawk's own config for the next run to load as policy is a
     // self-defense attack, matched by basename (its absolute path is unknown on a
     // no-config run). See {@link import('../../domain/protected-path.js')}.
@@ -396,7 +403,10 @@ export class FsInterceptor implements CapabilityInterceptor {
       const realProtected = protectedPathAffectedBy(real, this.protectedPaths) !== null;
       const realPersistence =
         capability === 'fs.write' &&
-        (isPersistenceTarget(real) || isCiWorkflowPath(real) || isGitHookPath(real));
+        (isPersistenceTarget(real) ||
+          isCiWorkflowPath(real) ||
+          isGitHookPath(real) ||
+          isEditorHookPath(real));
       const realConfigTamper = capability === 'fs.write' && isDephawkConfigPath(real);
       if (
         !realProtected &&
@@ -458,7 +468,10 @@ export class FsInterceptor implements CapabilityInterceptor {
     const isProtected = protectedPathAffectedBy(path, this.protectedPaths) !== null;
     const intoPackage = packageOwningPath(path) !== null;
     const persistence =
-      isPersistenceTarget(path) || isCiWorkflowPath(path) || isGitHookPath(path);
+      isPersistenceTarget(path) ||
+      isCiWorkflowPath(path) ||
+      isGitHookPath(path) ||
+      isEditorHookPath(path);
     const configTamper = isDephawkConfigPath(path);
     if (
       !isProtected &&
