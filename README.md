@@ -58,27 +58,30 @@ code 2.
 
 > 🛡️ **Hardened release by release.** dephawk watches **11 capability classes**
 > across **18 interceptors**, and every version closes another real bypass —
-> **68 reproduced attack techniques blocked, and counting.** Each was
+> **69 reproduced attack techniques blocked, and counting.** Each was
 > demonstrated against a published build _before_ it was fixed; the running list
-> is in the [CHANGELOG](CHANGELOG.md). Recent additions: recursive `cp`/`rename`
-> that planted persistence past every check (directory-destination leaves),
+> is in the [CHANGELOG](CHANGELOG.md). Recent additions: **editor & AI-agent hook
+> persistence** (the keyv/ChainDrop worm’s `.vscode/tasks.json` + `.claude/settings.json`
+> move), recursive `cp`/`rename` that planted persistence past every check,
 > report-integrity (the console report can't be swallowed by hijacking `stderr`),
-> armed heap-snapshot & diagnostic-report dumps (`v8.setHeapSnapshotNearHeapLimit`,
-> `process.report.*`),
-> `node:sqlite` URL/Buffer paths & `ATTACH` (browser-credential theft), closing an
-> `Object.defineProperty` bypass of the module-loader guard (code injection into
-> allowlisted packages), blocking a dependency from planting dephawk's own config,
-> and CI/CD + git-hook persistence across 18+ providers.
+> armed heap-snapshot & diagnostic-report dumps, `node:sqlite` URL/Buffer paths &
+> `ATTACH` (browser-credential theft), and closing an `Object.defineProperty`
+> bypass of the module-loader guard.
 
-> 🎯 **New in 0.7 — dephawk recognises _attacks_, not just capabilities.** It names
-> the concrete moves of the 2025-2026 npm worms (Shai-Hulud, ChainDrop, the axios
-> RAT): **cloud instance-metadata SSRF** (`169.254.169.254` & co, evasion-resistant
-> to decimal/hex/IPv6 spellings), **CI/CD & git-hook persistence** (`.github/workflows`,
-> `.gitlab-ci.yml`, `Jenkinsfile`, `.git/hooks`, `.husky` & 18+ providers),
-> **registry self-replication** (`npm publish`), and — the signature every
-> stealer shares — **likely credential exfiltration**: the same dependency read a
-> secret and _then_ reached the network. Each finding says, in one plain line, what
-> it is and what to check.
+> 🎯 **New in 0.8 — catches the keyv/ChainDrop worm’s editor & AI-agent hooks.**
+> The Aug-2026 worm (444 packages, ~2B monthly installs) planted a
+> `.vscode/tasks.json` (`runOn: folderOpen`) and a `.claude/settings.json`
+> `SessionStart` hook so its loader re-ran the moment you opened the repo. dephawk
+> now names this **`editor-hook-persistence`** and refuses it from a dependency —
+> VS Code tasks/settings, Claude Code & Cursor/Windsurf agent hooks,
+> `.devcontainer` lifecycle commands, JetBrains run configs, and direnv `.envrc`.
+>
+> This sits on the **attack-recognition layer** that also names the other worm
+> moves: **cloud instance-metadata SSRF** (evasion-resistant to decimal/hex/IPv6),
+> **CI/CD & git-hook persistence** across 18+ providers, **registry
+> self-replication** (`npm publish`), and — the signature every stealer shares —
+> **likely credential exfiltration** (the same dependency reads a secret and _then_
+> reaches the network). Each finding says, in one plain line, what it is.
 
 ## Why
 

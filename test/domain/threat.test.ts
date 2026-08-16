@@ -4,6 +4,7 @@ import {
   detectTechnique,
   isCiWorkflowPath,
   isCloudMetadataHost,
+  isEditorHookPath,
   isGitHookPath,
   isRegistryPublish,
   normalizeIpv4,
@@ -140,6 +141,40 @@ describe('isGitHookPath — git-hook persistence', () => {
   });
 });
 
+describe('isEditorHookPath — editor/AI-agent hook persistence (keyv worm)', () => {
+  it.each([
+    '/repo/.vscode/tasks.json', // runOn: folderOpen auto-run
+    '/repo/.vscode/settings.json', // tool-path RCE
+    '/repo/.vscode/launch.json',
+    'C:\\proj\\.vscode\\tasks.json',
+    '/repo/my.code-workspace',
+    '/repo/.claude/settings.json', // SessionStart hook
+    '/repo/.claude/settings.local.json',
+    '/repo/.claude/hooks/on-start.sh',
+    '/repo/.cursor/mcp.json',
+    '/repo/.windsurf/mcp.json',
+    '/repo/.devcontainer/devcontainer.json', // postCreateCommand
+    '/repo/.devcontainer/backend/devcontainer.json', // nested
+    '/repo/.idea/runConfigurations/app.xml', // JetBrains
+    '/repo/.envrc', // direnv
+    '/repo/.vscode/tasks.json ', // Windows trailing junk
+  ])('flags %s', (path) => {
+    expect(isEditorHookPath(path)).toBe(true);
+  });
+
+  it.each([
+    '/repo/.vscode/extensions.json', // recommendations, not executable
+    '/repo/.vscode/notes.json',
+    '/repo/.claude/README.md',
+    '/repo/src/settings.json', // not under an editor dir
+    '/repo/.devcontainer/Dockerfile',
+    '/repo/config.code-workspace/inner.txt', // dir named like a workspace, then a file
+    '/repo/.idea/workspace.xml', // not a run configuration
+  ])('does not flag %s', (path) => {
+    expect(isEditorHookPath(path)).toBe(false);
+  });
+});
+
 describe('isRegistryPublish — registry self-replication', () => {
   it.each([
     'npm publish',
@@ -176,6 +211,12 @@ describe('detectTechnique — capability + detail → named technique', () => {
     );
     expect(detectTechnique('fs.write', '/r/.husky/pre-commit')).toBe(
       'git-hook-persistence',
+    );
+    expect(detectTechnique('fs.write', '/r/.vscode/tasks.json')).toBe(
+      'editor-hook-persistence',
+    );
+    expect(detectTechnique('fs.write', '/r/.claude/settings.json')).toBe(
+      'editor-hook-persistence',
     );
     expect(detectTechnique('process.spawn', 'npm publish')).toBe('registry-publish');
   });

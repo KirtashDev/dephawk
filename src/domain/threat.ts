@@ -22,6 +22,7 @@ export type Technique =
   | 'cloud-metadata'
   | 'ci-workflow-persistence'
   | 'git-hook-persistence'
+  | 'editor-hook-persistence'
   | 'registry-publish';
 
 /** One-line, plain-English gloss + what to check — shown next to the finding. */
@@ -32,6 +33,8 @@ export const TECHNIQUE_GLOSS: Record<Technique, string> = {
     'writing a CI/CD pipeline definition — the self-persistence move of the Shai-Hulud worm; nothing legitimate writes .github/workflows, .gitlab-ci.yml, Jenkinsfile & co. from inside a dependency',
   'git-hook-persistence':
     'writing a git hook (.git/hooks or .husky) — a payload here re-runs on every commit/checkout/push; nothing legitimate installs one from inside a dependency',
+  'editor-hook-persistence':
+    'writing an editor/AI-agent hook that auto-runs when the repo is opened (.vscode/tasks.json runOn:folderOpen, .claude/settings.json hooks, .devcontainer postCreateCommand, .envrc) — the keyv/ChainDrop worm’s move; nothing legitimate installs one from inside a dependency',
   'registry-publish':
     'publishing to the package registry — how a worm self-replicates with a stolen token',
 };
@@ -262,6 +265,44 @@ export function isGitHookPath(path: string): boolean {
   return GIT_HOOK_NAMES.has(m[3] ?? '');
 }
 
+/**
+ * Editor / AI-agent hook files that auto-run a command when the repository is
+ * opened, matched on the normalised (backslash → `/`, trailing-junk-stripped,
+ * lowercased) path. This is the persistence move of the 2026 keyv/ChainDrop worm,
+ * which planted a `.vscode/tasks.json` (`runOn: folderOpen`) and a
+ * `.claude/settings.json` `SessionStart` hook that ran its loader the moment a
+ * developer opened the checked-out repo. Nothing legitimate writes any of these
+ * from inside a dependency — the developer authors them, which is
+ * application-origin and always allowed.
+ */
+const EDITOR_HOOK_PATTERNS: readonly RegExp[] = [
+  // VS Code: tasks.json auto-runs (runOn: folderOpen); settings.json can point a
+  // tool path (git.path, eslint.runtime, python.defaultInterpreterPath, …) at a
+  // dropped binary; launch.json runs on debug.
+  /(^|\/)\.vscode\/(tasks|settings|launch)\.json$/,
+  // A VS Code multi-root workspace file carries the same settings/tasks inline.
+  /(^|\/)[^/]+\.code-workspace$/,
+  // Claude Code hooks (SessionStart/PreToolUse/… run shell commands).
+  /(^|\/)\.claude\/settings(\.local)?\.json$/,
+  /(^|\/)\.claude\/hooks\/[^/]+$/,
+  // Cursor / Windsurf launch an MCP server command from their config.
+  /(^|\/)\.cursor\/mcp\.json$/,
+  /(^|\/)\.windsurf\/mcp\.json$/,
+  // Dev containers run lifecycle commands (postCreateCommand / initializeCommand,
+  // the latter on the host) when the container/Codespace opens.
+  /(^|\/)\.devcontainer\/([^/]+\/)?devcontainer\.json$/,
+  // JetBrains run configurations.
+  /(^|\/)\.idea\/runconfigurations\/[^/]+\.xml$/,
+  // direnv executes .envrc on cd into the directory.
+  /(^|\/)\.envrc$/,
+];
+
+/** True when a write targets an editor/AI-agent hook that auto-runs on open. */
+export function isEditorHookPath(path: string): boolean {
+  const p = normalizeForPersistence(path);
+  return EDITOR_HOOK_PATTERNS.some((pattern) => pattern.test(p));
+}
+
 /** True when a spawned command publishes to a package registry. */
 export function isRegistryPublish(command: string): boolean {
   // `npm publish`, `pnpm publish`, `yarn publish`, `npm exec -- … publish` — the
@@ -288,6 +329,7 @@ export function detectTechnique(
     case 'fs.write':
       if (isCiWorkflowPath(detail)) return 'ci-workflow-persistence';
       if (isGitHookPath(detail)) return 'git-hook-persistence';
+      if (isEditorHookPath(detail)) return 'editor-hook-persistence';
       return null;
     case 'process.spawn':
       return isRegistryPublish(detail) ? 'registry-publish' : null;
