@@ -142,6 +142,45 @@ monitored program does to its _own_ files still merely gets recorded in observe
 mode. See
 [`docs/adr/0005`](docs/adr/0005-protecting-the-guard-audit-log.md).
 
+## Use it from your AI coding agent (MCP)
+
+AI coding agents — Claude Code, Cursor, Windsurf — install and run npm
+dependencies **without human review**, which is the exact blind spot the 2026
+worms exploit. `dephawk mcp` runs dephawk as an [MCP](https://modelcontextprotocol.io)
+server so the agent can watch what those dependencies actually do, at runtime,
+from inside its own loop.
+
+```bash
+claude mcp add dephawk -- npx -y dephawk mcp
+```
+
+<details>
+<summary>Cursor / Windsurf / other MCP clients (<code>mcp.json</code>)</summary>
+
+```json
+{
+  "mcpServers": {
+    "dephawk": { "command": "npx", "args": ["-y", "dephawk", "mcp"] }
+  }
+}
+```
+
+</details>
+
+It exposes two tools:
+
+- **`audit_command`** — run a command (an install, a build, a test) and get back
+  a structured report of what its dependencies did: files read/written, hosts
+  reached, processes spawned, secrets touched, any recognised attack technique,
+  and likely credential-exfiltration chains. Observe-only — it records, it does
+  not block.
+- **`list_attack_techniques`** — the glossary of what dephawk recognises, so the
+  agent can explain a finding in plain language.
+
+Now the agent can decide, before it trusts freshly-installed packages: _"ask
+dephawk what `npm ci` just did."_ Zero new dependencies — the server speaks
+JSON-RPC by hand.
+
 ## In CI
 
 Two lines, and every install in the repository is watched:
