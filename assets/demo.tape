@@ -38,14 +38,15 @@ Type "clear" Enter
 Show
 
 # Act I — see it. One dependency: your SSH keys, your browser's saved passwords,
-# a wallet, your npm token, Node's raw internal bindings, a WebAssembly payload,
-# a backdoor port, a shell-out and an exfil socket. Every one named, and blamed.
+# a wallet, an AI-agent hook it plants in .claude to re-run on open (the 2026 keyv
+# worm's move), your npm token, Node's raw internal bindings, a WebAssembly
+# payload, a backdoor port, a shell-out and an exfil socket. Every one named.
 Sleep 800ms
 Type "dephawk run node index.js" Sleep 400ms Enter
 Sleep 7s
 
 # Act II — block it. Same run under enforce, ending on the CI exit code.
-Type "# twelve calls, every one attributed. now refuse them:" Sleep 200ms Enter
+Type "# every call attributed, the worm's editor hook included. now refuse them:" Sleep 200ms Enter
 Sleep 700ms
 Type "dephawk run --enforce --fail-on blocked node index.js" Sleep 400ms Enter
 Sleep 7s
