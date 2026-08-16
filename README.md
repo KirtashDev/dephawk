@@ -33,7 +33,7 @@ npx dephawk run npm test
 
 <div align="center">
 
-![dephawk catching a dependency listing ~/.ssh, stealing the browser's saved passwords and a wallet key, reading an npm token, reaching for Node's raw internal bindings, running a WebAssembly payload, opening a backdoor port, shelling out with a credential and exfiltrating over a raw socket — then blocking all twelve calls in enforce mode](assets/demo.gif)
+![dephawk catching a dependency listing ~/.ssh, stealing the browser's saved passwords and a wallet key, planting a Claude Code AI-agent hook to re-run on open (the 2026 keyv worm's move), reading an npm token, reaching for Node's raw internal bindings, running a WebAssembly payload, opening a backdoor port, shelling out with a credential and exfiltrating over a raw socket — then blocking every call in enforce mode](assets/demo.gif)
 
 </div>
 
