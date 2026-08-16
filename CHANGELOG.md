@@ -3,6 +3,28 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.8.1] — 2026-08-16
+
+### Added — dead-drop / C2-relay channels named
+
+The keyv/ChainDrop worm reconfigured its **entire C2 from a single Ethereum
+transaction** — no attacker domain to blocklist. dephawk now names the
+**`dead-drop-c2`** technique: an outbound connection or DNS lookup to a public
+relay a payload uses to fetch its C2 or exfiltrate without a fixed domain —
+
+- **blockchain RPC / explorers** (Infura, Alchemy, Etherscan, `cloudflare-eth`,
+  Ankr, LlamaRPC, PublicNode, dRPC, QuickNode, …) — the on-chain dead drop the
+  worm used,
+- **anonymous paste / file drops** (Pastebin, Hastebin, Ghostbin, `ix.io`,
+  `0x0.st`, `transfer.sh`, rentry, …),
+- **chat webhooks** (Telegram Bot API, Discord),
+- **IPFS gateways** (`ipfs.io`, `cloudflare-ipfs`, Pinata, `dweb.link`, …).
+
+Matched by host suffix and surfaced in observe mode; because some are legitimate
+for certain apps (a web3 project uses an RPC), it names the connection rather than
+blocking on its own — the per-package network allowlist stays the gate (network
+is already deny-by-default in enforce).
+
 ## [0.8.0] — 2026-08-16
 
 ### Added — editor & AI-agent hook persistence (the 2026 keyv/ChainDrop worm’s move)

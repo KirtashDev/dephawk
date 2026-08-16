@@ -4,6 +4,7 @@ import {
   detectTechnique,
   isCiWorkflowPath,
   isCloudMetadataHost,
+  isDeadDropHost,
   isEditorHookPath,
   isGitHookPath,
   isRegistryPublish,
@@ -66,6 +67,35 @@ describe('isCloudMetadataHost — cloud instance-metadata endpoints', () => {
     '10.0.0.1',
   ])('does not flag %s', (detail) => {
     expect(isCloudMetadataHost(detail)).toBe(false);
+  });
+});
+
+describe('isDeadDropHost — public dead-drop / relay C2 channels', () => {
+  it.each([
+    'https://mainnet.infura.io/v3/KEY', // blockchain RPC (the keyv Ethereum-C2 vector)
+    'eth.llamarpc.com',
+    'api.etherscan.io:443',
+    'cloudflare-eth.com',
+    'https://api.telegram.org/bot123/sendMessage', // chat exfil
+    'discord.com',
+    'canary.discord.com:443',
+    'pastebin.com/raw/abc',
+    'https://0x0.st/',
+    'transfer.sh',
+    'gateway.pinata.cloud', // IPFS gateway
+    'cloudflare-ipfs.com',
+  ])('flags %s', (detail) => {
+    expect(isDeadDropHost(detail)).toBe(true);
+  });
+
+  it.each([
+    'https://registry.npmjs.org/', // the real registry, not a dead drop
+    'api.github.com',
+    'raw.githubusercontent.com', // high-FP: deliberately not in the set
+    'example.com',
+    'notpastebin.com.evil.test', // suffix trick: not actually under pastebin.com
+  ])('does not flag %s', (detail) => {
+    expect(isDeadDropHost(detail)).toBe(false);
   });
 });
 
@@ -200,6 +230,8 @@ describe('detectTechnique — capability + detail → named technique', () => {
       'cloud-metadata',
     );
     expect(detectTechnique('net.resolve', '2852039166')).toBe('cloud-metadata');
+    expect(detectTechnique('net.connect', 'mainnet.infura.io:443')).toBe('dead-drop-c2');
+    expect(detectTechnique('net.resolve', 'api.telegram.org')).toBe('dead-drop-c2');
     expect(detectTechnique('fs.write', '/r/.github/workflows/x.yml')).toBe(
       'ci-workflow-persistence',
     );

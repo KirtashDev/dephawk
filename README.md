@@ -58,11 +58,13 @@ code 2.
 
 > 🛡️ **Hardened release by release.** dephawk watches **11 capability classes**
 > across **18 interceptors**, and every version closes another real bypass —
-> **69 reproduced attack techniques blocked, and counting.** Each was
+> **70 reproduced attack techniques blocked, and counting.** Each was
 > demonstrated against a published build _before_ it was fixed; the running list
 > is in the [CHANGELOG](CHANGELOG.md). Recent additions: **editor & AI-agent hook
 > persistence** (the keyv/ChainDrop worm’s `.vscode/tasks.json` + `.claude/settings.json`
-> move), recursive `cp`/`rename` that planted persistence past every check,
+> move), **dead-drop / C2-relay naming** (blockchain RPC, paste sites, chat
+> webhooks, IPFS — the worm’s Ethereum-transaction C2), recursive `cp`/`rename`
+> that planted persistence past every check,
 > report-integrity (the console report can't be swallowed by hijacking `stderr`),
 > armed heap-snapshot & diagnostic-report dumps, `node:sqlite` URL/Buffer paths &
 > `ATTACH` (browser-credential theft), and closing an `Object.defineProperty`

@@ -20,6 +20,7 @@ import { extractHost } from './host.js';
 /** A recognised attack technique. */
 export type Technique =
   | 'cloud-metadata'
+  | 'dead-drop-c2'
   | 'ci-workflow-persistence'
   | 'git-hook-persistence'
   | 'editor-hook-persistence'
@@ -29,6 +30,8 @@ export type Technique =
 export const TECHNIQUE_GLOSS: Record<Technique, string> = {
   'cloud-metadata':
     'cloud instance-metadata endpoint — the way CI/cloud credentials are stolen; no npm package should fetch instance credentials',
+  'dead-drop-c2':
+    'connecting to a public dead-drop / relay — a paste site, chat webhook, IPFS gateway, or blockchain RPC — used to fetch C2 config or exfiltrate without a fixed attacker domain (the keyv/ChainDrop worm read its C2 from an Ethereum transaction); legitimate for some apps, so allowlist the ones yours needs',
   'ci-workflow-persistence':
     'writing a CI/CD pipeline definition — the self-persistence move of the Shai-Hulud worm; nothing legitimate writes .github/workflows, .gitlab-ci.yml, Jenkinsfile & co. from inside a dependency',
   'git-hook-persistence':
@@ -152,6 +155,68 @@ export function isCloudMetadataHost(detail: string): boolean {
   const host = extractHost(detail).replace(/\.$/, '');
   if (METADATA_HOSTS.has(host)) return true;
   return METADATA_IPS.has(normalizeIpv4(host));
+}
+
+/**
+ * Public "dead-drop" / relay channels a payload uses to fetch its C2 address or
+ * exfiltrate without hard-coding an attacker domain — the move that let the
+ * keyv/ChainDrop worm reconfigure its whole C2 from a single Ethereum
+ * transaction. Matched by host suffix. Some are legitimate for certain apps
+ * (a web3 project uses an RPC; a bot uses Telegram), so this names/surfaces the
+ * connection rather than blocking on its own — the per-package allowlist decides.
+ */
+const DEAD_DROP_HOSTS: readonly string[] = [
+  // Anonymous paste / file-drop services.
+  'pastebin.com',
+  'hastebin.com',
+  'hasteb.in',
+  'ghostbin.com',
+  'dpaste.com',
+  'dpaste.org',
+  'ix.io',
+  '0x0.st',
+  'termbin.com',
+  'transfer.sh',
+  'rentry.co',
+  'rentry.org',
+  'paste.ee',
+  'controlc.com',
+  'clbin.com',
+  'sprunge.us',
+  'katb.in',
+  // Chat / webhook exfil-and-C2 channels.
+  'api.telegram.org',
+  'discord.com',
+  'discordapp.com',
+  // IPFS gateways (content-addressed dead drops).
+  'ipfs.io',
+  'cloudflare-ipfs.com',
+  'gateway.pinata.cloud',
+  'dweb.link',
+  'w3s.link',
+  'nftstorage.link',
+  // Blockchain RPC / explorers — the on-chain dead drop the keyv worm used.
+  'infura.io',
+  'alchemy.com',
+  'alchemyapi.io',
+  'etherscan.io',
+  'cloudflare-eth.com',
+  'ankr.com',
+  'llamarpc.com',
+  'publicnode.com',
+  'drpc.org',
+  '1rpc.io',
+  'quicknode.com',
+  'quiknode.pro',
+  'blastapi.io',
+  'blockpi.network',
+  'nodereal.io',
+];
+
+/** True when an outbound target is a known public dead-drop / relay channel. */
+export function isDeadDropHost(detail: string): boolean {
+  const host = extractHost(detail).replace(/\.$/, '');
+  return DEAD_DROP_HOSTS.some((h) => host === h || host.endsWith(`.${h}`));
 }
 
 /**
@@ -325,7 +390,9 @@ export function detectTechnique(
   switch (capability) {
     case 'net.connect':
     case 'net.resolve':
-      return isCloudMetadataHost(detail) ? 'cloud-metadata' : null;
+      if (isCloudMetadataHost(detail)) return 'cloud-metadata';
+      if (isDeadDropHost(detail)) return 'dead-drop-c2';
+      return null;
     case 'fs.write':
       if (isCiWorkflowPath(detail)) return 'ci-workflow-persistence';
       if (isGitHookPath(detail)) return 'git-hook-persistence';
