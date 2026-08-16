@@ -7,6 +7,9 @@
 **See — and block — what your dependencies actually do at runtime:**
 reading your SSH keys, phoning home, spawning shells.
 
+**[dephawk-web.vercel.app](https://dephawk-web.vercel.app)** — see what popular packages do, and how to wire it into your AI agent.
+
+[![website](https://img.shields.io/badge/demo-dephawk--web.vercel.app-7aa2f7)](https://dephawk-web.vercel.app)
 [![npm](https://img.shields.io/npm/v/dephawk.svg)](https://www.npmjs.com/package/dephawk)
 [![downloads](https://img.shields.io/npm/dm/dephawk.svg)](https://www.npmjs.com/package/dephawk)
 [![CI](https://github.com/KirtashDev/dephawk/actions/workflows/ci.yml/badge.svg)](https://github.com/KirtashDev/dephawk/actions/workflows/ci.yml)
