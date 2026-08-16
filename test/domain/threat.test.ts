@@ -6,6 +6,7 @@ import {
   isCloudMetadataHost,
   isDeadDropHost,
   isEditorHookPath,
+  isInternalTarget,
   isGitHookPath,
   isRegistryPublish,
   normalizeIpv4,
@@ -96,6 +97,40 @@ describe('isDeadDropHost — public dead-drop / relay C2 channels', () => {
     'notpastebin.com.evil.test', // suffix trick: not actually under pastebin.com
   ])('does not flag %s', (detail) => {
     expect(isDeadDropHost(detail)).toBe(false);
+  });
+});
+
+describe('isInternalTarget — SSRF redirect payoff (internal / metadata IPs)', () => {
+  it.each([
+    '127.0.0.1', // loopback
+    '10.5.5.5', // private
+    '172.16.0.1',
+    '172.31.255.255',
+    '192.168.1.1',
+    '169.254.169.254', // link-local / cloud metadata
+    '100.100.100.200', // (also CGNAT range) Alibaba metadata
+    '0.0.0.0',
+    '::1', // IPv6 loopback
+    '[::1]',
+    'fe80::1', // IPv6 link-local
+    'fd00:ec2::254', // IPv6 ULA (AWS IMDS over IPv6)
+    '::ffff:10.0.0.1', // IPv4-mapped private
+    '2130706433', // decimal 127.0.0.1
+    '0x7f000001', // hex 127.0.0.1
+  ])('flags %s', (ip) => {
+    expect(isInternalTarget(ip)).toBe(true);
+  });
+
+  it.each([
+    '93.184.216.34', // public (example.com)
+    '8.8.8.8',
+    '1.1.1.1',
+    '172.32.0.1', // just outside 172.16/12
+    '192.169.0.1', // not 192.168/16
+    '2606:2800:220:1:248:1893:25c8:1946', // public IPv6
+    'api.example.com', // a hostname is not an internal IP
+  ])('does not flag %s', (ip) => {
+    expect(isInternalTarget(ip)).toBe(false);
   });
 });
 

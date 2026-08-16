@@ -3,6 +3,31 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.9.0] — 2026-08-16
+
+### Security — network enforcement is now bound to the resolved IP (SSRF via a custom resolver)
+
+dephawk's network allowlist matched the **pre-resolution hostname** from the
+connect arguments — but the hostname→IP resolution happens inside Node _after_
+that call. A dependency could pass an **allowlisted public host and its own
+`lookup`** that returns `169.254.169.254` (or a `10.x`/`127.x` internal service):
+the connect passed the allowlist while the socket actually reached the internal
+address, and dephawk had recorded only the innocent hostname. Reproduced against
+0.8.2: a custom `lookup` redirected `api.example.com` to the cloud-metadata
+endpoint, unseen.
+
+- A **dependency-supplied `lookup` is now wrapped**: when it resolves an
+  allowlisted/public host to an **internal or metadata** address (loopback,
+  RFC-1918, CGNAT, link-local incl. metadata, IPv6 ULA/link-local, and their
+  IPv4-mapped and integer spellings), dephawk reports the **real** destination —
+  so the metadata connection is named `cloud-metadata` and the allowlist judges
+  the actual IP — and in enforce fails the resolution before the socket connects.
+- A public host resolving to a **public** IP (the normal case, including
+  `cacheable-lookup` in got/axios) is untouched, so this is essentially
+  false-positive-free. (A default-resolver DNS-rebind to an internal IP — the
+  allowlisted domain's own DNS, not a dependency-controlled surface — remains out
+  of scope; see `docs/adr/0002`.)
+
 ## [0.8.2] — 2026-08-16
 
 ### Security — standalone report can no longer be blinded by stripping exit listeners

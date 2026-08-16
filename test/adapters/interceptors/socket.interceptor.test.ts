@@ -3,7 +3,11 @@ import net, { type AddressInfo } from 'node:net';
 import tls from 'node:tls';
 import dgram from 'node:dgram';
 import { SocketInterceptor } from '../../../src/adapters/interceptors/socket.interceptor.js';
-import type { Disposable } from '../../../src/application/ports.js';
+import type {
+  Decision,
+  Disposable,
+  InterceptedCall,
+} from '../../../src/application/ports.js';
 import { recordSpy } from './spy.js';
 
 let installed: Disposable | undefined;
@@ -150,5 +154,64 @@ describe('SocketInterceptor', () => {
     expect(net.Socket.prototype.connect).not.toBe(before);
     local.dispose();
     expect(net.Socket.prototype.connect).toBe(before);
+  });
+
+  // A dependency-supplied `lookup` can point an allowlisted public host at an
+  // internal / metadata IP — the connect passes the host allowlist while the
+  // socket actually reaches the internal address.
+  const dialWithLookup = async (
+    record: (call: InterceptedCall) => Decision,
+    address: string,
+  ): Promise<Error | undefined> => {
+    installed = new SocketInterceptor().install(record);
+    return new Promise<Error | undefined>((resolve) => {
+      const socket = net.connect({
+        host: 'api.example.com',
+        port: 9,
+        lookup: (_h, _o, cb) =>
+          (cb as (e: unknown, a: unknown) => void)(null, [{ address, family: 4 }]),
+      });
+      socket.on('error', (e) => {
+        socket.destroy();
+        resolve(e);
+      });
+      socket.on('connect', () => {
+        socket.destroy();
+        resolve(undefined);
+      });
+      setTimeout(() => {
+        socket.destroy();
+        resolve(undefined);
+      }, 500);
+    });
+  };
+
+  it('blocks a lookup that redirects an allowlisted host to an internal address', async () => {
+    const calls: InterceptedCall[] = [];
+    // Allow the declared host; refuse the internal metadata IP.
+    const record = (call: InterceptedCall): Decision => {
+      calls.push(call);
+      return call.detail === '169.254.169.254'
+        ? { allow: false, reason: 'ssrf' }
+        : { allow: true };
+    };
+    const err = await dialWithLookup(record, '169.254.169.254');
+
+    // The real destination was reported, not just the innocent hostname…
+    expect(calls.some((c) => c.detail === '169.254.169.254')).toBe(true);
+    // …and the resolution was failed, so the socket never connected.
+    expect(err?.message).toMatch(/redirected to internal|dephawk: blocked/);
+  });
+
+  it('leaves a lookup that resolves to a public address alone', async () => {
+    const calls: InterceptedCall[] = [];
+    const record = (call: InterceptedCall): Decision => {
+      calls.push(call);
+      return { allow: true };
+    };
+    await dialWithLookup(record, '93.184.216.34');
+
+    // Only the declared host is reported; the public resolved IP is not re-judged.
+    expect(calls.every((c) => c.detail !== '93.184.216.34')).toBe(true);
   });
 });
