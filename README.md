@@ -167,8 +167,11 @@ claude mcp add dephawk -- npx -y dephawk mcp
 
 </details>
 
-It exposes two tools:
+It exposes three tools:
 
+- **`audit_package`** — vet a single package _before_ trusting it: dephawk installs
+  it in a throwaway sandbox, runs it, and reports what it did, with a one-line
+  verdict. _"Should I add this dependency? — ask dephawk first."_
 - **`audit_command`** — run a command (an install, a build, a test) and get back
   a structured report of what its dependencies did: files read/written, hosts
   reached, processes spawned, secrets touched, any recognised attack technique,
@@ -177,9 +180,16 @@ It exposes two tools:
 - **`list_attack_techniques`** — the glossary of what dephawk recognises, so the
   agent can explain a finding in plain language.
 
-Now the agent can decide, before it trusts freshly-installed packages: _"ask
-dephawk what `npm ci` just did."_ Zero new dependencies — the server speaks
-JSON-RPC by hand.
+### Make it automatic
+
+```bash
+dephawk hooks install        # or --global
+```
+
+Wires a Claude Code `PreToolUse` guardrail so the agent's `npm install` / `npm ci`
+(and pnpm/yarn/bun) is **automatically** routed through dephawk instead of running
+unmonitored — the agent doesn't have to remember to ask. Zero new dependencies —
+the server speaks JSON-RPC by hand.
 
 ## Vet a single package — `dephawk x`
 

@@ -3,6 +3,26 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.12.0] — 2026-08-16
+
+### Added — a real guardrail for AI coding agents
+
+Turning the MCP integration from "a tool the agent might call" into "the agent's
+always-on install guardrail".
+
+- **MCP tool `audit_package`** — vet a single package by name _before_ trusting
+  it: dephawk installs it in a throwaway sandbox, runs it, and returns what it did
+  (secrets read, hosts reached, processes spawned, recognised techniques, likely
+  exfiltration) with a one-line verdict. The natural agent flow: _"should I add
+  this dependency? — ask dephawk first."_
+- **`dephawk hooks install [--global]`** — wires a Claude Code `PreToolUse` hook
+  so the agent's `npm install` / `npm ci` (and pnpm/yarn/bun) is **automatically**
+  routed through dephawk instead of running unmonitored. When the agent reaches
+  for an unguarded install, the hook denies it with the exact monitored command to
+  use. Idempotent; writes only dephawk's entry, leaving other settings untouched.
+  The `dephawk hook` subcommand is the hook body (reads the Claude Code payload on
+  stdin; never throws, so it can't break the agent loop).
+
 ## [0.11.0] — 2026-08-16
 
 ### Added — `dephawk x <package>`: a one-shot audit of what a package really does

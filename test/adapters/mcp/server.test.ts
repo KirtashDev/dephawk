@@ -67,6 +67,7 @@ describe('MCP server — protocol', () => {
     const names = result.tools.map((tool) => tool.name);
     expect(names).toContain('list_attack_techniques');
     expect(names).toContain('audit_command');
+    expect(names).toContain('audit_package');
   });
 
   it('returns the technique glossary from list_attack_techniques (no child spawned)', async () => {

@@ -12,7 +12,7 @@ import {
 import { createRequire } from 'node:module';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { DhEvent } from './domain/event.js';
 import {
   describeFailure,
@@ -41,6 +41,11 @@ import { parseSink } from './adapters/reporting/jsonl-sink-reporter.js';
 import { startMcpServer } from './adapters/mcp/server.js';
 import { examinePackage } from './composition/examine-package.js';
 import { detectExfilChains, detectTechnique } from './domain/threat.js';
+import {
+  decideHook,
+  renderHookOutput,
+  withDephawkHook,
+} from './adapters/agent-hook/hook.js';
 
 /** Exit code when findings meet the `--fail-on` threshold. */
 const FINDINGS_EXIT_CODE = 2;
@@ -69,6 +74,8 @@ Commands:
   mcp     Run as an MCP server (stdio) so an AI coding agent can ask dephawk to
           audit what a command's dependencies do at runtime. Add it with
           \`claude mcp add dephawk -- npx -y dephawk mcp\`.
+  hooks   \`dephawk hooks install [--global]\` wires a Claude Code guardrail so the
+          agent routes \`npm install\`/\`ci\` (and pnpm/yarn/bun) through dephawk.
 
 Modes:
   --observe (default)    record only, block nothing
@@ -127,6 +134,12 @@ export async function run(argv: readonly string[]): Promise<number> {
   }
   if (subcommand === 'x') {
     return examineSubcommand(argv.slice(1));
+  }
+  if (subcommand === 'hook') {
+    return hookSubcommand();
+  }
+  if (subcommand === 'hooks') {
+    return hooksSubcommand(argv.slice(1));
   }
   if (subcommand !== 'run' && subcommand !== 'guard' && subcommand !== 'init') {
     process.stderr.write(USAGE);
@@ -574,6 +587,88 @@ async function reportAggregate(
 }
 
 /** dephawk's own version, for the SARIF tool driver. Best-effort. */
+/** The command Claude Code should run for the hook: this exact dephawk build. */
+function hookCommand(): string {
+  return `${process.execPath} ${fileURLToPath(import.meta.url)} hook`;
+}
+
+/**
+ * `dephawk hook` — the PreToolUse hook body. Reads the Claude Code payload on
+ * stdin and, for an unmonitored install, tells the agent to route it through
+ * dephawk. Never throws: a hook that errors must not break the agent's loop.
+ */
+async function hookSubcommand(): Promise<number> {
+  const raw = await readStdin();
+  try {
+    const decision = decideHook(JSON.parse(raw) as Record<string, unknown>);
+    const output = renderHookOutput(decision);
+    if (output !== null) {
+      process.stdout.write(output);
+    }
+  } catch {
+    // Malformed payload or no input — allow (emit nothing, exit 0).
+  }
+  return 0;
+}
+
+/** `dephawk hooks install [--global]` — wire the guardrail into Claude Code. */
+function hooksSubcommand(args: readonly string[]): number {
+  if (args[0] !== 'install') {
+    process.stderr.write('usage: dephawk hooks install [--global]\n');
+    return 1;
+  }
+  const global = args.includes('--global');
+  const base = global ? join(homedir(), '.claude') : join(process.cwd(), '.claude');
+  const settingsPath = join(base, 'settings.json');
+
+  let existing: Record<string, unknown> = {};
+  if (existsSync(settingsPath)) {
+    try {
+      existing = JSON.parse(readFileSync(settingsPath, 'utf8')) as Record<
+        string,
+        unknown
+      >;
+    } catch {
+      process.stderr.write(
+        `dephawk: ${settingsPath} is not valid JSON — not touching it\n`,
+      );
+      return 1;
+    }
+  }
+
+  const updated = withDephawkHook(existing, hookCommand());
+  mkdirSync(base, { recursive: true });
+  writeFileSync(settingsPath, `${JSON.stringify(updated, null, 2)}\n`);
+  process.stdout.write(
+    `🦅 dephawk: installed the install-guardrail hook in ${settingsPath}\n` +
+      `   Claude Code will now route \`npm install\`/\`ci\` (and pnpm/yarn/bun) through dephawk.\n`,
+  );
+  return 0;
+}
+
+/** Read all of stdin as a string (empty if none arrives promptly). */
+function readStdin(): Promise<string> {
+  return new Promise((resolveStdin) => {
+    let data = '';
+    let settled = false;
+    const finish = (): void => {
+      if (!settled) {
+        settled = true;
+        resolveStdin(data);
+      }
+    };
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', (chunk) => {
+      data += chunk;
+    });
+    process.stdin.on('end', finish);
+    process.stdin.on('close', finish);
+    process.stdin.on('error', finish);
+    // A PreToolUse hook always gets stdin; guard anyway so it can never hang.
+    setTimeout(finish, 2000).unref?.();
+  });
+}
+
 function toolVersion(): string {
   try {
     const require = createRequire(import.meta.url);

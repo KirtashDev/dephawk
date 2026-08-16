@@ -6,6 +6,7 @@ import {
   detectTechnique,
 } from '../../domain/threat.js';
 import { auditCommand } from '../../composition/monitored-run.js';
+import { examinePackage } from '../../composition/examine-package.js';
 
 /**
  * A Model Context Protocol server that exposes dephawk to an AI coding agent, so
@@ -40,6 +41,22 @@ const TOOLS = [
     description:
       'List the supply-chain attack techniques dephawk recognises at runtime (cloud-metadata SSRF, dead-drop C2, CI/git/editor-hook persistence, registry self-publish, credential exfiltration), each with a plain-English gloss. No arguments. Use it to explain what a dephawk finding means.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'audit_package',
+    description:
+      'Vet a single npm package BEFORE trusting it: install it in a throwaway sandbox, run it (install scripts + import) under dephawk, and report what it actually does — secrets read, hosts reached, processes spawned, recognised attack techniques, likely exfiltration. Call this before adding a dependency you are unsure about. Accepts a registry name, name@version, or a local path/tarball.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        package: {
+          type: 'string',
+          description: 'The package spec, e.g. "left-pad", "chalk@5", or "./local-pkg".',
+        },
+      },
+      required: ['package'],
+      additionalProperties: false,
+    },
   },
   {
     name: 'audit_command',
@@ -168,9 +185,46 @@ async function callTool(
       );
     case 'audit_command':
       return auditCommandTool(args, options);
+    case 'audit_package':
+      return auditPackageTool(args, options);
     default:
       throw new Error(`unknown tool: ${String(name)}`);
   }
+}
+
+async function auditPackageTool(
+  args: Record<string, unknown>,
+  options: McpServerOptions,
+): Promise<string> {
+  const spec = asString(args['package']);
+  if (spec === undefined || spec.length === 0) {
+    throw new Error(
+      '`package` must be a non-empty string, e.g. "left-pad" or "chalk@5".',
+    );
+  }
+  const result = await examinePackage(spec, {
+    registerUrl: options.registerUrl,
+    mode: 'observe',
+  });
+  if (!result.installed) {
+    throw new Error(`could not install package: ${spec}`);
+  }
+  const core = summariseEvents(result.events);
+  return JSON.stringify(
+    {
+      package: result.package,
+      mode: 'observe',
+      verdict:
+        core.recognisedTechniques.length > 0
+          ? 'recognised attack technique — treat with suspicion'
+          : core.findings.length > 0
+            ? 'touched something sensitive — review before trusting'
+            : 'nothing sensitive observed',
+      ...core,
+    },
+    null,
+    2,
+  );
 }
 
 async function auditCommandTool(
@@ -205,12 +259,20 @@ interface Finding {
   readonly sensitive: boolean;
 }
 
-/** Turn the raw events into an agent-friendly, deduplicated summary. */
-function summarise(
-  argv: readonly string[],
-  exitCode: number,
-  events: readonly DhEvent[],
-): unknown {
+interface EventSummary {
+  readonly packagesTouchingSensitive: string[];
+  readonly recognisedTechniques: string[];
+  readonly likelyCredentialExfiltration: {
+    package: string;
+    readSecret: string;
+    thenReached: string;
+  }[];
+  readonly findings: Finding[];
+  readonly dependencyCallCount: number;
+}
+
+/** The shared, deduplicated core summary of what dependencies did. */
+function summariseEvents(events: readonly DhEvent[]): EventSummary {
   const dependencyEvents = events.filter((event) => event.origin === 'dependency');
   const sensitive: Finding[] = [];
   const seen = new Set<string>();
@@ -242,25 +304,35 @@ function summarise(
     });
   }
 
-  const exfil = detectExfilChains(events);
-
   return {
-    command: argv.join(' '),
-    exitCode,
-    mode: 'observe',
-    summary:
-      sensitive.length === 0
-        ? 'No dependency touched anything sensitive.'
-        : `${packages.size} dependency package(s) touched something sensitive across ${sensitive.length} call(s).`,
     packagesTouchingSensitive: [...packages].sort(),
     recognisedTechniques: [...techniques].sort(),
-    likelyCredentialExfiltration: exfil.map((chain) => ({
+    likelyCredentialExfiltration: detectExfilChains(events).map((chain) => ({
       package: chain.package,
       readSecret: chain.secret,
       thenReached: chain.sink,
     })),
     findings: sensitive,
     dependencyCallCount: dependencyEvents.length,
+  };
+}
+
+/** Turn the raw events of an audited command into an agent-friendly summary. */
+function summarise(
+  argv: readonly string[],
+  exitCode: number,
+  events: readonly DhEvent[],
+): unknown {
+  const core = summariseEvents(events);
+  return {
+    command: argv.join(' '),
+    exitCode,
+    mode: 'observe',
+    summary:
+      core.findings.length === 0
+        ? 'No dependency touched anything sensitive.'
+        : `${core.packagesTouchingSensitive.length} dependency package(s) touched something sensitive across ${core.findings.length} call(s).`,
+    ...core,
   };
 }
 
