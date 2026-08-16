@@ -181,6 +181,21 @@ Now the agent can decide, before it trusts freshly-installed packages: _"ask
 dephawk what `npm ci` just did."_ Zero new dependencies — the server speaks
 JSON-RPC by hand.
 
+## Vet a single package — `dephawk x`
+
+Wondering what that one dependency actually does? Run it in a throwaway sandbox
+and find out:
+
+```bash
+npx dephawk x some-suspicious-pkg
+```
+
+It installs the package (lifecycle scripts and all), imports it, and reports what
+it did that reaches _outside_ the sandbox — your secrets, the network, a spawned
+shell, any recognised attack technique — with npm's own install noise filtered
+out. Observe by default; add `--enforce` to block, `--json` for a machine
+summary. Takes a registry name, a `name@version`, or a local path/tarball.
+
 ## In CI
 
 Two lines, and every install in the repository is watched:

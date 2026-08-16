@@ -39,6 +39,8 @@ import { HtmlReporter } from './adapters/reporting/html-reporter.js';
 import { SarifReporter } from './adapters/reporting/sarif-reporter.js';
 import { parseSink } from './adapters/reporting/jsonl-sink-reporter.js';
 import { startMcpServer } from './adapters/mcp/server.js';
+import { examinePackage } from './composition/examine-package.js';
+import { detectExfilChains, detectTechnique } from './domain/threat.js';
 
 /** Exit code when findings meet the `--fail-on` threshold. */
 const FINDINGS_EXIT_CODE = 2;
@@ -49,6 +51,7 @@ Usage:
   dephawk run   [options] <command> [args...]
   dephawk guard [options] <command> [args...]
   dephawk init  [--out <path>] [--force] <command> [args...]
+  dephawk x     <package>[@version] [--enforce] [--json]
   dephawk mcp
 
 Commands:
@@ -60,6 +63,9 @@ Commands:
   init    Watch a run and write the policy that would have let it pass, so you
           have something to edit instead of a blank file. It grants what it
           SAW — read the result before trusting it.
+  x       Install a package in a throwaway sandbox, run it under dephawk, and
+          report what it actually does — a one-shot audit of a single package
+          (e.g. \`npx dephawk x some-suspicious-pkg\`).
   mcp     Run as an MCP server (stdio) so an AI coding agent can ask dephawk to
           audit what a command's dependencies do at runtime. Add it with
           \`claude mcp add dephawk -- npx -y dephawk mcp\`.
@@ -118,6 +124,9 @@ export async function run(argv: readonly string[]): Promise<number> {
     const registerUrl = new URL('./register.js', import.meta.url).href;
     await startMcpServer({ version: toolVersion(), registerUrl });
     return 0;
+  }
+  if (subcommand === 'x') {
+    return examineSubcommand(argv.slice(1));
   }
   if (subcommand !== 'run' && subcommand !== 'guard' && subcommand !== 'init') {
     process.stderr.write(USAGE);
@@ -573,6 +582,77 @@ function toolVersion(): string {
   } catch {
     return '0.0.0';
   }
+}
+
+/**
+ * `dephawk x <package>[@version]` — install a package in a throwaway sandbox, run
+ * it under dephawk, and report what it actually did. A shareable one-shot audit;
+ * `--enforce` blocks anything sensitive, `--json` prints a machine summary.
+ */
+async function examineSubcommand(args: readonly string[]): Promise<number> {
+  const enforce = args.includes('--enforce');
+  const asJson = args.includes('--json');
+  const spec = args.find((arg) => !arg.startsWith('--'));
+  if (spec === undefined) {
+    process.stderr.write('usage: dephawk x <package>[@version] [--enforce] [--json]\n');
+    return 1;
+  }
+  const registerUrl = new URL('./register.js', import.meta.url).href;
+  const mode: Mode = enforce ? 'enforce' : 'observe';
+  process.stderr.write(
+    `🦅 dephawk: installing and running ${spec} in a sandbox (${mode} mode — this executes the package)…\n`,
+  );
+
+  const result = await examinePackage(spec, { registerUrl, mode });
+  if (!result.installed) {
+    process.stderr.write(`dephawk: could not install ${spec}\n`);
+    return 1;
+  }
+
+  const techniques = new Set<string>();
+  for (const event of result.events) {
+    const technique = detectTechnique(event.capability, event.detail);
+    if (technique !== null) {
+      techniques.add(technique);
+    }
+  }
+  const exfil = detectExfilChains(result.events);
+
+  if (asJson) {
+    const findings = result.events
+      .filter(
+        (event) =>
+          event.origin === 'dependency' &&
+          (event.sensitive || detectTechnique(event.capability, event.detail) !== null),
+      )
+      .map((event) => ({
+        package: event.package,
+        capability: event.capability,
+        detail: event.detail,
+        technique: detectTechnique(event.capability, event.detail),
+        blocked: event.blocked,
+      }));
+    process.stdout.write(
+      `${JSON.stringify(
+        {
+          package: result.package,
+          mode,
+          recognisedTechniques: [...techniques].sort(),
+          likelyCredentialExfiltration: exfil,
+          findings,
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    return 0;
+  }
+
+  process.stdout.write(`\n🦅 dephawk examined ${result.package}\n`);
+  new ConsoleReporter({ mode, write: (text) => process.stdout.write(text) }).report(
+    result.events,
+  );
+  return 0;
 }
 
 function discoverConfig(cwd: string, env: NodeJS.ProcessEnv): string | null {
