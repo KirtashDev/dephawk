@@ -3,6 +3,28 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.11.0] — 2026-08-16
+
+### Added — `dephawk x <package>`: a one-shot audit of what a package really does
+
+```
+npx dephawk x some-suspicious-pkg
+```
+
+Installs a package in a **throwaway sandbox**, runs it under dephawk (its
+install-time lifecycle scripts _and_ its import-time code), and reports what it
+actually did — files read/written outside the sandbox, hosts reached, processes
+spawned, secrets touched, recognised attack techniques, and likely
+credential-exfiltration chains. A shareable, zero-setup way to vet a single
+dependency before you trust it.
+
+- **Observe by default** (records; `--enforce` blocks anything sensitive),
+  `--json` for a machine summary.
+- **Clean signal:** npm's own install machinery and any filesystem access confined
+  to the sandbox are filtered out, so what surfaces is the package reaching for
+  _your_ secrets / the network / a shell — not npm doing its job. Works with a
+  registry name, a version/tag, or a local path/tarball.
+
 ## [0.10.0] — 2026-08-16
 
 ### Added — `dephawk mcp`: give your AI coding agent a security sense
