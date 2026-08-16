@@ -1,4 +1,6 @@
 import type { CapabilityInterceptor, Disposable } from '../../application/ports.js';
+import { extractHost } from '../../domain/host.js';
+import { isInternalTarget } from '../../domain/threat.js';
 import {
   blockedError,
   patchMethod,
@@ -44,13 +46,15 @@ export class SocketInterceptor implements CapabilityInterceptor {
     // a bare `new net.Socket().connect(...)`.
     const streamProto = prototypeOf((net as unknown as { Socket?: unknown }).Socket);
     if (streamProto) {
-      this.patch(streamProto, 'connect', describeStream, record, restores);
+      // TCP/TLS sockets resolve their host after this call and emit `lookup`, so
+      // the resolved address is watched (see `watchResolved`).
+      this.patch(streamProto, 'connect', describeStream, record, restores, true);
     }
 
     const proto = prototypeOf((dgram as unknown as { Socket?: unknown }).Socket);
     if (proto) {
-      this.patch(proto, 'connect', describeDatagram, record, restores);
-      this.patch(proto, 'send', describeDatagram, record, restores);
+      this.patch(proto, 'connect', describeDatagram, record, restores, false);
+      this.patch(proto, 'send', describeDatagram, record, restores, false);
     }
 
     return restorer(restores);
@@ -62,6 +66,7 @@ export class SocketInterceptor implements CapabilityInterceptor {
     describe: (args: readonly unknown[]) => string,
     record: RecordFn,
     restores: (() => void)[],
+    watchResolved: boolean,
   ): void {
     const restore = patchMethod(
       target,
@@ -73,6 +78,9 @@ export class SocketInterceptor implements CapabilityInterceptor {
           if (!decision.allow) {
             throw blockedError(`socket connection to ${detail}`, decision.reason);
           }
+          if (watchResolved) {
+            guardResolver(args, detail, record);
+          }
           return (original as (...a: unknown[]) => unknown).apply(this, args);
         },
     );
@@ -80,6 +88,77 @@ export class SocketInterceptor implements CapabilityInterceptor {
       restores.push(restore);
     }
   }
+}
+
+/**
+ * Bind enforcement to the *resolved* address, not the caller's hostname. The
+ * allowlist check runs on the pre-resolution host string — but the hostname→IP
+ * resolution happens inside Node after this call, through a caller-supplied
+ * `lookup`. A dependency can pass an allowlisted public host *and* a `lookup`
+ * that returns `169.254.169.254` (or a `10.x` internal service) and reach it
+ * while dephawk recorded only the innocent hostname.
+ *
+ * So a dependency-supplied `lookup` is wrapped: when it resolves an allowlisted
+ * *public* host to an internal / metadata address, the real destination is
+ * reported (so the allowlist judges *it*) and, in enforce, the resolution is
+ * failed with an error — the socket never connects. A public host resolving to a
+ * public IP (the normal case, incl. `cacheable-lookup`) passes through untouched,
+ * so this is essentially false-positive-free. The `lookup` *event* is not used:
+ * on current Node it does not reliably carry the resolved address for a custom
+ * lookup. (A default-resolver DNS-rebind to an internal IP is out of scope here —
+ * that is the allowlisted domain's own DNS, not a dependency-controlled surface.)
+ */
+function guardResolver(args: unknown[], declaredDetail: string, record: RecordFn): void {
+  const container = Array.isArray(args[0]) ? (args[0] as unknown[]) : args;
+  const options = container[0];
+  if (!isObject(options) || typeof options['lookup'] !== 'function') {
+    return;
+  }
+  const declaredHost = extractHost(declaredDetail);
+  if (isInternalTarget(declaredHost)) {
+    return; // the caller dialed an internal host outright; already gated on connect
+  }
+  const originalLookup = options['lookup'] as (...a: unknown[]) => unknown;
+  const wrapped = function (this: unknown, ...lookupArgs: unknown[]): unknown {
+    const callback = lookupArgs[lookupArgs.length - 1] as (
+      err: unknown,
+      ...rest: unknown[]
+    ) => void;
+    const head = lookupArgs.slice(0, -1);
+    return originalLookup.call(
+      this,
+      ...head,
+      (err: unknown, resolved: unknown, family: unknown): void => {
+        if (err == null) {
+          // `{ all: true }` yields `[{ address, family }, …]`; otherwise a single
+          // address string. Check every resolved address.
+          const addresses = Array.isArray(resolved)
+            ? resolved.map((entry) => (isObject(entry) ? entry['address'] : entry))
+            : [resolved];
+          for (const address of addresses) {
+            if (typeof address === 'string' && isInternalTarget(address)) {
+              const decision = report(record, 'net.connect', address);
+              if (!decision.allow) {
+                callback(
+                  blockedError(
+                    `connection to ${declaredHost} redirected to internal address ${address}`,
+                    decision.reason,
+                  ),
+                );
+                return;
+              }
+            }
+          }
+        }
+        callback(err, resolved, family);
+      },
+    );
+  };
+  // Swap in a clone so the caller's options object is never mutated — but mutate
+  // the *element* in place, not the container: `net.connect` hands
+  // `Socket.prototype.connect` a normalised array carrying a hidden marker
+  // symbol, and rebuilding that array would drop it (→ `ERR_MISSING_ARGS`).
+  container[0] = { ...(options as Record<string, unknown>), lookup: wrapped };
 }
 
 /** Describe a `Socket.prototype.connect` target from its polymorphic args. */

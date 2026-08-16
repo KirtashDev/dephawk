@@ -220,6 +220,45 @@ export function isDeadDropHost(detail: string): boolean {
 }
 
 /**
+ * True when an IP address points *inside* the network — loopback, private (RFC
+ * 1918), carrier-grade NAT, link-local (incl. cloud metadata), the unspecified
+ * address, IPv6 loopback/link-local/ULA, and IPv4-mapped forms of all of those.
+ *
+ * This is the payoff of an SSRF redirect: an allowlisted *public* hostname that
+ * resolves to one of these is reaching a service the dependency was never meant
+ * to — the metadata endpoint, an internal admin API, a sidecar. Reused to bind
+ * network enforcement to the *resolved* address, not the caller's hostname.
+ */
+export function isInternalTarget(host: string): boolean {
+  const h = host.trim().toLowerCase().replace(/^\[/, '').replace(/\]$/, '');
+
+  // IPv6 forms that are not an IPv4-mapped literal (those fall through to v4).
+  if (h.includes(':') && !/(?:^|:)(?:\d{1,3}\.){3}\d{1,3}$/.test(h)) {
+    if (h === '::1' || h === '::') return true; // loopback / unspecified
+    if (/^fe[89ab][0-9a-f]:/.test(h)) return true; // fe80::/10 link-local
+    if (/^f[cd][0-9a-f]{2}:/.test(h)) return true; // fc00::/7 unique-local (fc/fd)
+    // else: a routable IPv6 — fall through (no v4 match) → not internal.
+  }
+
+  const v4 = normalizeIpv4(h);
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.\d{1,3}$/.exec(v4);
+  if (m === null) {
+    return false;
+  }
+  const a = Number(m[1]);
+  const b = Number(m[2]);
+  return (
+    a === 0 || // 0.0.0.0/8 unspecified
+    a === 10 || // 10.0.0.0/8 private
+    a === 127 || // 127.0.0.0/8 loopback
+    (a === 169 && b === 254) || // 169.254.0.0/16 link-local (incl. metadata)
+    (a === 172 && b >= 16 && b <= 31) || // 172.16.0.0/12 private
+    (a === 192 && b === 168) || // 192.168.0.0/16 private
+    (a === 100 && b >= 64 && b <= 127) // 100.64.0.0/10 carrier-grade NAT
+  );
+}
+
+/**
  * Normalise a path for lexical persistence matching: `\` → `/`, then strip
  * trailing spaces and dots from every segment before lowercasing. Windows
  * silently drops trailing dots/spaces from filenames, so `ci.yml ` and `ci.yml.`
