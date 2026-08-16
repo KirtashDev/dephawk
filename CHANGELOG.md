@@ -3,6 +3,33 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.10.0] — 2026-08-16
+
+### Added — `dephawk mcp`: give your AI coding agent a security sense
+
+AI coding agents (Claude Code, Cursor, Windsurf) install and run npm dependencies
+**without human review** — the exact blind spot the 2026 worms exploit. dephawk
+now ships an **MCP server** so the agent can watch what those dependencies
+actually do, at runtime, from inside its own loop.
+
+```
+claude mcp add dephawk -- npx -y dephawk mcp
+```
+
+It exposes two tools over the MCP stdio transport:
+
+- **`audit_command`** — run a command (an install, a build, a test) under dephawk
+  and get back a structured report of what its dependencies did: files
+  read/written, hosts reached, processes spawned, secrets touched, any recognised
+  attack technique, and likely credential-exfiltration chains. Observe-only (it
+  records, it does not block).
+- **`list_attack_techniques`** — the glossary of what dephawk recognises, so the
+  agent can explain a finding in plain language.
+
+Zero new dependencies: the MCP server speaks JSON-RPC 2.0 by hand — a security
+tool will not add an SDK to its own supply chain. `dephawk` still has **no runtime
+dependencies at all**.
+
 ## [0.9.0] — 2026-08-16
 
 ### Security — network enforcement is now bound to the resolved IP (SSRF via a custom resolver)

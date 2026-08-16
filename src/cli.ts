@@ -38,6 +38,7 @@ import { ConsoleReporter } from './adapters/reporting/console-reporter.js';
 import { HtmlReporter } from './adapters/reporting/html-reporter.js';
 import { SarifReporter } from './adapters/reporting/sarif-reporter.js';
 import { parseSink } from './adapters/reporting/jsonl-sink-reporter.js';
+import { startMcpServer } from './adapters/mcp/server.js';
 
 /** Exit code when findings meet the `--fail-on` threshold. */
 const FINDINGS_EXIT_CODE = 2;
@@ -48,6 +49,7 @@ Usage:
   dephawk run   [options] <command> [args...]
   dephawk guard [options] <command> [args...]
   dephawk init  [--out <path>] [--force] <command> [args...]
+  dephawk mcp
 
 Commands:
   run     Monitor a command (e.g. your app or test run) and everything it
@@ -58,6 +60,9 @@ Commands:
   init    Watch a run and write the policy that would have let it pass, so you
           have something to edit instead of a blank file. It grants what it
           SAW — read the result before trusting it.
+  mcp     Run as an MCP server (stdio) so an AI coding agent can ask dephawk to
+          audit what a command's dependencies do at runtime. Add it with
+          \`claude mcp add dephawk -- npx -y dephawk mcp\`.
 
 Modes:
   --observe (default)    record only, block nothing
@@ -105,6 +110,13 @@ export async function run(argv: readonly string[]): Promise<number> {
   const subcommand = argv[0];
   if (subcommand === '--help' || subcommand === '-h') {
     process.stdout.write(USAGE);
+    return 0;
+  }
+  if (subcommand === 'mcp') {
+    // Serve dephawk to an AI coding agent over the MCP stdio transport. stdout is
+    // the protocol channel, so nothing else may write to it.
+    const registerUrl = new URL('./register.js', import.meta.url).href;
+    await startMcpServer({ version: toolVersion(), registerUrl });
     return 0;
   }
   if (subcommand !== 'run' && subcommand !== 'guard' && subcommand !== 'init') {
