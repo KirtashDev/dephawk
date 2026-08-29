@@ -10,6 +10,7 @@ import {
   isEditorHookPath,
   isInternalTarget,
   isGitHookPath,
+  isLocalServicePivot,
   isManifestTamper,
   isRegistryPublish,
   isServicePersistenceCommand,
@@ -17,6 +18,7 @@ import {
   isTlsVerificationDisabled,
   normalizeIpv4,
 } from '../../src/domain/threat.js';
+import { extractPort } from '../../src/domain/host.js';
 import type { DhEvent } from '../../src/domain/event.js';
 
 describe('normalizeIpv4 — evasion-resistant IPv4 parsing', () => {
@@ -580,4 +582,55 @@ describe('isManifestTamper — ChainDrop’s propagation step', () => {
     expect(isManifestTamper('/app/node_modules/left-pad/index.js')).toBe(false);
     expect(isManifestTamper('/app/node_modules/.package-lock.json')).toBe(false);
   });
+});
+
+describe('isLocalServicePivot — reaching infrastructure on the local network', () => {
+  it.each([
+    '127.0.0.1:6379', // the Strapi campaign's Redis entry point
+    'redis://127.0.0.1:6379',
+    'localhost:5432',
+    '10.0.0.5:3306',
+    '172.17.0.1:2375', // the Docker bridge — the API is a container escape
+    'http://192.168.1.10:2379/v2/keys',
+    '[::1]:27017',
+    '169.254.1.1:10250', // kubelet
+  ])('flags %s', (detail) => {
+    expect(isLocalServicePivot(detail)).toBe(true);
+    expect(detectTechnique('net.connect', detail)).toBe('local-service-pivot');
+  });
+
+  it('needs both halves — a hosted database is how half the ecosystem runs', () => {
+    expect(isLocalServicePivot('redis.example.com:6379')).toBe(false);
+    expect(isLocalServicePivot('db.example.com:5432')).toBe(false);
+  });
+
+  it('does not flag an internal address on an ordinary port', () => {
+    expect(isLocalServicePivot('127.0.0.1:3000')).toBe(false);
+    expect(isLocalServicePivot('http://localhost:8080/health')).toBe(false);
+    expect(isLocalServicePivot('127.0.0.1')).toBe(false); // no port at all
+  });
+
+  it('does not outrank the sharper network techniques', () => {
+    expect(detectTechnique('net.connect', 'http://169.254.169.254:2375/')).toBe(
+      'cloud-metadata',
+    );
+  });
+});
+
+describe('extractPort', () => {
+  it.each([
+    ['127.0.0.1:6379', 6379],
+    ['https://user:pw@host:2376/path', 2376],
+    ['[::1]:5432', 5432],
+    ['http://host:8500/v1/kv?x=1', 8500],
+  ])('reads the port from %s', (detail, expected) => {
+    expect(extractPort(detail)).toBe(expected);
+  });
+
+  it.each(['host', 'https://host/path', '[::1]', 'host:notaport', '::1', 'host:99999'])(
+    'returns null for %s',
+    (detail) => {
+      expect(extractPort(detail)).toBeNull();
+    },
+  );
 });

@@ -44,6 +44,13 @@ const SENSITIVE_DIRECTORIES: readonly string[] = [
   '/.config/gcloud',
   '/.kube',
   '/.docker',
+  // The container runtime's control socket. Anything that can talk to it can
+  // start a privileged container with the host filesystem mounted — a one-step
+  // container escape and root on the host. `/var/run` symlinks to `/run`, and
+  // the `endsWith`/`includes` match covers both spellings, as it does for
+  // `/run/secrets`.
+  '/run/docker.sock',
+  '/run/podman/podman.sock',
   // Developer-platform tokens. `gh` keeps a GitHub token in hosts.yml, which is
   // enough to push to every repository the user can.
   '/.config/gh',
