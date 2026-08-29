@@ -10,6 +10,7 @@ import {
   isEditorHookPath,
   isInternalTarget,
   isGitHookPath,
+  isManifestTamper,
   isRegistryPublish,
   isServicePersistenceCommand,
   isServicePersistencePath,
@@ -556,5 +557,27 @@ describe('isDetachedProcess — the survive-the-install spawn', () => {
     expect(
       detectTechnique('process.spawn', './.cache/bun run x [detached]', 'dependency'),
     ).toBe('alt-runtime-escape');
+  });
+});
+
+describe('isManifestTamper — ChainDrop’s propagation step', () => {
+  it.each([
+    '/app/node_modules/left-pad/package.json',
+    '/app/node_modules/@scope/pkg/package.json',
+    '/app/node_modules/a/node_modules/b/package.json',
+    'node_modules/left-pad/package.json',
+  ])('flags %s', (path) => {
+    expect(isManifestTamper(path)).toBe(true);
+    expect(detectTechnique('fs.write', path)).toBe('manifest-tamper');
+  });
+
+  it('leaves the root manifest alone — npm version and changesets write it', () => {
+    expect(isManifestTamper('/app/package.json')).toBe(false);
+    expect(detectTechnique('fs.write', '/app/package.json')).toBeNull();
+  });
+
+  it('leaves other files inside a package alone', () => {
+    expect(isManifestTamper('/app/node_modules/left-pad/index.js')).toBe(false);
+    expect(isManifestTamper('/app/node_modules/.package-lock.json')).toBe(false);
   });
 });

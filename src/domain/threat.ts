@@ -27,6 +27,7 @@ export type Technique =
   | 'git-hook-persistence'
   | 'editor-hook-persistence'
   | 'service-persistence'
+  | 'manifest-tamper'
   | 'registry-publish'
   | 'alt-runtime-escape'
   | 'detached-process'
@@ -47,6 +48,8 @@ export const TECHNIQUE_GLOSS: Record<Technique, string> = {
     'writing an editor/AI-agent hook that auto-runs when the repo is opened (.vscode/tasks.json runOn:folderOpen, .claude/settings.json hooks, .devcontainer postCreateCommand, .envrc) — the keyv/ChainDrop worm’s move; nothing legitimate installs one from inside a dependency',
   'service-persistence':
     'installing an OS-level autostart entry (systemd unit, launchd agent, cron job, Windows Run key/scheduled task, SSH authorized_keys) — persistence that survives the build, the shell and often credential rotation; nothing legitimate installs one from inside a dependency',
+  'manifest-tamper':
+    'rewriting an installed package’s package.json — how ChainDrop propagated: download the victim’s tarball, inject a preinstall hook, bump the patch version, republish (444 packages / 2,212 versions in under four hours). A package editing its own manifest at install time is rewriting what runs next',
   'registry-publish':
     'publishing to the package registry — how a worm self-replicates with a stolen token',
   'detached-process':
@@ -647,6 +650,29 @@ export function isAltRuntimeEscape(command: string, origin: Origin): boolean {
 }
 
 /**
+ * True when a write targets an **installed package's** manifest.
+ *
+ * ChainDrop's propagation step is the reason: it downloaded each victim
+ * package's tarball, rewrote its `package.json` to inject a `preinstall` hook,
+ * bumped the patch version and republished — 444 packages and 2,212 versions in
+ * under four hours. dephawk already caught the second half
+ * ({@link isRegistryPublish}); this is the first.
+ *
+ * Scoped to `node_modules/**\/package.json` on purpose. The **root**
+ * `package.json` is deliberately out: `npm version`, changesets and half the
+ * release tooling rewrite it legitimately, and the earlier bypass backlog
+ * already concluded that flagging it costs more than it catches.
+ *
+ * Note this is *narrower* than the cross-package rule
+ * ({@link import('./package-dir.js').isCrossPackageWrite}), which never fires
+ * when a package edits its **own** directory. Editing your own manifest mid-run
+ * is exactly the propagation move, so it is named here.
+ */
+export function isManifestTamper(path: string): boolean {
+  return /(^|\/)node_modules\/.+\/package\.json$/.test(normalizeForPersistence(path));
+}
+
+/**
  * The marker {@link import('../adapters/interceptors/child-process.interceptor.js')}
  * appends to a spawn detail whose options detach the child from this process.
  *
@@ -721,6 +747,7 @@ export function detectTechnique(
       if (isGitHookPath(detail)) return 'git-hook-persistence';
       if (isEditorHookPath(detail)) return 'editor-hook-persistence';
       if (isServicePersistencePath(detail)) return 'service-persistence';
+      if (isManifestTamper(detail)) return 'manifest-tamper';
       return null;
     case 'fs.read':
       return isAiCredentialPath(detail) ? 'ai-credential-theft' : null;
