@@ -163,9 +163,15 @@ function reattachEnvPairs(
   const envPairs = options['envPairs'];
   if (!Array.isArray(envPairs)) {
     const missing = missingMonitoring(process.env, monitoring);
-    for (const [name, value] of missing) {
-      process.env[name] = value;
-    }
+    // Through the env proxy these are `env.write`s of `NODE_OPTIONS`/`DEPHAWK_*`
+    // — exactly the guarded names — so they are marked as the runtime's own
+    // plumbing; dephawk repairing its own monitoring is not a finding against
+    // the package that happened to spawn something.
+    asRuntimeInternals(() => {
+      for (const [name, value] of missing) {
+        process.env[name] = value;
+      }
+    });
     return missing.map(([name]) => name);
   }
   const env: NodeJS.ProcessEnv = {};
@@ -225,9 +231,12 @@ function reattach(args: unknown[], monitoring: MonitoringEnv): readonly string[]
     // through the env interceptor's proxy and report the caller as having read
     // every secret in the environment, just for spawning something.
     const missing = missingMonitoring(process.env, monitoring);
-    for (const [name, value] of missing) {
-      process.env[name] = value;
-    }
+    // See `reattachEnvPairs`: dephawk's own repair, not the caller's write.
+    asRuntimeInternals(() => {
+      for (const [name, value] of missing) {
+        process.env[name] = value;
+      }
+    });
     return missing.map(([name]) => name);
   }
 

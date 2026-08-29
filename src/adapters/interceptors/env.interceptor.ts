@@ -9,6 +9,61 @@ import {
 } from './support.js';
 
 /**
+ * Environment variables whose *writes* are recorded.
+ *
+ * `process.env` writes used to be a silent hole: the `set` and `defineProperty`
+ * traps forwarded to the real environment and recorded nothing. Real 2026
+ * campaigns walked through it —
+ *
+ * - mastra set `NODE_TLS_REJECT_UNAUTHORIZED='0'`, turning off certificate
+ *   validation for the whole process before exfiltrating;
+ * - vpmdhaj rewrote `CI='false'` to mislead build-aware code paths after using
+ *   the same variable for sandbox detection;
+ * - and the same trap is where a dependency would scrub `NODE_OPTIONS` or
+ *   `DEPHAWK_*` to blind dephawk from the inside.
+ *
+ * A denylist rather than recording every write, deliberately: `process.env.X =
+ * y` is ordinary in a build (npm alone does it while loading its config), so
+ * recording all of them would bury the four that matter and put a report/deny
+ * round-trip on a hot path. Everything here is non-secret by construction, so
+ * the value can be carried in the detail — and it must be, because `=0` and `=1`
+ * on `NODE_TLS_REJECT_UNAUTHORIZED` are opposite findings.
+ *
+ * Scrubbing `NODE_OPTIONS`/`DEPHAWK_*` is *recorded* rather than mandatorily
+ * refused: children are repaired from the install-time snapshot on every spawn
+ * (see {@link import('./monitored-env.js')}), so the scrub already achieves
+ * nothing — what it deserves is to be named.
+ */
+const GUARDED_ENV_WRITES: ReadonlySet<string> = new Set([
+  'NODE_TLS_REJECT_UNAUTHORIZED',
+  'NODE_OPTIONS',
+  'NODE_EXTRA_CA_CERTS',
+  'CI',
+]);
+
+/** dephawk's own settings, all of which are guarded by prefix. */
+const GUARDED_ENV_PREFIX = 'DEPHAWK_';
+
+/**
+ * Compared upper-cased: `process.env` is case-insensitive on Windows, so
+ * `node_options` sets the same variable as `NODE_OPTIONS` and a case-sensitive
+ * check would be a one-character bypass there.
+ */
+function isGuardedEnvWrite(name: string): boolean {
+  const upper = name.toUpperCase();
+  return GUARDED_ENV_WRITES.has(upper) || upper.startsWith(GUARDED_ENV_PREFIX);
+}
+
+/** A value rendered for the report, never throwing (a symbol would). */
+function show(value: unknown): string {
+  try {
+    return String(value);
+  } catch {
+    return '<unprintable>';
+  }
+}
+
+/**
  * Intercepts reads of secret-looking environment variables via a Proxy over
  * `process.env`.
  *
@@ -45,6 +100,12 @@ import {
  *    `memory: true`, hidden behind a placeholder. Your own code (and a dependency
  *    that is allowed) still sees the real thing.
  *
+ * Writes are covered too, but only for {@link GUARDED_ENV_WRITES} — the handful
+ * of variables whose value decides how the *process* behaves rather than what
+ * some library does with it. Every trap that mutates the environment (`set`,
+ * `defineProperty`, `deleteProperty`, and the accessor handed back by
+ * `getOwnPropertyDescriptor`) funnels through the same check.
+ *
  * Limitation: code that destructures `process.env` at module-load time reads the
  * value once and escapes later interception. This is best-effort by design.
  */
@@ -73,6 +134,23 @@ export class EnvInterceptor implements CapabilityInterceptor {
       const decision = report(record, 'env.read', prop, byValue);
       if (!decision.allow) {
         throw blockedError(`env read of ${prop}`, decision.reason);
+      }
+    };
+
+    /**
+     * Judge a mutation of a guarded variable. `detail` carries the new value
+     * (`NODE_OPTIONS=--require x`) or the deletion marker, because that is what
+     * the finding is about.
+     */
+    const guardWrite = (prop: string, detail: string): void => {
+      // dephawk's own repair of the child environment before a spawn runs
+      // through this proxy; that is plumbing, not the caller's decision.
+      if (inRuntimeInternals() || !isGuardedEnvWrite(prop)) {
+        return;
+      }
+      const decision = report(record, 'env.write', detail);
+      if (!decision.allow) {
+        throw blockedError(`env write of ${prop}`, decision.reason);
       }
     };
 
@@ -127,6 +205,9 @@ export class EnvInterceptor implements CapabilityInterceptor {
         return Reflect.get(original, prop);
       },
       set(_target, prop, value): boolean {
+        if (typeof prop === 'string') {
+          guardWrite(prop, `${prop}=${show(value)}`);
+        }
         // Write straight to the real environment, deliberately *not* passing a
         // receiver.
         //
@@ -148,12 +229,23 @@ export class EnvInterceptor implements CapabilityInterceptor {
         return Reflect.has(original, prop);
       },
       deleteProperty(_target, prop): boolean {
+        if (typeof prop === 'string') {
+          // Deleting is how monitoring gets scrubbed, so it is the same finding
+          // as setting — `delete process.env.NODE_OPTIONS` and
+          // `process.env.NODE_OPTIONS = ''` are the same move.
+          guardWrite(prop, `${prop} (deleted)`);
+        }
         return Reflect.deleteProperty(original, prop);
       },
       ownKeys(): (string | symbol)[] {
         return Reflect.ownKeys(original);
       },
       defineProperty(_target, prop, descriptor): boolean {
+        if (typeof prop === 'string') {
+          // `Object.defineProperty` reaches the environment without the `set`
+          // trap, which would otherwise be a way to disable TLS unrecorded.
+          guardWrite(prop, `${prop}=${show(descriptor.value)}`);
+        }
         // `Object.defineProperty(process.env, …)` must land on the real
         // environment, not the decoy.
         return Reflect.defineProperty(original, prop, descriptor);
@@ -202,6 +294,9 @@ export class EnvInterceptor implements CapabilityInterceptor {
             return value;
           },
           set(value: unknown): void {
+            // Reached via `getOwnPropertyDescriptor(process.env, X).set(…)`;
+            // same mutation, same judgement.
+            guardWrite(prop, `${prop}=${show(value)}`);
             Reflect.set(original, prop, value);
           },
         };

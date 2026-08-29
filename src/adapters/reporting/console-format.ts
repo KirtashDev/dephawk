@@ -73,7 +73,7 @@ export function formatConsoleReport(
 
   for (const row of flagged) {
     lines.push(formatRow(row, width, style));
-    const technique = detectTechnique(row.capability, row.detail);
+    const technique = detectTechnique(row.capability, row.detail, row.origin);
     if (technique !== null) {
       lines.push(
         `      ${style('red', '⚑ known attack technique')} — ${TECHNIQUE_GLOSS[technique]}`,

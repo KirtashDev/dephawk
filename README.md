@@ -59,14 +59,17 @@ code 2.
 > `.invalid` host (RFC 6761) and a `203.0.113.x` documentation address (RFC 5737) that routes nowhere
 > ([see for yourself](examples/demo/node_modules/sneaky-dependency/index.js)).
 
-> 🛡️ **Hardened release by release.** dephawk watches **11 capability classes**
+> 🛡️ **Hardened release by release.** dephawk watches **12 capability classes**
 > across **18 interceptors**, and every version closes another real bypass —
-> **72 reproduced attack techniques blocked, and counting.** Each was
+> **73 reproduced attack techniques blocked, and counting.** Each was
 > demonstrated against a published build _before_ it was fixed; the running list
-> is in the [CHANGELOG](CHANGELOG.md). Recent additions: **resolved-IP network
-> enforcement** (a dependency’s own `lookup` can’t point an allowlisted host at an
-> internal/metadata IP — SSRF), **editor & AI-agent hook persistence** (the
-> keyv/ChainDrop worm’s `.vscode/tasks.json` + `.claude/settings.json` move),
+> is in the [CHANGELOG](CHANGELOG.md). Recent additions: **alternative-runtime
+> escape** (a dependency spawning downloaded Bun/Deno to get out from under Node),
+> **TLS teardown via `process.env`**, **OS service persistence** (systemd,
+> launchd, cron, Run keys), **AI-assistant credential theft**, **resolved-IP
+> network enforcement** (a dependency’s own `lookup` can’t point an allowlisted
+> host at an internal/metadata IP — SSRF), **editor & AI-agent hook persistence**
+> (the keyv/ChainDrop worm’s `.vscode/tasks.json` + `.claude/settings.json` move),
 > **dead-drop / C2-relay naming** (blockchain RPC, paste sites, chat webhooks,
 > IPFS), report-integrity in standalone mode, recursive `cp`/`rename` that planted
 > persistence past every check,
@@ -75,20 +78,31 @@ code 2.
 > `ATTACH` (browser-credential theft), and closing an `Object.defineProperty`
 > bypass of the module-loader guard.
 
-> 🎯 **New in 0.8 — catches the keyv/ChainDrop worm’s editor & AI-agent hooks.**
-> The Aug-2026 worm (444 packages, ~2B monthly installs) planted a
-> `.vscode/tasks.json` (`runOn: folderOpen`) and a `.claude/settings.json`
-> `SessionStart` hook so its loader re-ran the moment you opened the repo. dephawk
-> now names this **`editor-hook-persistence`** and refuses it from a dependency —
-> VS Code tasks/settings, Claude Code & Cursor/Windsurf agent hooks,
-> `.devcontainer` lifecycle commands, JetBrains run configs, and direnv `.envrc`.
+> 🎯 **New in 0.13 — catches the move designed to defeat runtime monitoring.**
+> npm v12 turned install scripts off by default, so the 2026 campaigns moved to
+> triggers npm no longer runs — and the sharpest of them is **escaping Node
+> entirely**: keyv/cacheable, ChainDrop, vpmdhaj, Phantom Gyp and the Nx Console
+> backdoor all download standalone Bun and run stage 2 under it, explicitly to
+> sidestep Node-level instrumentation. dephawk names that spawn
+> **`alt-runtime-escape`** and refuses it, stopping the worm before its credential
+> collector ever runs. Alongside it: **`tls-verification-disabled`** (a dependency
+> setting `NODE_TLS_REJECT_UNAUTHORIZED=0`, as mastra did, so its traffic survives
+> any intercepting proxy), **`service-persistence`** (systemd units, LaunchAgents,
+> cron, Windows Run keys, `authorized_keys` — including the keyv worm’s
+> `gh-token-monitor` _token death watch_, which outlives credential rotation), and
+> **`ai-credential-theft`** (reads of `~/.claude`, `~/.codex`, `~/.cursor`,
+> `~/.gemini`, Copilot — what jscrambler went for).
 >
 > This sits on the **attack-recognition layer** that also names the other worm
 > moves: **cloud instance-metadata SSRF** (evasion-resistant to decimal/hex/IPv6),
-> **CI/CD & git-hook persistence** across 18+ providers, **registry
-> self-replication** (`npm publish`), and — the signature every stealer shares —
-> **likely credential exfiltration** (the same dependency reads a secret and _then_
-> reaches the network). Each finding says, in one plain line, what it is.
+> **editor & AI-agent hook persistence** (the keyv/ChainDrop `.vscode/tasks.json`
+>
+> - `.claude/settings.json` move), **CI/CD & git-hook persistence** across 18+
+>   providers, **registry self-replication** (`npm publish`), **dead-drop / C2
+>   relays** (blockchain RPC incl. Solana and ICP, Nostr, paste sites, chat
+>   webhooks, IPFS, ephemeral tunnels), and — the signature every stealer shares —
+>   **likely credential exfiltration** (the same dependency reads a secret and _then_
+>   reaches the network). Each finding says, in one plain line, what it is.
 
 ## Why
 
@@ -436,7 +450,11 @@ export default {
   debugger. Off by default — most dependencies should never need it. (Some
   packages ship WASM codecs; those are the ones you may need to grant.)
 - `env` — `true` (any secret), `false` (no secrets), or an array of allowed
-  secret var names. Non-secret vars (e.g. `NODE_ENV`) are always allowed.
+  secret var names. Non-secret vars (e.g. `NODE_ENV`) are always allowed. The
+  same list gates **writes** to the handful of variables that decide how the
+  process behaves — `NODE_TLS_REJECT_UNAUTHORIZED`, `NODE_OPTIONS`,
+  `NODE_EXTRA_CA_CERTS`, `CI`, `DEPHAWK_*`. Every other `process.env` write is
+  ordinary and never reported.
 - `fs` — `{ read: [...], write: [...] }` path prefixes for sensitive paths.
 
 The `default` bucket applies to any package not listed **and** to calls dephawk

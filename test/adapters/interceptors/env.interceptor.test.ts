@@ -221,3 +221,94 @@ describe('EnvInterceptor — writing through the proxy', () => {
     delete process.env['DEPHAWK_NUM_PROBE'];
   });
 });
+
+describe('EnvInterceptor — guarded writes (TLS teardown, monitoring scrub)', () => {
+  const restore: Record<string, string | undefined> = {};
+  const remember = (name: string): void => {
+    restore[name] = process.env[name];
+  };
+  afterEach(() => {
+    // Uninstall *before* restoring: putting a guarded variable back is itself a
+    // guarded write, and it would be judged by whatever decision the test left
+    // armed on the spy.
+    installed?.dispose();
+    installed = undefined;
+    for (const [name, value] of Object.entries(restore)) {
+      if (value === undefined) {
+        delete process.env[name];
+      } else {
+        process.env[name] = value;
+      }
+      delete restore[name];
+    }
+  });
+
+  it('records a TLS teardown with the value, which is what makes it a finding', () => {
+    remember('NODE_TLS_REJECT_UNAUTHORIZED');
+    const spy = recordSpy();
+    installed = new EnvInterceptor().install(spy.record);
+
+    process.env['NODE_TLS_REJECT_UNAUTHORIZED'] = '0';
+
+    expect(spy.last?.capability).toBe('env.write');
+    expect(spy.last?.detail).toBe('NODE_TLS_REJECT_UNAUTHORIZED=0');
+  });
+
+  it('blocks the write in enforce mode, before it reaches the environment', () => {
+    remember('NODE_TLS_REJECT_UNAUTHORIZED');
+    delete process.env['NODE_TLS_REJECT_UNAUTHORIZED'];
+    const spy = recordSpy();
+    spy.deny('no TLS teardown');
+    installed = new EnvInterceptor().install(spy.record);
+
+    expect(() => {
+      process.env['NODE_TLS_REJECT_UNAUTHORIZED'] = '0';
+    }).toThrow(/dephawk: blocked/);
+    expect(process.env['NODE_TLS_REJECT_UNAUTHORIZED']).toBeUndefined();
+  });
+
+  it('catches the write however it is spelled', () => {
+    remember('NODE_OPTIONS');
+    process.env['NODE_OPTIONS'] = '--import dephawk';
+    const spy = recordSpy();
+    installed = new EnvInterceptor().install(spy.record);
+
+    // defineProperty reaches the environment without the `set` trap …
+    Object.defineProperty(process.env, 'NODE_OPTIONS', {
+      value: '',
+      writable: true,
+      enumerable: true,
+      configurable: true,
+    });
+    expect(spy.last?.detail).toBe('NODE_OPTIONS=');
+
+    // … and deleting is the same scrub as emptying.
+    delete process.env['NODE_OPTIONS'];
+    expect(spy.last?.capability).toBe('env.write');
+    expect(spy.last?.detail).toBe('NODE_OPTIONS (deleted)');
+  });
+
+  it('records an attempt to scrub dephawk’s own settings', () => {
+    remember('DEPHAWK_SINK');
+    const spy = recordSpy();
+    installed = new EnvInterceptor().install(spy.record);
+
+    delete process.env['DEPHAWK_SINK'];
+
+    expect(spy.last?.capability).toBe('env.write');
+    expect(spy.last?.detail).toBe('DEPHAWK_SINK (deleted)');
+  });
+
+  it('says nothing about ordinary writes — the hot path stays clean', () => {
+    remember('MY_APP_SETTING');
+    const spy = recordSpy();
+    spy.deny('would break every build if it fired');
+    installed = new EnvInterceptor().install(spy.record);
+
+    expect(() => {
+      process.env['MY_APP_SETTING'] = 'value';
+      process.env['HOME'] = process.env['HOME'] ?? '/home/dev';
+    }).not.toThrow();
+    expect(spy.calls.filter((call) => call.capability === 'env.write')).toHaveLength(0);
+  });
+});

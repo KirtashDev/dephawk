@@ -1,3 +1,4 @@
+import { envWriteName } from './capability.js';
 import type { CapabilityRequest } from './capability-request.js';
 import type { Policy, PackagePolicy } from './policy.js';
 import type { Verdict } from './verdict.js';
@@ -109,7 +110,7 @@ function detectSensitive(req: CapabilityRequest): boolean {
   // mode and even for a capability that is otherwise mundane (a plain outbound
   // connection is not sensitive — but a connection to the instance-metadata
   // endpoint is).
-  if (detectTechnique(req.capability, req.detail) !== null) {
+  if (detectTechnique(req.capability, req.detail, req.origin) !== null) {
     return true;
   }
   switch (req.capability) {
@@ -128,6 +129,11 @@ function detectSensitive(req: CapabilityRequest): boolean {
       // Sensitive by name, or by value (a connection string carrying a password
       // under an innocuous name like `DATABASE_URL`).
       return isSensitiveEnv(req.detail) || req.valueSensitive === true;
+    case 'env.write':
+      // Only the guarded, security-relevant variables are ever reported as a
+      // write (the interceptor filters; ordinary `process.env.FOO = 'bar'` never
+      // reaches here), so anything that does is sensitive by construction.
+      return true;
     case 'process.spawn':
       // Spawning a process is always high signal — that's the curl-pipe-sh move.
       return true;
@@ -222,6 +228,19 @@ function evaluateCapability(
       return permitted
         ? allow(sensitive)
         : deny(sensitive, `reading secret env var ${req.detail} is not allowed`);
+    }
+
+    case 'env.write': {
+      // Reuses the same `env` grant as reads. A package trusted with the
+      // environment is trusted with it in both directions, and a separate key
+      // would buy nothing: the guarded set is small, non-secret, and named in
+      // the drafted config as `env: ['NODE_OPTIONS']` either way.
+      const name = envWriteName(req.detail);
+      const env = pkg.env ?? false;
+      const permitted = env === true || (Array.isArray(env) && env.includes(name));
+      return permitted
+        ? allow(sensitive)
+        : deny(sensitive, `setting the environment variable ${name} is not allowed`);
     }
 
     case 'fs.read': {
