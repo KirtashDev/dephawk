@@ -1,3 +1,4 @@
+import { DETACHED_MARKER } from '../../domain/threat.js';
 import type { CapabilityInterceptor, Disposable } from '../../application/ports.js';
 import {
   asRuntimeInternals,
@@ -89,7 +90,7 @@ export class ChildProcessInterceptor implements CapabilityInterceptor {
         (original) =>
           (...args: unknown[]): unknown => {
             const restored = reattach(args, monitoring);
-            const detail = describeSpawn(args, restored);
+            const detail = describeSpawn(args, restored, detachment(args));
 
             const decision = report(record, 'process.spawn', detail);
             if (!decision.allow) {
@@ -127,7 +128,7 @@ export class ChildProcessInterceptor implements CapabilityInterceptor {
             const restored = isObject(options)
               ? reattachEnvPairs(options, monitoring)
               : [];
-            const detail = describeProtoSpawn(options, restored);
+            const detail = describeProtoSpawn(options, restored, describeDetach(options));
             const decision = report(record, 'process.spawn', detail);
             if (!decision.allow) {
               throw blockedError(`spawn of ${detail}`, decision.reason);
@@ -193,7 +194,46 @@ function reattachEnvPairs(
   return restored;
 }
 
-function describeProtoSpawn(options: unknown, restored: readonly string[]): string {
+/**
+ * How a spawn detaches its child from this process, as a detail suffix — or the
+ * empty string when it does not.
+ *
+ * `{ detached: true }` plus dropped stdio, followed by `.unref()`, is the
+ * survive-the-install signature: the installer exits clean and silent while the
+ * payload keeps running. The options object used to be discarded entirely here,
+ * so that read as an ordinary foreground spawn. `stdio` is reported alongside
+ * because "detached" and "nobody will ever see its output" are separate facts,
+ * and the report should say which applied. See
+ * {@link import('../../domain/threat.js').DETACHED_MARKER}.
+ */
+function describeDetach(options: unknown): string {
+  if (!isObject(options) || options['detached'] !== true) {
+    return '';
+  }
+  return silencedStdio(options['stdio'])
+    ? `${DETACHED_MARKER}, stdio dropped]`
+    : `${DETACHED_MARKER}]`;
+}
+
+/** The stdio settings that cut the child loose from the parent's streams. */
+function silencedStdio(stdio: unknown): boolean {
+  if (stdio === 'ignore') {
+    return true;
+  }
+  return Array.isArray(stdio) && stdio.length > 0 && stdio.every((fd) => fd === 'ignore');
+}
+
+/** {@link describeDetach} for the module-level entrypoints, which take options last. */
+function detachment(args: readonly unknown[]): string {
+  const index = findOptionsIndex(args);
+  return index === -1 ? '' : describeDetach(args[index]);
+}
+
+function describeProtoSpawn(
+  options: unknown,
+  restored: readonly string[],
+  detached: string,
+): string {
   const file =
     isObject(options) && typeof options['file'] === 'string'
       ? options['file']
@@ -204,7 +244,8 @@ function describeProtoSpawn(options: unknown, restored: readonly string[]): stri
       : [];
   // args[0] duplicates the executable path; show the file plus the real args.
   const rest = args.length > 1 ? args.slice(1).join(' ') : '';
-  const command = rest.length > 0 ? `${file} ${rest}` : file;
+  const base = rest.length > 0 ? `${file} ${rest}` : file;
+  const command = detached.length > 0 ? `${base} ${detached}` : base;
   return restored.length === 0
     ? command
     : `${command} [dephawk re-attached: ${restored.join(', ')}]`;
@@ -273,12 +314,17 @@ function findOptionsIndex(args: readonly unknown[]): number {
   return -1;
 }
 
-function describeSpawn(args: readonly unknown[], restored: readonly string[]): string {
+function describeSpawn(
+  args: readonly unknown[],
+  restored: readonly string[],
+  detached: string,
+): string {
   const command = typeof args[0] === 'string' ? args[0] : String(args[0]);
   const list = Array.isArray(args[1])
     ? args[1].filter((arg): arg is string => typeof arg === 'string')
     : [];
-  const spawn = list.length > 0 ? `${command} ${list.join(' ')}` : command;
+  const base = list.length > 0 ? `${command} ${list.join(' ')}` : command;
+  const spawn = detached.length > 0 ? `${base} ${detached}` : base;
 
   return restored.length === 0
     ? spawn

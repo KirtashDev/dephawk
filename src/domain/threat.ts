@@ -29,6 +29,7 @@ export type Technique =
   | 'service-persistence'
   | 'registry-publish'
   | 'alt-runtime-escape'
+  | 'detached-process'
   | 'tls-verification-disabled'
   | 'ai-credential-theft';
 
@@ -48,6 +49,8 @@ export const TECHNIQUE_GLOSS: Record<Technique, string> = {
     'installing an OS-level autostart entry (systemd unit, launchd agent, cron job, Windows Run key/scheduled task, SSH authorized_keys) — persistence that survives the build, the shell and often credential rotation; nothing legitimate installs one from inside a dependency',
   'registry-publish':
     'publishing to the package registry — how a worm self-replicates with a stolen token',
+  'detached-process':
+    'spawning a child that deliberately outlives its parent (detached, with the parent’s stdio dropped) — the survive-the-install move of AsyncAPI, the moika 45-package campaign and mastra: the installer exits clean and reports nothing while the payload keeps running',
   'alt-runtime-escape':
     'starting a second JavaScript runtime (Bun/Deno, or a Node binary dropped in a temp/cache dir) — the 2026 worms download standalone Bun and run their payload under it *specifically* to escape Node-level monitoring; the stage-2 code runs with every interceptor gone',
   'tls-verification-disabled':
@@ -644,6 +647,32 @@ export function isAltRuntimeEscape(command: string, origin: Origin): boolean {
 }
 
 /**
+ * The marker {@link import('../adapters/interceptors/child-process.interceptor.js')}
+ * appends to a spawn detail whose options detach the child from this process.
+ *
+ * The options object never reached the report before: `describeSpawn` recorded
+ * the command and its arguments and dropped everything else, so
+ * `{ detached: true, stdio: 'ignore', windowsHide: true }` followed by
+ * `.unref()` — a child that keeps running after the installer exits clean, with
+ * no output anyone would see — read exactly like an ordinary foreground spawn.
+ *
+ * A marker in the detail rather than a separate field because `detail` is the
+ * only channel {@link detectTechnique} has, and it is the same shape as the
+ * existing `[dephawk re-attached: …]` note. A command that happens to contain
+ * the literal marker over-reports; it cannot hide anything.
+ */
+export const DETACHED_MARKER = '[detached';
+
+/**
+ * True when a spawn detaches its child from this process. Origin-gated like
+ * {@link isAltRuntimeEscape}: starting a long-lived daemon from your own code is
+ * ordinary, and a dependency doing it during an install is the finding.
+ */
+export function isDetachedProcess(command: string, origin: Origin): boolean {
+  return origin !== 'application' && command.includes(DETACHED_MARKER);
+}
+
+/**
  * True when an `env.write` detail turns off TLS certificate validation for the
  * whole process. Node only treats the exact value `0` as "reject nothing", so
  * `=1` (a package putting verification *back*) is not a finding.
@@ -701,6 +730,7 @@ export function detectTechnique(
       if (isRegistryPublish(detail)) return 'registry-publish';
       if (isServicePersistenceCommand(detail)) return 'service-persistence';
       if (isAltRuntimeEscape(detail, origin)) return 'alt-runtime-escape';
+      if (isDetachedProcess(detail, origin)) return 'detached-process';
       return null;
     default:
       return null;
