@@ -6,6 +6,7 @@ import {
   isCiWorkflowPath,
   isCloudMetadataHost,
   isDeadDropHost,
+  isDetachedProcess,
   isEditorHookPath,
   isInternalTarget,
   isGitHookPath,
@@ -530,5 +531,30 @@ describe('detectTechnique — the 0.13 techniques', () => {
       expect(isDeadDropHost(host)).toBe(true);
       expect(detectTechnique('net.connect', host)).toBe('dead-drop-c2');
     }
+  });
+});
+
+describe('isDetachedProcess — the survive-the-install spawn', () => {
+  it('flags a dependency detaching a child, not the application', () => {
+    const detail = 'node payload.js [detached, stdio dropped]';
+    expect(isDetachedProcess(detail, 'dependency')).toBe(true);
+    expect(isDetachedProcess(detail, 'unknown')).toBe(true);
+    expect(isDetachedProcess(detail, 'application')).toBe(false);
+    expect(detectTechnique('process.spawn', detail, 'dependency')).toBe(
+      'detached-process',
+    );
+  });
+
+  it('leaves an ordinary foreground spawn alone', () => {
+    expect(isDetachedProcess('node build.js', 'dependency')).toBe(false);
+    expect(detectTechnique('process.spawn', 'node build.js', 'dependency')).toBeNull();
+  });
+
+  it('ranks the sharper technique first when a spawn is both', () => {
+    // A detached Bun escape is still reported as the escape: that is the move
+    // that defeats monitoring, and detachment is how it survives.
+    expect(
+      detectTechnique('process.spawn', './.cache/bun run x [detached]', 'dependency'),
+    ).toBe('alt-runtime-escape');
   });
 });
