@@ -1,20 +1,25 @@
 import { describe, it, expect } from 'vitest';
 import {
+  detectDnsTunnels,
   detectExfilChains,
   detectTechnique,
   isAltRuntimeEscape,
   isCiWorkflowPath,
   isCloudMetadataHost,
   isDeadDropHost,
+  isDetachedProcess,
   isEditorHookPath,
   isInternalTarget,
   isGitHookPath,
+  isLocalServicePivot,
+  isManifestTamper,
   isRegistryPublish,
   isServicePersistenceCommand,
   isServicePersistencePath,
   isTlsVerificationDisabled,
   normalizeIpv4,
 } from '../../src/domain/threat.js';
+import { extractPort } from '../../src/domain/host.js';
 import type { DhEvent } from '../../src/domain/event.js';
 
 describe('normalizeIpv4 — evasion-resistant IPv4 parsing', () => {
@@ -530,5 +535,171 @@ describe('detectTechnique — the 0.13 techniques', () => {
       expect(isDeadDropHost(host)).toBe(true);
       expect(detectTechnique('net.connect', host)).toBe('dead-drop-c2');
     }
+  });
+});
+
+describe('isDetachedProcess — the survive-the-install spawn', () => {
+  it('flags a dependency detaching a child, not the application', () => {
+    const detail = 'node payload.js [detached, stdio dropped]';
+    expect(isDetachedProcess(detail, 'dependency')).toBe(true);
+    expect(isDetachedProcess(detail, 'unknown')).toBe(true);
+    expect(isDetachedProcess(detail, 'application')).toBe(false);
+    expect(detectTechnique('process.spawn', detail, 'dependency')).toBe(
+      'detached-process',
+    );
+  });
+
+  it('leaves an ordinary foreground spawn alone', () => {
+    expect(isDetachedProcess('node build.js', 'dependency')).toBe(false);
+    expect(detectTechnique('process.spawn', 'node build.js', 'dependency')).toBeNull();
+  });
+
+  it('ranks the sharper technique first when a spawn is both', () => {
+    // A detached Bun escape is still reported as the escape: that is the move
+    // that defeats monitoring, and detachment is how it survives.
+    expect(
+      detectTechnique('process.spawn', './.cache/bun run x [detached]', 'dependency'),
+    ).toBe('alt-runtime-escape');
+  });
+});
+
+describe('isManifestTamper — ChainDrop’s propagation step', () => {
+  it.each([
+    '/app/node_modules/left-pad/package.json',
+    '/app/node_modules/@scope/pkg/package.json',
+    '/app/node_modules/a/node_modules/b/package.json',
+    'node_modules/left-pad/package.json',
+  ])('flags %s', (path) => {
+    expect(isManifestTamper(path)).toBe(true);
+    expect(detectTechnique('fs.write', path)).toBe('manifest-tamper');
+  });
+
+  it('leaves the root manifest alone — npm version and changesets write it', () => {
+    expect(isManifestTamper('/app/package.json')).toBe(false);
+    expect(detectTechnique('fs.write', '/app/package.json')).toBeNull();
+  });
+
+  it('leaves other files inside a package alone', () => {
+    expect(isManifestTamper('/app/node_modules/left-pad/index.js')).toBe(false);
+    expect(isManifestTamper('/app/node_modules/.package-lock.json')).toBe(false);
+  });
+});
+
+describe('isLocalServicePivot — reaching infrastructure on the local network', () => {
+  it.each([
+    '127.0.0.1:6379', // the Strapi campaign's Redis entry point
+    'redis://127.0.0.1:6379',
+    'localhost:5432',
+    '10.0.0.5:3306',
+    '172.17.0.1:2375', // the Docker bridge — the API is a container escape
+    'http://192.168.1.10:2379/v2/keys',
+    '[::1]:27017',
+    '169.254.1.1:10250', // kubelet
+  ])('flags %s', (detail) => {
+    expect(isLocalServicePivot(detail)).toBe(true);
+    expect(detectTechnique('net.connect', detail)).toBe('local-service-pivot');
+  });
+
+  it('needs both halves — a hosted database is how half the ecosystem runs', () => {
+    expect(isLocalServicePivot('redis.example.com:6379')).toBe(false);
+    expect(isLocalServicePivot('db.example.com:5432')).toBe(false);
+  });
+
+  it('does not flag an internal address on an ordinary port', () => {
+    expect(isLocalServicePivot('127.0.0.1:3000')).toBe(false);
+    expect(isLocalServicePivot('http://localhost:8080/health')).toBe(false);
+    expect(isLocalServicePivot('127.0.0.1')).toBe(false); // no port at all
+  });
+
+  it('does not outrank the sharper network techniques', () => {
+    expect(detectTechnique('net.connect', 'http://169.254.169.254:2375/')).toBe(
+      'cloud-metadata',
+    );
+  });
+});
+
+describe('extractPort', () => {
+  it.each([
+    ['127.0.0.1:6379', 6379],
+    ['https://user:pw@host:2376/path', 2376],
+    ['[::1]:5432', 5432],
+    ['http://host:8500/v1/kv?x=1', 8500],
+  ])('reads the port from %s', (detail, expected) => {
+    expect(extractPort(detail)).toBe(expected);
+  });
+
+  it.each(['host', 'https://host/path', '[::1]', 'host:notaport', '::1', 'host:99999'])(
+    'returns null for %s',
+    (detail) => {
+      expect(extractPort(detail)).toBeNull();
+    },
+  );
+});
+
+describe('detectDnsTunnels — chunked exfiltration over subdomain labels', () => {
+  const resolve = (pkg: string, host: string): DhEvent =>
+    ({
+      capability: 'net.resolve',
+      package: pkg,
+      origin: 'dependency',
+      detail: host,
+      stack: [],
+      sensitive: false,
+      allowed: false,
+      blocked: false,
+      timestamp: 0,
+    }) as DhEvent;
+
+  // 24+ chars of base32/base64url — what a chunked archive actually looks like.
+  const chunk = (n: number): string => `${'mzxw6ytboi4dpmrqgqzs4nbo'}${n}extra`;
+
+  it('flags a stream of encoded labels under one apex', () => {
+    const events = [0, 1, 2, 3, 4].map((n) =>
+      resolve('node-ipc', `${chunk(n)}.exfil.example.com`),
+    );
+    const [tunnel] = detectDnsTunnels(events);
+    expect(tunnel?.package).toBe('node-ipc');
+    expect(tunnel?.apex).toBe('example.com');
+    expect(tunnel?.queries).toBe(5);
+  });
+
+  it('does not flag a single long label — DKIM, ACME and CDN keys look the same', () => {
+    expect(
+      detectDnsTunnels([resolve('mailer', `${chunk(0)}._domainkey.example.com`)]),
+    ).toEqual([]);
+    expect(detectDnsTunnels([resolve('certbot', '_acme-challenge.example.com')])).toEqual(
+      [],
+    );
+  });
+
+  it('does not flag ordinary hostnames however many there are', () => {
+    const events = [
+      'api.example.com',
+      'cdn.example.com',
+      'registry.npmjs.org',
+      'd1a2b3c4.cloudfront.net',
+      'assets.example.com',
+      'static.example.com',
+    ].map((host) => resolve('http-client', host));
+    expect(detectDnsTunnels(events)).toEqual([]);
+  });
+
+  it('counts distinct labels, not repeats of one', () => {
+    const events = [0, 0, 0, 0, 0, 0].map((n) =>
+      resolve('noisy', `${chunk(n)}.exfil.example.com`),
+    );
+    expect(detectDnsTunnels(events)).toEqual([]);
+  });
+
+  it('ignores the application’s own resolutions', () => {
+    const events = [0, 1, 2, 3, 4].map(
+      (n) =>
+        ({
+          ...resolve('x', `${chunk(n)}.exfil.example.com`),
+          package: null,
+          origin: 'application',
+        }) as DhEvent,
+    );
+    expect(detectDnsTunnels(events)).toEqual([]);
   });
 });

@@ -48,6 +48,16 @@ const DNS_METHODS = [
  * subdomain queries (`<base32-secret>.exfil.evil.com`) is a real exfil path
  * that leaves no TCP connection for the net interceptor to see.
  *
+ * `setServers` is covered separately: it takes a list of nameservers rather than
+ * a hostname, so it never matched {@link DNS_METHODS} and the resolver redirect
+ * went unrecorded. That is the setup half of DNS-tunnel exfiltration — node-ipc
+ * (2026) gzips 90+ credential categories, splits the archive into base64 chunks
+ * sized to DNS labels and ships them out over TXT queries, pointing its own
+ * `dns.Resolver` at 1.1.1.1/8.8.8.8 first so host-level DNS monitoring never
+ * sees the traffic. Each nameserver is reported as its own `net.resolve` with a
+ * bare `host`/`host:port` detail, so the per-package connect allowlist judges
+ * where the queries would actually go.
+ *
  * Limitations:
  * - `http`/`https` requests resolve their host internally, so a normal outbound
  *   request may surface *both* a `net.connect` and a `net.resolve` event for the
@@ -79,10 +89,53 @@ export class DnsInterceptor implements CapabilityInterceptor {
       const proto = prototypeOf((holder as { Resolver?: unknown } | undefined)?.Resolver);
       if (proto) {
         this.patchGroup(proto, record, restores, holder === promises);
+        this.patchSetServers(proto, record, restores);
       }
     }
 
+    // `setServers` is synchronous on every surface, including `dns.promises`, so
+    // it always throws on deny rather than rejecting.
+    this.patchSetServers(dns as unknown as Record<string, unknown>, record, restores);
+    if (promises !== undefined) {
+      this.patchSetServers(promises, record, restores);
+    }
+
     return restorer(restores);
+  }
+
+  /**
+   * Patch `setServers` on one surface. Every nameserver in the list is judged on
+   * its own — the argument is an array, so there is no single host to report and
+   * a partial allowlist should not buy the whole list.
+   */
+  private patchSetServers(
+    target: Record<string, unknown>,
+    record: RecordFn,
+    restores: (() => void)[],
+  ): void {
+    const restore = patchMethod(
+      target,
+      'setServers',
+      (original) =>
+        function (this: unknown, ...args: unknown[]): unknown {
+          if (inRuntimeInternals()) {
+            return (original as (...a: unknown[]) => unknown).apply(this, args);
+          }
+          const servers = Array.isArray(args[0])
+            ? args[0].filter((s): s is string => typeof s === 'string')
+            : [];
+          for (const server of servers) {
+            const decision = report(record, 'net.resolve', server);
+            if (!decision.allow) {
+              throw blockedError(`pointing DNS resolution at ${server}`, decision.reason);
+            }
+          }
+          return (original as (...a: unknown[]) => unknown).apply(this, args);
+        },
+    );
+    if (restore) {
+      restores.push(restore);
+    }
   }
 
   private patchGroup(

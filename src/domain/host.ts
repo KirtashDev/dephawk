@@ -52,6 +52,56 @@ export function extractHost(detail: string): string {
   return rest.toLowerCase();
 }
 
+/**
+ * The explicit port in an outbound-connection detail, or null.
+ *
+ * Explicit only: a scheme's default port is not inferred, because the one caller
+ * asks "is this a well-known *infrastructure* port", and `https://host` with no
+ * port is never one. Parsing mirrors {@link extractHost} step for step so the two
+ * agree on where the host ends and the port begins.
+ */
+export function extractPort(detail: string): number | null {
+  let rest = detail.trim();
+
+  const schemeIndex = rest.indexOf('://');
+  if (schemeIndex !== -1) {
+    rest = rest.slice(schemeIndex + 3);
+  }
+  const atIndex = rest.indexOf('@');
+  if (atIndex !== -1) {
+    rest = rest.slice(atIndex + 1);
+  }
+  const boundary = rest.search(/[/?#]/);
+  if (boundary !== -1) {
+    rest = rest.slice(0, boundary);
+  }
+
+  // A bracketed IPv6 literal: the port, if any, follows the `]`.
+  if (rest.startsWith('[')) {
+    const close = rest.indexOf(']');
+    if (close === -1) {
+      return null;
+    }
+    rest = rest.slice(close + 1);
+    return rest.startsWith(':') ? toPort(rest.slice(1)) : null;
+  }
+
+  const colonIndex = rest.lastIndexOf(':');
+  // Bare IPv6 (more than one colon) has no port to read without brackets.
+  if (colonIndex === -1 || rest.indexOf(':') !== colonIndex) {
+    return null;
+  }
+  return toPort(rest.slice(colonIndex + 1));
+}
+
+function toPort(text: string): number | null {
+  if (!/^\d{1,5}$/.test(text)) {
+    return null;
+  }
+  const port = Number(text);
+  return port >= 1 && port <= 65535 ? port : null;
+}
+
 /** True when `host` matches a single allowlist `pattern`. */
 export function hostMatches(host: string, pattern: string): boolean {
   const h = host.toLowerCase();

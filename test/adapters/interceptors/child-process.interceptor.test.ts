@@ -4,6 +4,7 @@ import { ChildProcessInterceptor } from '../../../src/adapters/interceptors/chil
 import { EnvInterceptor } from '../../../src/adapters/interceptors/env.interceptor.js';
 import type { Disposable } from '../../../src/application/ports.js';
 import { recordSpy } from './spy.js';
+import { detectTechnique } from '../../../src/domain/threat.js';
 
 const SPAWN_SENTINEL = { sentinel: 'spawn' };
 let installed: Disposable | undefined;
@@ -284,5 +285,51 @@ describe('ChildProcessInterceptor — direct ChildProcess.prototype.spawn', () =
     expect(options.envPairs.some((p) => p.startsWith('NODE_OPTIONS='))).toBe(true);
     expect(options.envPairs.some((p) => p.startsWith('DEPHAWK_POLICY='))).toBe(true);
     expect(spy.last?.detail).toContain('re-attached');
+  });
+});
+
+describe('ChildProcessInterceptor — detached children', () => {
+  it('records the detachment, which the options object used to hide', () => {
+    const spy = recordSpy();
+    spy.deny('no spawning');
+    installed = new ChildProcessInterceptor().install(spy.record);
+
+    expect(() =>
+      childProcess.spawn('node', ['-e', '0'], {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true,
+      }),
+    ).toThrow(/dephawk: blocked/);
+
+    expect(spy.last?.capability).toBe('process.spawn');
+    expect(spy.last?.detail).toContain('[detached, stdio dropped]');
+    expect(detectTechnique('process.spawn', spy.last?.detail ?? '', 'dependency')).toBe(
+      'detached-process',
+    );
+  });
+
+  it('says nothing extra about an ordinary foreground spawn', () => {
+    const spy = recordSpy();
+    spy.deny('no spawning');
+    installed = new ChildProcessInterceptor().install(spy.record);
+
+    expect(() => childProcess.spawn('node', ['-e', '0'])).toThrow(/dephawk: blocked/);
+    expect(spy.last?.detail).not.toContain('[detached');
+    expect(detectTechnique('process.spawn', spy.last?.detail ?? '', 'dependency')).toBe(
+      null,
+    );
+  });
+
+  it('notes detachment without the stdio drop separately', () => {
+    const spy = recordSpy();
+    spy.deny('no spawning');
+    installed = new ChildProcessInterceptor().install(spy.record);
+
+    expect(() => childProcess.spawn('node', ['-e', '0'], { detached: true })).toThrow(
+      /dephawk: blocked/,
+    );
+    expect(spy.last?.detail).toContain('[detached]');
+    expect(spy.last?.detail).not.toContain('stdio dropped');
   });
 });

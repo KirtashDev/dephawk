@@ -97,3 +97,35 @@ describe('DnsInterceptor', () => {
     expect(dns.lookup).toBe(before);
   });
 });
+
+describe('DnsInterceptor — setServers (the DNS-tunnel setup step)', () => {
+  it('records each nameserver a package points its resolver at', () => {
+    const spy = recordSpy();
+    installed = new DnsInterceptor().install(spy.record);
+
+    const resolver = new dns.Resolver();
+    const before = resolver.getServers();
+    try {
+      resolver.setServers(['1.1.1.1', '8.8.8.8']);
+    } finally {
+      resolver.setServers(before);
+    }
+
+    const details = spy.calls
+      .filter((call) => call.capability === 'net.resolve')
+      .map((call) => call.detail);
+    expect(details).toContain('1.1.1.1');
+    expect(details).toContain('8.8.8.8');
+  });
+
+  it('refuses the redirect in enforce mode, so the resolver keeps its servers', () => {
+    const spy = recordSpy();
+    spy.deny('not in the allowlist');
+    installed = new DnsInterceptor().install(spy.record);
+
+    const resolver = new dns.Resolver();
+    const before = resolver.getServers();
+    expect(() => resolver.setServers(['1.1.1.1'])).toThrow(/dephawk: blocked/);
+    expect(resolver.getServers()).toEqual(before);
+  });
+});

@@ -9,6 +9,9 @@ export default defineConfig({
     globals: false,
     environment: 'node',
     include: ['test/**/*.test.ts'],
+    // The e2e tests exercise the built CLI, so a stale `dist` means a green run
+    // that proved nothing about the current source. See test/global-setup.ts.
+    globalSetup: ['test/global-setup.ts'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html', 'lcov'],

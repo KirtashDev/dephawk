@@ -16,19 +16,22 @@
 import type { Capability } from './capability.js';
 import type { DhEvent } from './event.js';
 import type { Origin } from './origin.js';
-import { extractHost } from './host.js';
+import { extractHost, extractPort } from './host.js';
 import { isAiCredentialPath } from './sensitivity.js';
 
 /** A recognised attack technique. */
 export type Technique =
   | 'cloud-metadata'
   | 'dead-drop-c2'
+  | 'local-service-pivot'
   | 'ci-workflow-persistence'
   | 'git-hook-persistence'
   | 'editor-hook-persistence'
   | 'service-persistence'
+  | 'manifest-tamper'
   | 'registry-publish'
   | 'alt-runtime-escape'
+  | 'detached-process'
   | 'tls-verification-disabled'
   | 'ai-credential-theft';
 
@@ -38,6 +41,8 @@ export const TECHNIQUE_GLOSS: Record<Technique, string> = {
     'cloud instance-metadata endpoint — the way CI/cloud credentials are stolen; no npm package should fetch instance credentials',
   'dead-drop-c2':
     'connecting to a public dead-drop / relay — a paste site, chat webhook, IPFS gateway, or blockchain RPC — used to fetch C2 config or exfiltrate without a fixed attacker domain (the keyv/ChainDrop worm read its C2 from an Ethereum transaction); legitimate for some apps, so allowlist the ones yours needs',
+  'local-service-pivot':
+    'connecting to infrastructure on the local network — a database, cache, container runtime or orchestrator port that is unauthenticated precisely because it is not meant to be reachable. The 36 hijacked Strapi packages probed a local Redis (INFO/DBSIZE/KEYS), injected a crontab through it, then went at PostgreSQL with hardcoded credentials; a reachable Docker or kubelet API is a straight container escape. Legitimate for an app that runs its own Redis or Postgres, so allowlist the ones yours needs',
   'ci-workflow-persistence':
     'writing a CI/CD pipeline definition — the self-persistence move of the Shai-Hulud worm; nothing legitimate writes .github/workflows, .gitlab-ci.yml, Jenkinsfile & co. from inside a dependency',
   'git-hook-persistence':
@@ -46,8 +51,12 @@ export const TECHNIQUE_GLOSS: Record<Technique, string> = {
     'writing an editor/AI-agent hook that auto-runs when the repo is opened (.vscode/tasks.json runOn:folderOpen, .claude/settings.json hooks, .devcontainer postCreateCommand, .envrc) — the keyv/ChainDrop worm’s move; nothing legitimate installs one from inside a dependency',
   'service-persistence':
     'installing an OS-level autostart entry (systemd unit, launchd agent, cron job, Windows Run key/scheduled task, SSH authorized_keys) — persistence that survives the build, the shell and often credential rotation; nothing legitimate installs one from inside a dependency',
+  'manifest-tamper':
+    'rewriting an installed package’s package.json — how ChainDrop propagated: download the victim’s tarball, inject a preinstall hook, bump the patch version, republish (444 packages / 2,212 versions in under four hours). A package editing its own manifest at install time is rewriting what runs next',
   'registry-publish':
     'publishing to the package registry — how a worm self-replicates with a stolen token',
+  'detached-process':
+    'spawning a child that deliberately outlives its parent (detached, with the parent’s stdio dropped) — the survive-the-install move of AsyncAPI, the moika 45-package campaign and mastra: the installer exits clean and reports nothing while the payload keeps running',
   'alt-runtime-escape':
     'starting a second JavaScript runtime (Bun/Deno, or a Node binary dropped in a temp/cache dir) — the 2026 worms download standalone Bun and run their payload under it *specifically* to escape Node-level monitoring; the stage-2 code runs with every interceptor gone',
   'tls-verification-disabled':
@@ -644,6 +653,113 @@ export function isAltRuntimeEscape(command: string, origin: Origin): boolean {
 }
 
 /**
+ * Ports whose service is, by convention, unauthenticated on the assumption that
+ * nothing untrusted can reach it — which stops being true the moment a
+ * dependency runs on the same host.
+ *
+ * Named rather than blocked on its own: `net.connect` is already allowlist-only,
+ * so an app whose dependency genuinely talks to a local Redis allowlists it once
+ * and this only adds the label. The same trade-off as {@link isDeadDropHost}.
+ */
+const LOCAL_SERVICE_PORTS: ReadonlySet<number> = new Set([
+  6379, // Redis — the Strapi campaign's entry point
+  5432, // PostgreSQL
+  3306, // MySQL / MariaDB
+  27017, // MongoDB
+  2375, // Docker API, plaintext
+  2376, // Docker API, TLS
+  8500, // Consul
+  2379, // etcd
+  10250, // kubelet
+]);
+
+/**
+ * Names that resolve to loopback without being IP literals.
+ *
+ * Deliberately *not* folded into {@link isInternalTarget}, which is IP-only by
+ * contract. That function also decides whether the SSRF resolver guard bothers
+ * wrapping a dependency-supplied `lookup`: it skips a host that is already an
+ * internal literal, so teaching it about `localhost` would let an allowlisted
+ * `localhost` plus a custom `lookup` redirect somewhere else unwatched. The
+ * pivot check needs the names, the SSRF guard must not have them.
+ */
+const LOOPBACK_NAMES: ReadonlySet<string> = new Set([
+  'localhost',
+  'ip6-localhost',
+  'ip6-loopback',
+]);
+
+/**
+ * True when an outbound target is infrastructure *inside* the network on a
+ * well-known service port.
+ *
+ * Both halves are required. A hosted Redis at `redis.example.com:6379` is how
+ * half the ecosystem runs, so the port alone means nothing; and a dependency
+ * reaching an internal address on an ordinary port is already covered by the
+ * allowlist without needing a name. It is the pair — internal *and* an
+ * unauthenticated-by-convention service — that is the pivot.
+ */
+export function isLocalServicePivot(detail: string): boolean {
+  const port = extractPort(detail);
+  if (port === null || !LOCAL_SERVICE_PORTS.has(port)) {
+    return false;
+  }
+  const host = extractHost(detail);
+  return (
+    isInternalTarget(host) || LOOPBACK_NAMES.has(host) || host.endsWith('.localhost')
+  );
+}
+
+/**
+ * True when a write targets an **installed package's** manifest.
+ *
+ * ChainDrop's propagation step is the reason: it downloaded each victim
+ * package's tarball, rewrote its `package.json` to inject a `preinstall` hook,
+ * bumped the patch version and republished — 444 packages and 2,212 versions in
+ * under four hours. dephawk already caught the second half
+ * ({@link isRegistryPublish}); this is the first.
+ *
+ * Scoped to `node_modules/**\/package.json` on purpose. The **root**
+ * `package.json` is deliberately out: `npm version`, changesets and half the
+ * release tooling rewrite it legitimately, and the earlier bypass backlog
+ * already concluded that flagging it costs more than it catches.
+ *
+ * Note this is *narrower* than the cross-package rule
+ * ({@link import('./package-dir.js').isCrossPackageWrite}), which never fires
+ * when a package edits its **own** directory. Editing your own manifest mid-run
+ * is exactly the propagation move, so it is named here.
+ */
+export function isManifestTamper(path: string): boolean {
+  return /(^|\/)node_modules\/.+\/package\.json$/.test(normalizeForPersistence(path));
+}
+
+/**
+ * The marker {@link import('../adapters/interceptors/child-process.interceptor.js')}
+ * appends to a spawn detail whose options detach the child from this process.
+ *
+ * The options object never reached the report before: `describeSpawn` recorded
+ * the command and its arguments and dropped everything else, so
+ * `{ detached: true, stdio: 'ignore', windowsHide: true }` followed by
+ * `.unref()` — a child that keeps running after the installer exits clean, with
+ * no output anyone would see — read exactly like an ordinary foreground spawn.
+ *
+ * A marker in the detail rather than a separate field because `detail` is the
+ * only channel {@link detectTechnique} has, and it is the same shape as the
+ * existing `[dephawk re-attached: …]` note. A command that happens to contain
+ * the literal marker over-reports; it cannot hide anything.
+ */
+export const DETACHED_MARKER = '[detached';
+
+/**
+ * True when a spawn detaches its child from this process. Origin-gated like
+ * {@link isAltRuntimeEscape}: starting a long-lived daemon from your own code is
+ * ordinary, and a dependency doing it during an install is the finding.
+ */
+export function isDetachedProcess(command: string, origin: Origin): boolean {
+  return origin !== 'application' && command.includes(DETACHED_MARKER);
+}
+
+/**
  * True when an `env.write` detail turns off TLS certificate validation for the
  * whole process. Node only treats the exact value `0` as "reject nothing", so
  * `=1` (a package putting verification *back*) is not a finding.
@@ -686,12 +802,14 @@ export function detectTechnique(
     case 'net.resolve':
       if (isCloudMetadataHost(detail)) return 'cloud-metadata';
       if (isDeadDropHost(detail)) return 'dead-drop-c2';
+      if (isLocalServicePivot(detail)) return 'local-service-pivot';
       return null;
     case 'fs.write':
       if (isCiWorkflowPath(detail)) return 'ci-workflow-persistence';
       if (isGitHookPath(detail)) return 'git-hook-persistence';
       if (isEditorHookPath(detail)) return 'editor-hook-persistence';
       if (isServicePersistencePath(detail)) return 'service-persistence';
+      if (isManifestTamper(detail)) return 'manifest-tamper';
       return null;
     case 'fs.read':
       return isAiCredentialPath(detail) ? 'ai-credential-theft' : null;
@@ -701,10 +819,101 @@ export function detectTechnique(
       if (isRegistryPublish(detail)) return 'registry-publish';
       if (isServicePersistenceCommand(detail)) return 'service-persistence';
       if (isAltRuntimeEscape(detail, origin)) return 'alt-runtime-escape';
+      if (isDetachedProcess(detail, origin)) return 'detached-process';
       return null;
     default:
       return null;
   }
+}
+
+/** One dependency's suspected DNS-tunnel channel. */
+export interface DnsTunnel {
+  /** The dependency responsible. */
+  readonly package: string;
+  /** The apex the payload labels sat under. */
+  readonly apex: string;
+  /** How many distinct payload-shaped labels were queried under it. */
+  readonly queries: number;
+}
+
+/**
+ * A label long enough and dense enough to be carrying data rather than naming
+ * something. 24 characters is past every ordinary subdomain and past the CDN
+ * hashes (`d1a2b3c4`, `abcdef1234567890`) that would otherwise dominate; the
+ * character class is what base16/32/64url encoders emit, so a label with a vowel
+ * pattern anyone would type does not qualify.
+ */
+const TUNNEL_LABEL = /^[a-z0-9_-]{24,}$/;
+
+/**
+ * How many distinct payload labels under one apex it takes to call it a tunnel.
+ *
+ * The whole difficulty of this signal is that a single long random label is
+ * completely ordinary — DKIM selectors, ACME challenge records and CDN cache
+ * keys all look exactly like one. What none of them do is emit a *stream* of
+ * distinct ones under the same apex inside a single install, because that is
+ * what chunked exfiltration is: an archive cut into label-sized pieces.
+ */
+const TUNNEL_THRESHOLD = 5;
+
+/**
+ * Dependencies exfiltrating over DNS: many distinct payload-shaped labels under
+ * one apex.
+ *
+ * node-ipc (2026) globs 90+ credential categories, gzips them, splits the
+ * archive into base64 chunks sized to DNS labels and ships them out as TXT
+ * queries — and points its own `dns.Resolver` at 1.1.1.1/8.8.8.8 first, so
+ * host-level DNS monitoring never sees any of it. The Flooding Dropper
+ * (~1,033 packages) *downloads* its second stage the same way, as numbered TXT
+ * records. No TCP connection is ever made, so nothing else in dephawk sees it.
+ *
+ * Derived from the recorded events rather than timing, like
+ * {@link detectExfilChains}, so it is deterministic in CI. Observe-only: it
+ * annotates the report and never blocks — each query was already judged against
+ * the host allowlist on its own.
+ */
+export function detectDnsTunnels(events: readonly DhEvent[]): DnsTunnel[] {
+  // package → apex → the distinct payload labels seen under it.
+  const byPackage = new Map<string, Map<string, Set<string>>>();
+
+  for (const event of events) {
+    if (
+      event.capability !== 'net.resolve' ||
+      event.origin !== 'dependency' ||
+      event.package === null
+    ) {
+      continue;
+    }
+    const labels = extractHost(event.detail).replace(/\.$/, '').split('.');
+    // The apex is what is left once the payload labels are stripped; two labels
+    // is the common case and good enough — an over-long apex only splits one
+    // tunnel into two counts, which is the safe direction to be wrong in.
+    if (labels.length < 3) {
+      continue;
+    }
+    const payload = labels.slice(0, -2).filter((label) => TUNNEL_LABEL.test(label));
+    if (payload.length === 0) {
+      continue;
+    }
+    const apex = labels.slice(-2).join('.');
+    const forPackage = byPackage.get(event.package) ?? new Map<string, Set<string>>();
+    byPackage.set(event.package, forPackage);
+    const seen = forPackage.get(apex) ?? new Set<string>();
+    forPackage.set(apex, seen);
+    for (const label of payload) {
+      seen.add(label);
+    }
+  }
+
+  const tunnels: DnsTunnel[] = [];
+  for (const [pkg, byApex] of byPackage) {
+    for (const [apex, labels] of byApex) {
+      if (labels.size >= TUNNEL_THRESHOLD) {
+        tunnels.push({ package: pkg, apex, queries: labels.size });
+      }
+    }
+  }
+  return tunnels.sort((a, b) => b.queries - a.queries);
 }
 
 /** One dependency's read-a-secret-then-reach-the-network chain. */

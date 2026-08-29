@@ -3,6 +3,93 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.14.0] — 2026-08-29
+
+### Added — Tier 2 of the August recon, plus the containment self-audit
+
+The four remaining gaps from [`docs/threat-recon-2026-08.md`](docs/threat-recon-2026-08.md),
+and the audit Node's own CVE prompted.
+
+### Security
+
+- **`detached-process` — a spawn built to outlive the installer.** `describeSpawn`
+  recorded the command and its arguments and **dropped the options object
+  entirely**, so `{ detached: true, stdio: 'ignore', windowsHide: true }` followed
+  by `.unref()` read exactly like an ordinary foreground spawn. That triad is the
+  survive-the-install signature of AsyncAPI, the moika 45-package campaign and
+  mastra: the installer exits clean and silent while the payload keeps running.
+  The detail is now options-aware on both the module entrypoints and the
+  `ChildProcess.prototype.spawn` chokepoint. Origin-gated — your own code
+  starting a daemon is ordinary.
+- **`manifest-tamper` — rewriting an installed package's `package.json`.**
+  ChainDrop propagated by downloading each victim's tarball, injecting a
+  `preinstall` hook, bumping the patch version and republishing: 444 packages and
+  2,212 versions in under four hours. dephawk caught the republish
+  (`registry-publish`) but not the rewrite. Scoped to
+  `node_modules/**/package.json`; the root manifest stays out, since `npm version`
+  and changesets write it legitimately. Deliberately narrower than the
+  cross-package rule, which never fires when a package edits its **own**
+  directory — and editing your own manifest mid-run is exactly the propagation
+  move.
+- **`local-service-pivot` — infrastructure reachable from inside.** The 36
+  hijacked Strapi packages probed a local Redis (`INFO`, `DBSIZE`, `KEYS`),
+  injected a crontab through it, then went at PostgreSQL with hardcoded
+  credentials. dephawk recorded `net.connect 127.0.0.1:6379` and named nothing.
+  Now named when **both** halves hold: an internal target _and_ a port whose
+  service is unauthenticated by convention (6379, 5432, 3306, 27017, 2375/2376,
+  8500, 2379, 10250). A hosted Redis at `redis.example.com:6379` is how half the
+  ecosystem runs, so the port alone means nothing.
+- **The container runtime control socket.** Only `~/.docker` was covered.
+  `/var/run/docker.sock` and `/run/podman/podman.sock` are now sensitive:
+  anything that can talk to one can start a privileged container with the host
+  filesystem mounted, which is root on the host.
+- **`setServers` — the DNS-tunnel resolver redirect.** It takes a list of
+  nameservers rather than a hostname, so it never matched `DNS_METHODS` and the
+  redirect went unrecorded. Each nameserver is now judged on its own against the
+  per-package connect allowlist, on `dns`, `dns.promises` and both `Resolver`
+  prototypes.
+- **`dns-tunnel-exfil` — chunked exfiltration over subdomain labels.** node-ipc
+  (2026) globs 90+ credential categories, gzips them, splits the archive into
+  base64 chunks sized to DNS labels and ships them out as TXT queries; the
+  Flooding Dropper (~1,033 packages) _downloads_ its second stage the same way.
+  No TCP connection is ever made, so nothing else in dephawk sees it. Cross-event
+  and derived from recorded events rather than timing, so it stays deterministic
+  in CI. One long random label is completely ordinary — DKIM selectors, ACME
+  challenges and CDN cache keys all look like one — so it takes **five distinct**
+  payload-shaped labels under one apex from one package, and repeats of a single
+  label do not accumulate.
+- **`node:trace_events` as an unwatched fs-write sink.** Enabling a tracing
+  category makes Node write `node_trace.<n>.log` with no `fs` call the fs
+  interceptor can see — the sink class of CVE-2026-56847. Judged on `enable()`,
+  when the sink is armed. Its load is guarded, and that guard is the finding:
+  `require('node:trace_events')` **throws** inside a worker thread, and an
+  unguarded load took dephawk's whole register down with it, leaving every worker
+  unmonitored. Caught by the eval-worker e2e; no unit test would have.
+- **The suite can no longer pass on a stale build, and a technique can no longer
+  ship inert.** Two structural gaps, both of which had already let a real defect
+  through. Every e2e test ran the _built_ CLI and rebuilt only when `dist` was
+  **missing** — the wrong question, since after any source change it still
+  exists, so a full green run could be testing the previous build; a vitest
+  `globalSetup` now rebuilds whenever `dist` is older than `src`. And nothing
+  asked whether a recognised technique was _reachable_: `service-persistence`
+  shipped with its predicate, gloss and `detectTechnique` wiring complete and did
+  nothing end to end, because the fs interceptor's own pre-filter dropped the
+  write before anything judged it. There is now a fixture per technique that
+  drives the real interceptor and asserts the technique comes back out, typed
+  `Record<Technique, …>` so a new technique without one is a **compile error**.
+- **Prefix-boundary containment audit (the CVE-2026-58043 class).** Node's
+  Permission Model over-granted filesystem access because its radix tree matched
+  a granted `/home/app/data` against a never-allowlisted sibling
+  `/home/app/data-secrets`. dephawk's three same-shaped matchers are now pinned
+  with sibling-prefix repros in both directions. `protectedPathAffectedBy` was
+  sibling-safe but one-directional — it caught the protected file and its
+  ancestors, never a path _inside_ it; every protected path is a file today, so
+  that is a containment guarantee for the next one rather than a live fix.
+  `pathMatches` and `examinePackage`'s sandbox filter were already correct, and
+  the latter's predicate is now exported and tested against the real
+  implementation rather than a copy — there the mirror-image mistake would
+  silently _drop_ real findings out of an audit.
+
 ## [0.13.0] — 2026-08-28
 
 ### Added — the runtime moves of the post-lifecycle-script era

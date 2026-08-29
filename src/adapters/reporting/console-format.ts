@@ -2,6 +2,7 @@ import { CAPABILITY_META } from '../../domain/capability.js';
 import type { DhEvent } from '../../domain/event.js';
 import type { Mode } from '../../domain/policy.js';
 import {
+  detectDnsTunnels,
   detectExfilChains,
   detectTechnique,
   TECHNIQUE_GLOSS,
@@ -90,6 +91,19 @@ export function formatConsoleReport(
     for (const chain of chains) {
       lines.push(
         `      ${style('bold', chain.package)}: read ${truncate(chain.secret, MAX_DETAIL)} → out to ${truncate(chain.sink, MAX_DETAIL)}`,
+      );
+    }
+  }
+
+  const tunnels = detectDnsTunnels(events);
+  if (tunnels.length > 0) {
+    lines.push('');
+    lines.push(
+      `  ${style('red', '🚨 likely DNS-tunnel exfiltration')} — a dependency queried a stream of encoded subdomains, which leaves no connection to see:`,
+    );
+    for (const tunnel of tunnels) {
+      lines.push(
+        `      ${style('bold', tunnel.package)}: ${tunnel.queries} encoded labels under ${truncate(tunnel.apex, MAX_DETAIL)}`,
       );
     }
   }

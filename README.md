@@ -61,12 +61,15 @@ code 2.
 
 > 🛡️ **Hardened release by release.** dephawk watches **12 capability classes**
 > across **18 interceptors**, and every version closes another real bypass —
-> **73 reproduced attack techniques blocked, and counting.** Each was
+> **82 reproduced attack techniques blocked, and counting.** Each was
 > demonstrated against a published build _before_ it was fixed; the running list
 > is in the [CHANGELOG](CHANGELOG.md). Recent additions: **alternative-runtime
 > escape** (a dependency spawning downloaded Bun/Deno to get out from under Node),
 > **TLS teardown via `process.env`**, **OS service persistence** (systemd,
-> launchd, cron, Run keys), **AI-assistant credential theft**, **resolved-IP
+> launchd, cron, Run keys), **AI-assistant credential theft**, **detached
+> processes** built to outlive the installer, **manifest tampering**
+> (ChainDrop's propagation step), **local-service pivots** (Redis/Postgres/Docker
+> socket), **DNS-tunnel exfiltration**, **resolved-IP
 > network enforcement** (a dependency’s own `lookup` can’t point an allowlisted
 > host at an internal/metadata IP — SSRF), **editor & AI-agent hook persistence**
 > (the keyv/ChainDrop worm’s `.vscode/tasks.json` + `.claude/settings.json` move),
@@ -92,6 +95,19 @@ code 2.
 > `gh-token-monitor` _token death watch_, which outlives credential rotation), and
 > **`ai-credential-theft`** (reads of `~/.claude`, `~/.codex`, `~/.cursor`,
 > `~/.gemini`, Copilot — what jscrambler went for).
+>
+> 🎯 **New in 0.14 — the moves that leave no connection and no file to see.**
+> **`dns-tunnel-exfil`**: node-ipc gzips 90+ credential categories, cuts the
+> archive into DNS-label-sized base64 chunks and ships them out as TXT queries,
+> pointing its own resolver at 1.1.1.1 first so host DNS monitoring never sees
+> them — no TCP connection is ever made. **`detached-process`**: the options
+> object never reached the report, so `{ detached: true, stdio: 'ignore' }` plus
+> `.unref()` looked like an ordinary spawn while the installer exited clean and
+> the payload kept running. **`manifest-tamper`**: ChainDrop's propagation step,
+> rewriting an installed `package.json` to inject a `preinstall` hook.
+> **`local-service-pivot`**: the Strapi campaign's local Redis → crontab →
+> PostgreSQL chain, and the Docker control socket that is a one-step container
+> escape.
 >
 > This sits on the **attack-recognition layer** that also names the other worm
 > moves: **cloud instance-metadata SSRF** (evasion-resistant to decimal/hex/IPv6),
