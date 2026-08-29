@@ -31,3 +31,18 @@ describe('pathMatchesAny', () => {
     expect(pathMatchesAny('/a/b', ['/x', '/y'])).toBe(false);
   });
 });
+
+describe('pathMatches — prefix boundaries (the CVE-2026-58043 class)', () => {
+  it('does not let a directory allowlist cover a name-prefix sibling', () => {
+    // Granting `~/data` must never grant `~/data-secrets`, which is exactly how
+    // Node's own permission model over-granted.
+    expect(pathMatches('/home/app/data-secrets/key.pem', '/home/app/data')).toBe(false);
+    expect(pathMatches('/home/app/datastore', '/home/app/data')).toBe(false);
+    expect(pathMatches('/home/app/data/x.json', '/home/app/data')).toBe(true);
+  });
+
+  it('an explicit trailing * is the caller asking for the prefix', () => {
+    // Documented behaviour, not a boundary bug: `data*` is a glob the user wrote.
+    expect(pathMatches('/home/app/data-secrets/key.pem', '/home/app/data*')).toBe(true);
+  });
+});
