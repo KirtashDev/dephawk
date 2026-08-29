@@ -1,4 +1,4 @@
-import type { Capability } from './capability.js';
+import { envWriteName, type Capability } from './capability.js';
 import type { DhEvent } from './event.js';
 import { extractHost } from './host.js';
 import type { PackagePolicy, Policy } from './policy.js';
@@ -56,6 +56,10 @@ const NEEDS_REVIEW: readonly Capability[] = [
   'code.eval',
   'net.listen',
   'process.memory',
+  // Not open-ended, but every variable whose write is recorded at all is one
+  // that changes how the process treats TLS, what Node loads, or whether
+  // dephawk is watching — granting one deserves the same second look.
+  'env.write',
 ];
 
 interface Grants {
@@ -164,6 +168,11 @@ function record(grants: Grants, event: DhEvent, home: string): void {
     case 'env.read':
       grants.envVars.add(event.detail);
       grants.observations.add(`read the secret ${event.detail}`);
+      break;
+    case 'env.write':
+      grants.envVars.add(envWriteName(event.detail));
+      grants.reviewable.add('env.write');
+      grants.observations.add(`set the environment variable ${event.detail}`);
       break;
     case 'fs.read':
       grants.reads.add(detail);

@@ -706,7 +706,7 @@ async function examineSubcommand(args: readonly string[]): Promise<number> {
 
   const techniques = new Set<string>();
   for (const event of result.events) {
-    const technique = detectTechnique(event.capability, event.detail);
+    const technique = detectTechnique(event.capability, event.detail, event.origin);
     if (technique !== null) {
       techniques.add(technique);
     }
@@ -718,13 +718,14 @@ async function examineSubcommand(args: readonly string[]): Promise<number> {
       .filter(
         (event) =>
           event.origin === 'dependency' &&
-          (event.sensitive || detectTechnique(event.capability, event.detail) !== null),
+          (event.sensitive ||
+            detectTechnique(event.capability, event.detail, event.origin) !== null),
       )
       .map((event) => ({
         package: event.package,
         capability: event.capability,
         detail: event.detail,
-        technique: detectTechnique(event.capability, event.detail),
+        technique: detectTechnique(event.capability, event.detail, event.origin),
         blocked: event.blocked,
       }));
     process.stdout.write(

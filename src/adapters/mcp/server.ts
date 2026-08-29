@@ -280,7 +280,7 @@ function summariseEvents(events: readonly DhEvent[]): EventSummary {
   const packages = new Set<string>();
 
   for (const event of dependencyEvents) {
-    const technique = detectTechnique(event.capability, event.detail);
+    const technique = detectTechnique(event.capability, event.detail, event.origin);
     if (technique !== null) {
       techniques.add(technique);
     }

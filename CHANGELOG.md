@@ -3,6 +3,80 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.13.0] — 2026-08-28
+
+### Added — the runtime moves of the post-lifecycle-script era
+
+npm v12 disabled install scripts by default, and the 2026 campaigns simply moved
+to triggers npm no longer runs: import-time payloads, `binding.gyp` command
+substitution, editor/agent hooks. A scanner asking "does this package have a
+postinstall?" is now blind to most live payloads; a runtime tripwire is not.
+Four new named techniques, drawn from
+[`docs/threat-recon-2026-08.md`](docs/threat-recon-2026-08.md), each reproduced
+before it was closed.
+
+### Security
+
+- **`alt-runtime-escape` — a dependency spawning Bun/Deno to get out from under
+  Node.** The defining evasion of 2026: keyv/cacheable, ChainDrop, vpmdhaj,
+  Phantom Gyp and the Nx Console backdoor all download the standalone Bun release
+  and run their second stage under it, and Snyk and Wiz both state the purpose
+  outright — _sidestep Node-level instrumentation_. Every dephawk interceptor
+  lives inside the Node process, so it saw the dropper's `spawn` and called it
+  nothing. It is now named and, in enforce mode, refused: the worm stops at stage
+  1, before the credential collector runs. A **dependency** starting Bun or Deno
+  at all is the finding; your own build's Bun is application origin and untouched
+  unless the binary came out of a temp/cache/download directory, which also makes
+  a dropped `node` a finding whoever ran it.
+- **`env.write` — TLS teardown and monitoring scrub through `process.env`.**
+  Writes to `process.env` were a silent hole: the proxy's `set` and
+  `defineProperty` traps forwarded to the real environment and recorded nothing.
+  mastra (Sapphire Sleet) set `NODE_TLS_REJECT_UNAUTHORIZED='0'` to turn off
+  certificate validation process-wide before exfiltrating, and vpmdhaj rewrote
+  `CI='false'` after using the same variable for sandbox detection. dephawk now
+  records **and gates** writes, deletions and `defineProperty` of the guarded
+  set — `NODE_TLS_REJECT_UNAUTHORIZED`, `NODE_OPTIONS`, `NODE_EXTRA_CA_CERTS`,
+  `CI`, `DEPHAWK_*` — naming the TLS case **`tls-verification-disabled`**.
+  Ordinary `process.env.FOO = 'bar'` is untouched, so the hot path and the false
+  positive rate are both unchanged.
+- **`service-persistence` — systemd, launchd, cron, Run keys, `authorized_keys`.**
+  Persistence detection covered shell rc files only, while the 2026 campaigns
+  overwhelmingly used the OS service managers: Miasma's `miasma-monitor.service`
+  plus a `HKCU\…\Run` value, mastra's LaunchAgent plist and 5-second-restart
+  systemd unit, the keyv worm's `gh-token-monitor` _token death watch_ that fires
+  when the stolen credential stops working (surviving the rotation meant to end
+  the incident), TrapDoor's cron jobs and SSH keys. Both halves are covered: the
+  path patterns (systemd units incl. timers/sockets, LaunchAgents/LaunchDaemons,
+  `/etc/cron.d`, the cron spools, `.ssh/authorized_keys`, the Windows Startup
+  folder, XDG autostart) and the spawn-side verbs (`launchctl load`,
+  `systemctl --user enable`, `crontab -`, `reg add …\Run`, `schtasks /create`,
+  `sc create`).
+- **`ai-credential-theft` — reading the AI assistants' credential stores.**
+  dephawk guarded _writes_ to `.claude/settings.json` but treated _reads_ of
+  `~/.claude/.credentials.json`, `~/.codex`, `~/.cursor`, `~/.windsurf`,
+  `~/.gemini`, `~/.config/github-copilot` and
+  `~/Library/Application Support/Claude` as ordinary files. jscrambler (2026-07)
+  reached into exactly these, and the keyv collector scans them beside 300+ other
+  credential patterns. They now rank with cloud and registry credentials.
+- **Adding a persistence technique no longer needs the fs interceptor edited
+  too.** The interceptor's "is this write lexically mundane?" pre-filter named
+  the CI/git-hook/editor-hook predicates by hand and returned early on anything
+  else, so `service-persistence` shipped with its predicate, gloss and
+  `detectTechnique` wiring complete and was still invisible end-to-end. All three
+  copies of that list now go through one `isPersistenceWrite`, caught by the
+  technique's own end-to-end repro.
+
+### Added — dead-drop channels beyond Ethereum
+
+`dead-drop-c2` now also names Solana (GlassWorm encodes C2 in transaction memo
+fields), the Internet Computer (`ic0.app`/`icp0.io` — CanisterWorm is the first
+npm malware to anchor C2 in an ICP canister), `getblock.io`, Nostr relays
+(one of Miasma's four fallback channels), and the ephemeral tunnels and
+serverless relays that give a payload an endpoint with no attacker-owned domain
+to block: `workers.dev` (the ~1,033-package Flooding Dropper), `deno.dev`,
+ngrok, `trycloudflare.com`, `webhook.site`, `loca.lt`, `serveo.net`,
+`pipedream.net`.
+
 ## [0.12.0] — 2026-08-16
 
 ### Added — a real guardrail for AI coding agents

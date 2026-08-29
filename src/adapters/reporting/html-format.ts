@@ -133,7 +133,7 @@ function renderRow(row: Row): string {
   const pkg = esc(displayPackage(row));
   const label = esc(CAPABILITY_META[row.capability].label);
   const detail = esc(row.detail);
-  const technique = detectTechnique(row.capability, row.detail);
+  const technique = detectTechnique(row.capability, row.detail, row.origin);
   const banner =
     technique === null
       ? ''

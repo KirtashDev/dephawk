@@ -1,11 +1,7 @@
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isPersistenceTarget, isSensitivePath } from '../../domain/sensitivity.js';
-import {
-  isCiWorkflowPath,
-  isEditorHookPath,
-  isGitHookPath,
-} from '../../domain/threat.js';
+import { isPersistenceWrite } from '../../domain/threat.js';
 import {
   isDephawkConfigPath,
   protectedPathAffectedBy,
@@ -366,15 +362,13 @@ export class FsInterceptor implements CapabilityInterceptor {
     // package writing into another's is a takeover of that package's identity.
     // See {@link import('../../domain/package-dir.js')}.
     const intoPackage = capability === 'fs.write' && packageOwningPath(path) !== null;
-    // Writing a shell startup file, or a CI workflow (`.github/workflows/*.yml` —
-    // the Shai-Hulud worm's self-persistence move), is a write-side attack: judged
-    // on writes only, lexically. See {@link import('../../domain/threat.js')}.
+    // Writing a shell startup file, a CI workflow (`.github/workflows/*.yml` —
+    // the Shai-Hulud worm's self-persistence move), an editor auto-run hook or an
+    // OS service unit is a write-side attack: judged on writes only, lexically.
+    // See {@link import('../../domain/threat.js').isPersistenceWrite}.
     const persistence =
       capability === 'fs.write' &&
-      (isPersistenceTarget(path) ||
-        isCiWorkflowPath(path) ||
-        isGitHookPath(path) ||
-        isEditorHookPath(path));
+      (isPersistenceTarget(path) || isPersistenceWrite(path));
     // Planting dephawk's own config for the next run to load as policy is a
     // self-defense attack, matched by basename (its absolute path is unknown on a
     // no-config run). See {@link import('../../domain/protected-path.js')}.
@@ -403,10 +397,7 @@ export class FsInterceptor implements CapabilityInterceptor {
       const realProtected = protectedPathAffectedBy(real, this.protectedPaths) !== null;
       const realPersistence =
         capability === 'fs.write' &&
-        (isPersistenceTarget(real) ||
-          isCiWorkflowPath(real) ||
-          isGitHookPath(real) ||
-          isEditorHookPath(real));
+        (isPersistenceTarget(real) || isPersistenceWrite(real));
       const realConfigTamper = capability === 'fs.write' && isDephawkConfigPath(real);
       if (
         !realProtected &&
@@ -467,11 +458,7 @@ export class FsInterceptor implements CapabilityInterceptor {
   private checkWriteLeaf(record: RecordFn, path: string): void {
     const isProtected = protectedPathAffectedBy(path, this.protectedPaths) !== null;
     const intoPackage = packageOwningPath(path) !== null;
-    const persistence =
-      isPersistenceTarget(path) ||
-      isCiWorkflowPath(path) ||
-      isGitHookPath(path) ||
-      isEditorHookPath(path);
+    const persistence = isPersistenceTarget(path) || isPersistenceWrite(path);
     const configTamper = isDephawkConfigPath(path);
     if (
       !isProtected &&

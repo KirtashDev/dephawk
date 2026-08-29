@@ -13,6 +13,21 @@
  */
 
 /**
+ * See the note in {@link SENSITIVE_DIRECTORIES}. Kept as its own list so
+ * {@link isAiCredentialPath} can name the technique for exactly these, while
+ * they still take part in the ordinary sensitivity match.
+ */
+const AI_ASSISTANT_DIRECTORIES: readonly string[] = [
+  '/.claude',
+  '/.codex',
+  '/.cursor',
+  '/.windsurf',
+  '/.gemini',
+  '/.config/github-copilot',
+  '/library/application support/claude',
+];
+
+/**
  * Directories whose contents are secrets. Matched both as containers
  * (`~/.ssh/id_rsa`) and as the directory itself (`~/.ssh`), because *listing*
  * one is already reconnaissance: `readdir('~/.ssh')` names every key on the
@@ -78,6 +93,18 @@ const SENSITIVE_DIRECTORIES: readonly string[] = [
   '/library/application support/google/chrome',
   '/library/application support/bravesoftware',
   '/library/application support/microsoft edge',
+  // AI coding-assistant credential stores. `~/.claude/.credentials.json`,
+  // `~/.codex/auth.json`, Cursor/Windsurf's config and the Copilot/Gemini token
+  // files are what jscrambler (2026-07) reached for, and the keyv collector
+  // scans them alongside 300+ other credential patterns. An assistant token buys
+  // the attacker model access billed to you and, through the agent's own
+  // integrations, usually the repositories it can reach — so these rank with
+  // cloud and registry credentials, not with editor preferences.
+  //
+  // Matched wherever they appear, home directory or repository: a dependency
+  // reading a project's `.claude` / `.cursor` during an install has no more
+  // business doing so than reading the one in `$HOME`.
+  ...AI_ASSISTANT_DIRECTORIES,
 ];
 
 /** Exact basenames that are sensitive wherever they appear. */
@@ -114,6 +141,9 @@ const SENSITIVE_BASENAMES: readonly string[] = [
   'key4.db',
   'key3.db',
   'signons.sqlite',
+  // Claude Code's OAuth token store, by name, so it is caught wherever the
+  // assistant keeps its home directory.
+  '.credentials.json',
 ];
 
 /**
@@ -207,6 +237,25 @@ function normalisePath(path: string): string {
 function basename(path: string): string {
   const lastSlash = path.lastIndexOf('/');
   return lastSlash === -1 ? path : path.slice(lastSlash + 1);
+}
+
+/**
+ * True when a path points into an AI coding assistant's credential store.
+ *
+ * A narrower question than {@link isSensitivePath}, asked separately so a read
+ * here can be *named* `ai-credential-theft` rather than reported as one more
+ * sensitive path. The paths themselves are part of {@link SENSITIVE_DIRECTORIES},
+ * so policy already governs the read; this only decides what the report calls it.
+ */
+export function isAiCredentialPath(path: string): boolean {
+  const normalised = normalisePath(path);
+  const padded = normalised.startsWith('/') ? normalised : `/${normalised}`;
+  if (basename(padded) === '.credentials.json') {
+    return true;
+  }
+  return AI_ASSISTANT_DIRECTORIES.some(
+    (directory) => padded.endsWith(directory) || padded.includes(`${directory}/`),
+  );
 }
 
 /** True when a filesystem path points at something secret-bearing. */

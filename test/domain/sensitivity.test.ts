@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
-  isSensitivePath,
-  isSensitiveEnv,
+  isAiCredentialPath,
   isPersistenceTarget,
+  isSensitiveEnv,
+  isSensitivePath,
   looksLikeSecretValue,
 } from '../../src/domain/sensitivity.js';
 
@@ -265,5 +266,30 @@ describe('isSensitiveEnv', () => {
     'OLDPWD', // ditto — no delimiter before PWD
   ])('does not flag mundane var %s', (name) => {
     expect(isSensitiveEnv(name)).toBe(false);
+  });
+});
+
+describe('isAiCredentialPath — the AI assistants’ credential stores', () => {
+  it.each([
+    '/home/dev/.claude/.credentials.json', // Claude Code's OAuth token
+    '/home/dev/.claude',
+    '/home/dev/.codex/auth.json',
+    '/home/dev/.cursor/mcp.json',
+    '/home/dev/.windsurf/config.json',
+    '/home/dev/.gemini/oauth_creds.json',
+    '/home/dev/.config/github-copilot/hosts.json',
+    '/Users/dev/Library/Application Support/Claude/config.json',
+    '/srv/app/.credentials.json', // by name, wherever the assistant keeps $HOME
+  ])('flags %s, and marks it sensitive', (path) => {
+    expect(isAiCredentialPath(path)).toBe(true);
+    expect(isSensitivePath(path)).toBe(true);
+  });
+
+  it.each([
+    '/home/dev/project/src/index.ts',
+    '/home/dev/.config/nvim/init.lua',
+    '/home/dev/credentials.json', // no leading dot: a Google service-account file
+  ])('leaves %s alone', (path) => {
+    expect(isAiCredentialPath(path)).toBe(false);
   });
 });

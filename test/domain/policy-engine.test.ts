@@ -464,3 +464,64 @@ describe('RulePolicyEngine — writing into another package’s directory', () =
     expect(verdict.allowed).toBe(true);
   });
 });
+
+describe('RulePolicyEngine — env.write (TLS teardown, sandbox spoofing)', () => {
+  it('refuses a dependency turning off TLS verification, and names it sensitive', () => {
+    const v = engine.evaluate(
+      req({ capability: 'env.write', detail: 'NODE_TLS_REJECT_UNAUTHORIZED=0' }),
+    );
+    expect(v.allowed).toBe(false);
+    expect(v.sensitive).toBe(true);
+    expect(v.reason).toMatch(/NODE_TLS_REJECT_UNAUTHORIZED/);
+    // The reason names the variable, not the whole `NAME=value` detail.
+    expect(v.reason).not.toMatch(/=0/);
+  });
+
+  it('refuses a deletion of dephawk’s own settings', () => {
+    const v = engine.evaluate(
+      req({ capability: 'env.write', detail: 'DEPHAWK_SINK (deleted)' }),
+    );
+    expect(v.allowed).toBe(false);
+    expect(v.reason).toMatch(/DEPHAWK_SINK/);
+  });
+
+  it('allows a write the package’s env grant names', () => {
+    const engineWithGrant = new RulePolicyEngine({
+      mode: 'enforce',
+      default: { env: false },
+      packages: { 'tls-fiddler': { env: ['NODE_EXTRA_CA_CERTS'] } },
+    });
+    const v = engineWithGrant.evaluate(
+      req({
+        capability: 'env.write',
+        package: 'tls-fiddler',
+        detail: 'NODE_EXTRA_CA_CERTS=/etc/ssl/corp.pem',
+      }),
+    );
+    expect(v.allowed).toBe(true);
+  });
+
+  it('leaves the user’s own code alone', () => {
+    const v = engine.evaluate(
+      req({
+        capability: 'env.write',
+        package: null,
+        origin: 'application',
+        detail: 'NODE_TLS_REJECT_UNAUTHORIZED=0',
+      }),
+    );
+    expect(v.allowed).toBe(true);
+  });
+});
+
+describe('RulePolicyEngine — the 0.13 techniques make a request sensitive', () => {
+  it.each([
+    ['process.spawn' as const, './.cache/bun install'],
+    ['fs.write' as const, '/home/alice/.config/systemd/user/beacon.service'],
+    ['fs.read' as const, '/home/alice/.claude/.credentials.json'],
+  ])('%s %s', (capability, detail) => {
+    const v = engine.evaluate(req({ capability, detail }));
+    expect(v.sensitive).toBe(true);
+    expect(v.allowed).toBe(false);
+  });
+});

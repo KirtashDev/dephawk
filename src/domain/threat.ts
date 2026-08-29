@@ -15,7 +15,9 @@
  */
 import type { Capability } from './capability.js';
 import type { DhEvent } from './event.js';
+import type { Origin } from './origin.js';
 import { extractHost } from './host.js';
+import { isAiCredentialPath } from './sensitivity.js';
 
 /** A recognised attack technique. */
 export type Technique =
@@ -24,7 +26,11 @@ export type Technique =
   | 'ci-workflow-persistence'
   | 'git-hook-persistence'
   | 'editor-hook-persistence'
-  | 'registry-publish';
+  | 'service-persistence'
+  | 'registry-publish'
+  | 'alt-runtime-escape'
+  | 'tls-verification-disabled'
+  | 'ai-credential-theft';
 
 /** One-line, plain-English gloss + what to check — shown next to the finding. */
 export const TECHNIQUE_GLOSS: Record<Technique, string> = {
@@ -38,8 +44,16 @@ export const TECHNIQUE_GLOSS: Record<Technique, string> = {
     'writing a git hook (.git/hooks or .husky) — a payload here re-runs on every commit/checkout/push; nothing legitimate installs one from inside a dependency',
   'editor-hook-persistence':
     'writing an editor/AI-agent hook that auto-runs when the repo is opened (.vscode/tasks.json runOn:folderOpen, .claude/settings.json hooks, .devcontainer postCreateCommand, .envrc) — the keyv/ChainDrop worm’s move; nothing legitimate installs one from inside a dependency',
+  'service-persistence':
+    'installing an OS-level autostart entry (systemd unit, launchd agent, cron job, Windows Run key/scheduled task, SSH authorized_keys) — persistence that survives the build, the shell and often credential rotation; nothing legitimate installs one from inside a dependency',
   'registry-publish':
     'publishing to the package registry — how a worm self-replicates with a stolen token',
+  'alt-runtime-escape':
+    'starting a second JavaScript runtime (Bun/Deno, or a Node binary dropped in a temp/cache dir) — the 2026 worms download standalone Bun and run their payload under it *specifically* to escape Node-level monitoring; the stage-2 code runs with every interceptor gone',
+  'tls-verification-disabled':
+    'setting NODE_TLS_REJECT_UNAUTHORIZED=0 — this turns off certificate validation for the whole process, so every later HTTPS request can be silently intercepted; nothing legitimate does it from inside a dependency',
+  'ai-credential-theft':
+    'reading an AI coding assistant’s credential store (~/.claude, ~/.codex, ~/.cursor, ~/.gemini, GitHub Copilot) — the 2026 stealers scan these alongside cloud and registry tokens; an assistant’s token buys the attacker your model access and often your repositories',
 };
 
 /**
@@ -211,6 +225,31 @@ const DEAD_DROP_HOSTS: readonly string[] = [
   'blastapi.io',
   'blockpi.network',
   'nodereal.io',
+  'getblock.io',
+  // More chains, since the dead drop has generalised well beyond Ethereum:
+  // GlassWorm hides its C2 in a Solana transaction memo, and CanisterWorm is the
+  // first npm malware to anchor C2 in an Internet Computer canister.
+  'api.mainnet-beta.solana.com',
+  'ic0.app',
+  'icp0.io',
+  // Nostr relays — one of the four fallback C2 channels of AsyncAPI/Miasma,
+  // reached over a WebSocket.
+  'relay.damus.io',
+  'nos.lol',
+  'relay.snort.social',
+  // Ephemeral tunnels and serverless relays: an attacker-controlled endpoint
+  // with no attacker-owned domain to block. The ~1,033-package Flooding Dropper
+  // served its second stage from `workers.dev`.
+  'workers.dev',
+  'deno.dev',
+  'ngrok-free.app',
+  'ngrok.io',
+  'ngrok.app',
+  'trycloudflare.com',
+  'webhook.site',
+  'loca.lt',
+  'serveo.net',
+  'pipedream.net',
 ];
 
 /** True when an outbound target is a known public dead-drop / relay channel. */
@@ -407,6 +446,215 @@ export function isEditorHookPath(path: string): boolean {
   return EDITOR_HOOK_PATTERNS.some((pattern) => pattern.test(p));
 }
 
+/**
+ * OS-level autostart entries, matched on the normalised path. Shell rc files
+ * (`isPersistenceTarget`) are only half the story: the 2026 campaigns —
+ * Miasma's `miasma-monitor.service` + `HKCU\…\Run`, mastra's LaunchAgent plist
+ * and 5-second-restart systemd unit, the keyv worm's `gh-token-monitor` "token
+ * death watch" that fires when the stolen credential stops working, TrapDoor's
+ * cron jobs and `authorized_keys` — overwhelmingly reach for the *service
+ * managers* instead, because those survive a new shell, a reboot, and often the
+ * credential rotation that was supposed to end the incident.
+ *
+ * The developer writing their own unit file is application origin and always
+ * allowed; a dependency writing one during an install is the attack.
+ */
+const SERVICE_PERSISTENCE_PATTERNS: readonly RegExp[] = [
+  // systemd units, user (`~/.config/systemd/user`) and system
+  // (`/etc/systemd/system`, `/usr/lib/systemd/system`). Timers, sockets and
+  // path units start a service just as well as a `.service` does.
+  /(^|\/)systemd\/(user|system)\/[^/]+\.(service|timer|socket|path)$/,
+  // macOS launchd: per-user agents and system-wide daemons.
+  /(^|\/)library\/(launchagents|launchdaemons)\/[^/]+\.plist$/,
+  // cron: the system table, the drop-in dirs, and the per-user spools.
+  /(^|\/)etc\/(crontab|cron\.(d|hourly|daily|weekly|monthly))(\/[^/]+)?$/,
+  /(^|\/)var\/spool\/cron\/(crontabs\/)?[^/]+$/,
+  // An SSH authorized key is a permanent remote-login backdoor.
+  /(^|\/)\.ssh\/authorized_keys2?$/,
+  // Windows: anything dropped in the Startup folder runs at logon.
+  /(^|\/)start menu\/programs\/startup\/[^/]+$/,
+  // XDG autostart — a `.desktop` entry launched by the Linux desktop session.
+  /(^|\/)\.config\/autostart\/[^/]+\.desktop$/,
+];
+
+/** True when a write installs an OS-level autostart entry. */
+export function isServicePersistencePath(path: string): boolean {
+  const p = normalizeForPersistence(path);
+  return SERVICE_PERSISTENCE_PATTERNS.some((pattern) => pattern.test(p));
+}
+
+/**
+ * The spawn-side half of {@link isServicePersistencePath}: the verbs that
+ * register an autostart entry without any file dephawk would see being written
+ * (the tool writes it, in another process). Deliberately narrow — `crontab -l`
+ * merely lists, `systemctl status` merely reports — so what is left is
+ * installation, which no dependency does legitimately.
+ */
+const SERVICE_PERSISTENCE_COMMANDS: readonly RegExp[] = [
+  // `[\s/'"]` and not just whitespace: the verb is as often wrapped
+  // (`sh -c "crontab /tmp/job"`) or given by absolute path as typed bare.
+  /(^|[\s/'"])launchctl\b.*\b(load|bootstrap|submit|enable)\b/,
+  /(^|[\s/'"])systemctl\b.*\benable\b/,
+  /(^|[\s/'"])crontab\b(?!\s+-l\b)/,
+  /(^|[\s/'"])schtasks(\.exe)?\b.*\/create\b/,
+  /(^|[\s/'"])sc(\.exe)?\s+create\b/,
+  /(^|[\s/'"])reg(\.exe)?\s+add\b.*\\run(once)?\b/,
+  /(^|[\s/'"])(new-service|register-scheduledtask)\b/,
+];
+
+/** True when a spawned command registers an OS-level autostart entry. */
+export function isServicePersistenceCommand(command: string): boolean {
+  const c = command.toLowerCase();
+  return SERVICE_PERSISTENCE_COMMANDS.some((pattern) => pattern.test(c));
+}
+
+/**
+ * True when *writing* `path` installs persistence of any recognised kind — a CI
+ * pipeline, a git hook, an editor/agent auto-run hook, or an OS service.
+ *
+ * The single question the fs interceptor asks before deciding a write is
+ * lexically mundane. It exists so adding a technique here reaches that filter
+ * automatically: `service-persistence` shipped with the predicate written, the
+ * gloss written and `detectTechnique` wired, and was still invisible end-to-end
+ * because the interceptor's pre-filter named the other three by hand and
+ * returned early. Shell startup files stay in
+ * {@link import('./sensitivity.js').isPersistenceTarget}, which the same callers
+ * pair with this.
+ */
+export function isPersistenceWrite(path: string): boolean {
+  return (
+    isCiWorkflowPath(path) ||
+    isGitHookPath(path) ||
+    isEditorHookPath(path) ||
+    isServicePersistencePath(path)
+  );
+}
+
+/**
+ * Alternative JavaScript runtimes. Every dephawk interceptor lives inside *this*
+ * Node process, so a payload that re-executes its second stage under Bun or Deno
+ * runs with the whole guard gone — and that is not a side effect, it is the
+ * stated purpose: keyv/cacheable, ChainDrop, vpmdhaj, Phantom Gyp and the Nx
+ * Console backdoor all download the standalone Bun release and run stage 2 under
+ * it *to sidestep Node-level instrumentation*. Naming the dropper's spawn is
+ * what stops the worm at stage 1, before the credential collector ever runs.
+ */
+const ALT_RUNTIMES: ReadonlySet<string> = new Set(['bun', 'bunx', 'deno']);
+
+/**
+ * Node itself, which is only an escape when the *binary* is one the payload put
+ * there — re-running `node` is ordinary, running a `node` fished out of a temp
+ * directory is a dropped second stage.
+ */
+const NODE_RUNTIMES: ReadonlySet<string> = new Set(['node', 'nodejs']);
+
+/**
+ * Directory segments that mean "this binary was downloaded a moment ago, not
+ * installed". A runtime executed from one of these is the standalone release the
+ * dropper just fetched, whoever started it.
+ */
+const DROPPED_LOCATIONS: readonly string[] = [
+  '/tmp/',
+  '/temp/',
+  '/dev/shm/',
+  '/.cache/',
+  '/cache/',
+  '/caches/',
+  '/downloads/',
+  '/download/',
+  '/appdata/local/temp/',
+];
+
+/** Tokens after which the next word starts a fresh command. */
+const COMMAND_STARTERS: ReadonlySet<string> = new Set([
+  '&&',
+  '||',
+  ';',
+  '|',
+  '-c',
+  '-lc',
+  '-ic',
+  '/c',
+  '/k',
+  'exec',
+  'sudo',
+  'nohup',
+  'env',
+]);
+
+/** The executable basename of a command token, lowercased and de-suffixed. */
+function executableName(token: string): string {
+  const path = token.replace(/\\/g, '/').toLowerCase();
+  const name = path.slice(path.lastIndexOf('/') + 1);
+  return name.replace(/\.(exe|cmd|bat|ps1)$/, '');
+}
+
+/** True when an executable path sits in a temp / cache / download directory. */
+function isDroppedBinary(token: string): boolean {
+  const path = token.replace(/\\/g, '/').toLowerCase();
+  const padded = path.startsWith('/') ? path : `/${path}`;
+  return DROPPED_LOCATIONS.some((location) => padded.includes(location));
+}
+
+/**
+ * True when a spawned command starts a second JavaScript runtime in a way that
+ * escapes dephawk.
+ *
+ * A **bare** runtime name only counts in an executable position (the first
+ * token, or the word after `sh -c` / `&&` / `|`), so `npm install bun` — which
+ * names the runtime as an *argument* — is not an escape. A **path** form counts
+ * anywhere in the command, because `curl … && /tmp/bun run stage2.js` hides the
+ * executable in the middle of a shell line.
+ *
+ * Origin decides how strict to be, and this is where the false positives go: a
+ * project that genuinely uses Bun spawns it from *application* origin, so there
+ * it takes a dropped binary to be an escape. A **dependency** starting Bun or
+ * Deno at all is the finding — nothing in an install legitimately needs a second
+ * runtime.
+ */
+export function isAltRuntimeEscape(command: string, origin: Origin): boolean {
+  const tokens = command.split(/\s+/).filter((token) => token.length > 0);
+  let executablePosition = true;
+
+  for (const raw of tokens) {
+    const token = raw.replace(/^['"(]+/, '').replace(/['")]+$/, '');
+    const startsCommand = COMMAND_STARTERS.has(token.toLowerCase());
+    const positional = executablePosition;
+    executablePosition = startsCommand;
+    if (token.length === 0 || startsCommand) {
+      continue;
+    }
+    if (token.includes('://')) {
+      continue; // a URL, not a binary — `git clone https://host/bun` runs git
+    }
+    const hasPath = token.includes('/') || token.includes('\\');
+    if (!hasPath && !positional) {
+      continue; // a bare runtime name used as an argument, not run
+    }
+    const name = executableName(token);
+    if (ALT_RUNTIMES.has(name)) {
+      if (origin !== 'application' || isDroppedBinary(token)) {
+        return true;
+      }
+    } else if (NODE_RUNTIMES.has(name) && isDroppedBinary(token)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * True when an `env.write` detail turns off TLS certificate validation for the
+ * whole process. Node only treats the exact value `0` as "reject nothing", so
+ * `=1` (a package putting verification *back*) is not a finding.
+ *
+ * mastra (2026-06, Sapphire Sleet) set this before exfiltrating, so its traffic
+ * survived any intercepting proxy — and so would anyone else's.
+ */
+export function isTlsVerificationDisabled(detail: string): boolean {
+  return /^NODE_TLS_REJECT_UNAUTHORIZED=0$/i.test(detail.trim());
+}
+
 /** True when a spawned command publishes to a package registry. */
 export function isRegistryPublish(command: string): boolean {
   // `npm publish`, `pnpm publish`, `yarn publish`, `npm exec -- … publish` — the
@@ -419,12 +667,19 @@ export function isRegistryPublish(command: string): boolean {
 
 /**
  * The attack technique a capability request matches, or null. Pure function of
- * the capability and its detail, so both the policy engine (to mark the request
- * sensitive) and the reporters (to name it) derive it the same way.
+ * the capability, its detail and who made the call, so both the policy engine
+ * (to mark the request sensitive) and the reporters (to name it) derive it the
+ * same way.
+ *
+ * `origin` defaults to `dependency` — the untrusting reading — so a caller that
+ * genuinely does not know who acted still gets the finding. Only
+ * {@link isAltRuntimeEscape} consults it; every other technique is a move nobody
+ * makes by accident, whoever they are.
  */
 export function detectTechnique(
   capability: Capability,
   detail: string,
+  origin: Origin = 'dependency',
 ): Technique | null {
   switch (capability) {
     case 'net.connect':
@@ -436,9 +691,17 @@ export function detectTechnique(
       if (isCiWorkflowPath(detail)) return 'ci-workflow-persistence';
       if (isGitHookPath(detail)) return 'git-hook-persistence';
       if (isEditorHookPath(detail)) return 'editor-hook-persistence';
+      if (isServicePersistencePath(detail)) return 'service-persistence';
       return null;
+    case 'fs.read':
+      return isAiCredentialPath(detail) ? 'ai-credential-theft' : null;
+    case 'env.write':
+      return isTlsVerificationDisabled(detail) ? 'tls-verification-disabled' : null;
     case 'process.spawn':
-      return isRegistryPublish(detail) ? 'registry-publish' : null;
+      if (isRegistryPublish(detail)) return 'registry-publish';
+      if (isServicePersistenceCommand(detail)) return 'service-persistence';
+      if (isAltRuntimeEscape(detail, origin)) return 'alt-runtime-escape';
+      return null;
     default:
       return null;
   }

