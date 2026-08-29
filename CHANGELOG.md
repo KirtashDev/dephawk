@@ -65,6 +65,18 @@ and the audit Node's own CVE prompted.
   `require('node:trace_events')` **throws** inside a worker thread, and an
   unguarded load took dephawk's whole register down with it, leaving every worker
   unmonitored. Caught by the eval-worker e2e; no unit test would have.
+- **The suite can no longer pass on a stale build, and a technique can no longer
+  ship inert.** Two structural gaps, both of which had already let a real defect
+  through. Every e2e test ran the _built_ CLI and rebuilt only when `dist` was
+  **missing** — the wrong question, since after any source change it still
+  exists, so a full green run could be testing the previous build; a vitest
+  `globalSetup` now rebuilds whenever `dist` is older than `src`. And nothing
+  asked whether a recognised technique was _reachable_: `service-persistence`
+  shipped with its predicate, gloss and `detectTechnique` wiring complete and did
+  nothing end to end, because the fs interceptor's own pre-filter dropped the
+  write before anything judged it. There is now a fixture per technique that
+  drives the real interceptor and asserts the technique comes back out, typed
+  `Record<Technique, …>` so a new technique without one is a **compile error**.
 - **Prefix-boundary containment audit (the CVE-2026-58043 class).** Node's
   Permission Model over-granted filesystem access because its radix tree matched
   a granted `/home/app/data` against a never-allowlisted sibling
