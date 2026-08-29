@@ -1,7 +1,9 @@
+import type { DnsTunnel } from '../../domain/threat.js';
 import type { DhEvent } from '../../domain/event.js';
 import { PERMISSIVE_POLICY } from '../../domain/policy.js';
 import {
   TECHNIQUE_GLOSS,
+  detectDnsTunnels,
   detectExfilChains,
   detectTechnique,
 } from '../../domain/threat.js';
@@ -178,7 +180,7 @@ async function callTool(
       return JSON.stringify(
         {
           techniques: TECHNIQUE_GLOSS,
-          note: 'dephawk also flags "likely credential exfiltration": the same dependency reads a secret and then reaches the network.',
+          note: 'dephawk also flags two cross-event signals no single call reveals: "likely credential exfiltration" (the same dependency reads a secret and then reaches the network) and "likely DNS-tunnel exfiltration" (a stream of encoded subdomain labels under one apex, which leaves no connection to see).',
         },
         null,
         2,
@@ -267,6 +269,7 @@ interface EventSummary {
     readSecret: string;
     thenReached: string;
   }[];
+  readonly likelyDnsTunnelExfiltration: readonly DnsTunnel[];
   readonly findings: Finding[];
   readonly dependencyCallCount: number;
 }
@@ -312,6 +315,7 @@ function summariseEvents(events: readonly DhEvent[]): EventSummary {
       readSecret: chain.secret,
       thenReached: chain.sink,
     })),
+    likelyDnsTunnelExfiltration: detectDnsTunnels(events),
     findings: sensitive,
     dependencyCallCount: dependencyEvents.length,
   };
