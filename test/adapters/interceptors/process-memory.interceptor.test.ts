@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import v8 from 'node:v8';
+import traceEvents from 'node:trace_events';
 import { ProcessMemoryInterceptor } from '../../../src/adapters/interceptors/process-memory.interceptor.js';
 import type { Disposable } from '../../../src/application/ports.js';
 import { recordSpy } from './spy.js';
@@ -117,5 +118,21 @@ describe('ProcessMemoryInterceptor', () => {
     expect(() => {
       report.reportOnSignal = false;
     }).not.toThrow();
+  });
+});
+
+describe('ProcessMemoryInterceptor — trace_events as an fs-write sink', () => {
+  it('records enabling a tracing category, which writes node_trace.log', () => {
+    const spy = recordSpy();
+    spy.deny('no memory dumps');
+    installed = new ProcessMemoryInterceptor().install(spy.record);
+
+    const tracing = traceEvents.createTracing({ categories: ['node.perf'] });
+    // Node writes the trace file without any fs call the fs interceptor sees, so
+    // enable() is the moment to judge — the same class as CVE-2026-56847.
+    expect(() => tracing.enable()).toThrow(/dephawk: blocked/);
+    expect(spy.last?.capability).toBe('process.memory');
+    expect(spy.last?.detail).toContain('trace_events');
+    expect(tracing.enabled).toBe(false);
   });
 });

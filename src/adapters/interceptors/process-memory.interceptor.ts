@@ -24,6 +24,12 @@ import {
  * - `v8.writeHeapSnapshot()` / `getHeapSnapshot()` — a heap snapshot contains
  *   every live string in the process, which is where decrypted secrets, tokens
  *   and keys sit after they have been read.
+ * - `trace_events.createTracing(…).enable()` — enabling a tracing category makes
+ *   Node write `node_trace.<n>.log` into the working directory with no `fs` call
+ *   anyone can see. Node's own July 2026 release fixed the same thing as
+ *   CVE-2026-56847, where it wrote outside `--allow-fs-write`; here it is an
+ *   arbitrary-ish file write that skips the fs interceptor entirely. Recorded on
+ *   `enable()`, which is the moment the sink is armed.
  *
  * Both are recorded as the `process.memory` capability and denied by default: a
  * dependency dumping the heap or the diagnostic report is doing something no
@@ -31,6 +37,22 @@ import {
  * every other interceptor. In enforce mode the call throws before the dump is
  * produced.
  */
+/**
+ * `node:trace_events`, or an empty object where the runtime refuses it.
+ *
+ * Worker threads throw on `require('node:trace_events')` outright, and a build
+ * without tracing has no module at all. Degrading to a no-op patch target keeps
+ * the rest of the interceptor installed — the same graceful-degradation contract
+ * {@link patchMethod} already has for a missing member.
+ */
+function loadTraceEvents(): Record<string, unknown> {
+  try {
+    return loadBuiltin<Record<string, unknown>>('node:trace_events');
+  } catch {
+    return {};
+  }
+}
+
 export class ProcessMemoryInterceptor implements CapabilityInterceptor {
   readonly name = 'process-memory';
 
@@ -74,6 +96,48 @@ export class ProcessMemoryInterceptor implements CapabilityInterceptor {
       'setHeapSnapshotNearHeapLimit',
     ] as const) {
       this.patch(v8, key, `v8.${key}`, record, restores);
+    }
+
+    // `trace_events` writes its log without touching `fs`, so the write is
+    // invisible to that interceptor. `createTracing` itself is inert — the
+    // returned object's `enable()` is what arms the sink — so the constructor is
+    // wrapped to guard the instance it hands back.
+    // Loaded defensively: `require('node:trace_events')` *throws*
+    // `Trace events are unavailable` inside a worker thread, and an unguarded
+    // load here took dephawk's whole register down with it — every worker ran
+    // unmonitored, which is the opposite of what this interceptor is for. Caught
+    // by the eval-worker e2e, not by any unit test.
+    const traceEvents = loadTraceEvents();
+    const restoreTracing = patchMethod(
+      traceEvents,
+      'createTracing',
+      (original) =>
+        function (this: unknown, ...args: unknown[]): unknown {
+          const tracing = original.apply(this, args) as Record<string, unknown>;
+          if (typeof tracing?.['enable'] !== 'function') {
+            return tracing;
+          }
+          patchMethod(
+            tracing,
+            'enable',
+            (enable) =>
+              function (this: unknown, ...enableArgs: unknown[]): unknown {
+                const decision = report(
+                  record,
+                  'process.memory',
+                  'trace_events.enable (writes node_trace.log)',
+                );
+                if (!decision.allow) {
+                  throw blockedError('trace_events.enable', decision.reason);
+                }
+                return enable.apply(this, enableArgs);
+              },
+          );
+          return tracing;
+        },
+    );
+    if (restoreTracing) {
+      restores.push(restoreTracing);
     }
 
     return restorer(restores);

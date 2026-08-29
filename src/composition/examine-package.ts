@@ -100,15 +100,13 @@ export async function examinePackage(
     //     for anything of yours.
     // What survives is the high-signal behaviour: reading your secrets, egress,
     // spawning processes, native/eval — the moves an audit actually cares about.
-    const inSandbox = (detail: string): boolean =>
-      detail === directory || detail.startsWith(`${directory}/`);
     const events = [...install.events, ...imported.events].filter((event) => {
       if (event.origin !== 'dependency' || isNpmToolchain(event.package)) {
         return false;
       }
       if (
         (event.capability === 'fs.read' || event.capability === 'fs.write') &&
-        inSandbox(event.detail)
+        isInsideDirectory(directory, event.detail)
       ) {
         return false;
       }
@@ -123,6 +121,22 @@ export async function examinePackage(
       // Best-effort cleanup.
     }
   }
+}
+
+/**
+ * True when `path` is `directory` itself or something inside it.
+ *
+ * Exported so the boundary can be tested against the real implementation rather
+ * than a copy of it. The separator is appended before the prefix test, and that
+ * is load-bearing: a bare `startsWith` is how Node's own permission model
+ * over-granted in CVE-2026-58043, matching a granted `/home/app/data` against a
+ * never-allowlisted `/home/app/data-secrets`. Here the same mistake fails the
+ * other way — a sibling temp directory swallowed by this filter would silently
+ * *drop* a real finding out of the audit — which is exactly the kind of bug a
+ * green test suite never shows you.
+ */
+export function isInsideDirectory(directory: string, path: string): boolean {
+  return path === directory || path.startsWith(`${directory}/`);
 }
 
 /**
