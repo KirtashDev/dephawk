@@ -16,13 +16,14 @@
 import type { Capability } from './capability.js';
 import type { DhEvent } from './event.js';
 import type { Origin } from './origin.js';
-import { extractHost } from './host.js';
+import { extractHost, extractPort } from './host.js';
 import { isAiCredentialPath } from './sensitivity.js';
 
 /** A recognised attack technique. */
 export type Technique =
   | 'cloud-metadata'
   | 'dead-drop-c2'
+  | 'local-service-pivot'
   | 'ci-workflow-persistence'
   | 'git-hook-persistence'
   | 'editor-hook-persistence'
@@ -40,6 +41,8 @@ export const TECHNIQUE_GLOSS: Record<Technique, string> = {
     'cloud instance-metadata endpoint — the way CI/cloud credentials are stolen; no npm package should fetch instance credentials',
   'dead-drop-c2':
     'connecting to a public dead-drop / relay — a paste site, chat webhook, IPFS gateway, or blockchain RPC — used to fetch C2 config or exfiltrate without a fixed attacker domain (the keyv/ChainDrop worm read its C2 from an Ethereum transaction); legitimate for some apps, so allowlist the ones yours needs',
+  'local-service-pivot':
+    'connecting to infrastructure on the local network — a database, cache, container runtime or orchestrator port that is unauthenticated precisely because it is not meant to be reachable. The 36 hijacked Strapi packages probed a local Redis (INFO/DBSIZE/KEYS), injected a crontab through it, then went at PostgreSQL with hardcoded credentials; a reachable Docker or kubelet API is a straight container escape. Legitimate for an app that runs its own Redis or Postgres, so allowlist the ones yours needs',
   'ci-workflow-persistence':
     'writing a CI/CD pipeline definition — the self-persistence move of the Shai-Hulud worm; nothing legitimate writes .github/workflows, .gitlab-ci.yml, Jenkinsfile & co. from inside a dependency',
   'git-hook-persistence':
@@ -650,6 +653,64 @@ export function isAltRuntimeEscape(command: string, origin: Origin): boolean {
 }
 
 /**
+ * Ports whose service is, by convention, unauthenticated on the assumption that
+ * nothing untrusted can reach it — which stops being true the moment a
+ * dependency runs on the same host.
+ *
+ * Named rather than blocked on its own: `net.connect` is already allowlist-only,
+ * so an app whose dependency genuinely talks to a local Redis allowlists it once
+ * and this only adds the label. The same trade-off as {@link isDeadDropHost}.
+ */
+const LOCAL_SERVICE_PORTS: ReadonlySet<number> = new Set([
+  6379, // Redis — the Strapi campaign's entry point
+  5432, // PostgreSQL
+  3306, // MySQL / MariaDB
+  27017, // MongoDB
+  2375, // Docker API, plaintext
+  2376, // Docker API, TLS
+  8500, // Consul
+  2379, // etcd
+  10250, // kubelet
+]);
+
+/**
+ * Names that resolve to loopback without being IP literals.
+ *
+ * Deliberately *not* folded into {@link isInternalTarget}, which is IP-only by
+ * contract. That function also decides whether the SSRF resolver guard bothers
+ * wrapping a dependency-supplied `lookup`: it skips a host that is already an
+ * internal literal, so teaching it about `localhost` would let an allowlisted
+ * `localhost` plus a custom `lookup` redirect somewhere else unwatched. The
+ * pivot check needs the names, the SSRF guard must not have them.
+ */
+const LOOPBACK_NAMES: ReadonlySet<string> = new Set([
+  'localhost',
+  'ip6-localhost',
+  'ip6-loopback',
+]);
+
+/**
+ * True when an outbound target is infrastructure *inside* the network on a
+ * well-known service port.
+ *
+ * Both halves are required. A hosted Redis at `redis.example.com:6379` is how
+ * half the ecosystem runs, so the port alone means nothing; and a dependency
+ * reaching an internal address on an ordinary port is already covered by the
+ * allowlist without needing a name. It is the pair — internal *and* an
+ * unauthenticated-by-convention service — that is the pivot.
+ */
+export function isLocalServicePivot(detail: string): boolean {
+  const port = extractPort(detail);
+  if (port === null || !LOCAL_SERVICE_PORTS.has(port)) {
+    return false;
+  }
+  const host = extractHost(detail);
+  return (
+    isInternalTarget(host) || LOOPBACK_NAMES.has(host) || host.endsWith('.localhost')
+  );
+}
+
+/**
  * True when a write targets an **installed package's** manifest.
  *
  * ChainDrop's propagation step is the reason: it downloaded each victim
@@ -741,6 +802,7 @@ export function detectTechnique(
     case 'net.resolve':
       if (isCloudMetadataHost(detail)) return 'cloud-metadata';
       if (isDeadDropHost(detail)) return 'dead-drop-c2';
+      if (isLocalServicePivot(detail)) return 'local-service-pivot';
       return null;
     case 'fs.write':
       if (isCiWorkflowPath(detail)) return 'ci-workflow-persistence';

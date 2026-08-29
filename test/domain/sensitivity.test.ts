@@ -293,3 +293,17 @@ describe('isAiCredentialPath — the AI assistants’ credential stores', () => 
     expect(isAiCredentialPath(path)).toBe(false);
   });
 });
+
+describe('isSensitivePath — the container runtime control socket', () => {
+  it.each([
+    '/var/run/docker.sock', // anything that can talk to it is root on the host
+    '/run/docker.sock',
+    '/run/podman/podman.sock',
+  ])('flags %s', (path) => {
+    expect(isSensitivePath(path)).toBe(true);
+  });
+
+  it('leaves an unrelated socket alone', () => {
+    expect(isSensitivePath('/tmp/app.sock')).toBe(false);
+  });
+});
