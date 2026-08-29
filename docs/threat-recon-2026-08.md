@@ -150,7 +150,25 @@ credential patterns including Anthropic/Claude/Codex/Cursor/OpenAI/Gemini. This
 is a list addition to `SENSITIVE_DIRECTORIES` / `SENSITIVE_BASENAMES`, near-zero
 FP, and squarely on the AI-agent-security positioning.
 
-### Tier 2 — high value, more design
+### Tier 2 — **shipped in 0.14.0**
+
+All four landed. Two notes worth keeping:
+
+- `local-service-pivot` needs loopback _names_ (`localhost`), and those are
+  resolved inside the pivot check rather than in `isInternalTarget`.
+  `isInternalTarget` is IP-only by contract and also decides whether the SSRF
+  resolver guard bothers wrapping a dependency-supplied `lookup` — it skips a
+  host that is already an internal literal. Teaching it `localhost` would let an
+  allowlisted `localhost` plus a custom `lookup` redirect somewhere else
+  unwatched. **Do not widen `isInternalTarget`.**
+- `node:trace_events` cannot be loaded eagerly:
+  `require('node:trace_events')` _throws_ inside a worker thread, and an
+  unguarded load took dephawk's whole register down with it, leaving every worker
+  unmonitored. Guarded now. The unit tests were green; the eval-worker e2e caught
+  it. Second time in two releases that only an end-to-end repro found a real
+  regression.
+
+### Tier 2 — original notes
 
 **5. `detached-process`** — `describeSpawn` (`child-process.interceptor.ts:267`)
 records the command and args and **drops the options object entirely**, so
@@ -210,7 +228,16 @@ to `api.github.com` with a legitimate token, indistinguishable from normal
 developer activity by host alone. The latter is only reachable through the
 exfil-chain signal (secret read → egress), not a host list.
 
-### Tier 4 — self-audit, prompted by Node's own CVE
+### Tier 4 — **shipped in 0.14.0** (self-audit, prompted by Node's own CVE)
+
+Outcome: `pathMatches` and `examinePackage`'s sandbox filter were **already**
+boundary-correct — both append the separator before the prefix test — and now
+have sibling-prefix repros saying so. `protectedPathAffectedBy` was sibling-safe
+but one-directional (file + ancestors, never a path _inside_ a protected path);
+fixed, though every protected path is a file today, so it is a guarantee for the
+next one rather than a live fix. `node:trace_events` is covered.
+
+### Tier 4 — original notes
 
 **10. Prefix-boundary containment (the CVE-2026-58043 class)**
 
@@ -262,5 +289,11 @@ Recorded so they don't get re-proposed:
   the Tier 3 host-list additions. Four named techniques, all reproduce-first,
   all near-zero FP. This is a strong release note on its own: it covers the exact
   moves of the keyv/ChainDrop worm, Miasma, mastra and jscrambler.
-- **0.13.x** — Tier 2, one technique per PR. Still open.
-- **Separate hardening PR** — Tier 4, with a repro test per containment site.
+- **0.13.x / 0.14.0** — ✅ shipped. Tier 2 landed together rather than one PR
+  each: they share `threat.ts` and stacking four PRs read worse than four
+  reviewable commits.
+- **0.14.0** — ✅ Tier 4 containment audit, in the same release.
+- **Separate hardening PR** — ✅ Tier 4, with a repro test per containment site.
+
+**The backlog is now empty.** The next recon should start from what has changed
+since 2026-08-28 rather than from this file.
