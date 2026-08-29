@@ -1,6 +1,7 @@
 import { CAPABILITY_META } from '../../domain/capability.js';
 import type { DhEvent } from '../../domain/event.js';
 import {
+  detectDnsTunnels,
   detectExfilChains,
   detectTechnique,
   TECHNIQUE_GLOSS,
@@ -54,6 +55,17 @@ export function renderHtmlReport(
           .map(
             (c) =>
               `<li><b>${esc(c.package)}</b>: read <code>${esc(c.secret)}</code> → out to <code>${esc(c.sink)}</code></li>`,
+          )
+          .join('')}</ul></div>`;
+
+  const tunnels = detectDnsTunnels(events);
+  const dnsTunnel =
+    tunnels.length === 0
+      ? ''
+      : `<div class="exfil"><b>🚨 Likely DNS-tunnel exfiltration</b> — a dependency queried a stream of encoded subdomains, which leaves no connection to see:<ul>${tunnels
+          .map(
+            (t) =>
+              `<li><b>${esc(t.package)}</b>: ${t.queries} encoded labels under <code>${esc(t.apex)}</code></li>`,
           )
           .join('')}</ul></div>`;
 
@@ -116,6 +128,7 @@ export function renderHtmlReport(
   </div>
 
   ${exfil}
+  ${dnsTunnel}
 
   ${flagged.length === 0 ? '<div class="empty">No packages tried anything sensitive. 🎉</div>' : cards}
 

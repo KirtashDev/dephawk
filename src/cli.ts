@@ -40,7 +40,7 @@ import { SarifReporter } from './adapters/reporting/sarif-reporter.js';
 import { parseSink } from './adapters/reporting/jsonl-sink-reporter.js';
 import { startMcpServer } from './adapters/mcp/server.js';
 import { examinePackage } from './composition/examine-package.js';
-import { detectExfilChains, detectTechnique } from './domain/threat.js';
+import { detectDnsTunnels, detectExfilChains, detectTechnique } from './domain/threat.js';
 import {
   decideHook,
   renderHookOutput,
@@ -735,6 +735,7 @@ async function examineSubcommand(args: readonly string[]): Promise<number> {
           mode,
           recognisedTechniques: [...techniques].sort(),
           likelyCredentialExfiltration: exfil,
+          likelyDnsTunnelExfiltration: detectDnsTunnels(result.events),
           findings,
         },
         null,

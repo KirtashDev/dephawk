@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  detectDnsTunnels,
   detectExfilChains,
   detectTechnique,
   isAltRuntimeEscape,
@@ -633,4 +634,72 @@ describe('extractPort', () => {
       expect(extractPort(detail)).toBeNull();
     },
   );
+});
+
+describe('detectDnsTunnels — chunked exfiltration over subdomain labels', () => {
+  const resolve = (pkg: string, host: string): DhEvent =>
+    ({
+      capability: 'net.resolve',
+      package: pkg,
+      origin: 'dependency',
+      detail: host,
+      stack: [],
+      sensitive: false,
+      allowed: false,
+      blocked: false,
+      timestamp: 0,
+    }) as DhEvent;
+
+  // 24+ chars of base32/base64url — what a chunked archive actually looks like.
+  const chunk = (n: number): string => `${'mzxw6ytboi4dpmrqgqzs4nbo'}${n}extra`;
+
+  it('flags a stream of encoded labels under one apex', () => {
+    const events = [0, 1, 2, 3, 4].map((n) =>
+      resolve('node-ipc', `${chunk(n)}.exfil.example.com`),
+    );
+    const [tunnel] = detectDnsTunnels(events);
+    expect(tunnel?.package).toBe('node-ipc');
+    expect(tunnel?.apex).toBe('example.com');
+    expect(tunnel?.queries).toBe(5);
+  });
+
+  it('does not flag a single long label — DKIM, ACME and CDN keys look the same', () => {
+    expect(
+      detectDnsTunnels([resolve('mailer', `${chunk(0)}._domainkey.example.com`)]),
+    ).toEqual([]);
+    expect(detectDnsTunnels([resolve('certbot', '_acme-challenge.example.com')])).toEqual(
+      [],
+    );
+  });
+
+  it('does not flag ordinary hostnames however many there are', () => {
+    const events = [
+      'api.example.com',
+      'cdn.example.com',
+      'registry.npmjs.org',
+      'd1a2b3c4.cloudfront.net',
+      'assets.example.com',
+      'static.example.com',
+    ].map((host) => resolve('http-client', host));
+    expect(detectDnsTunnels(events)).toEqual([]);
+  });
+
+  it('counts distinct labels, not repeats of one', () => {
+    const events = [0, 0, 0, 0, 0, 0].map((n) =>
+      resolve('noisy', `${chunk(n)}.exfil.example.com`),
+    );
+    expect(detectDnsTunnels(events)).toEqual([]);
+  });
+
+  it('ignores the application’s own resolutions', () => {
+    const events = [0, 1, 2, 3, 4].map(
+      (n) =>
+        ({
+          ...resolve('x', `${chunk(n)}.exfil.example.com`),
+          package: null,
+          origin: 'application',
+        }) as DhEvent,
+    );
+    expect(detectDnsTunnels(events)).toEqual([]);
+  });
 });

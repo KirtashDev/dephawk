@@ -826,6 +826,96 @@ export function detectTechnique(
   }
 }
 
+/** One dependency's suspected DNS-tunnel channel. */
+export interface DnsTunnel {
+  /** The dependency responsible. */
+  readonly package: string;
+  /** The apex the payload labels sat under. */
+  readonly apex: string;
+  /** How many distinct payload-shaped labels were queried under it. */
+  readonly queries: number;
+}
+
+/**
+ * A label long enough and dense enough to be carrying data rather than naming
+ * something. 24 characters is past every ordinary subdomain and past the CDN
+ * hashes (`d1a2b3c4`, `abcdef1234567890`) that would otherwise dominate; the
+ * character class is what base16/32/64url encoders emit, so a label with a vowel
+ * pattern anyone would type does not qualify.
+ */
+const TUNNEL_LABEL = /^[a-z0-9_-]{24,}$/;
+
+/**
+ * How many distinct payload labels under one apex it takes to call it a tunnel.
+ *
+ * The whole difficulty of this signal is that a single long random label is
+ * completely ordinary — DKIM selectors, ACME challenge records and CDN cache
+ * keys all look exactly like one. What none of them do is emit a *stream* of
+ * distinct ones under the same apex inside a single install, because that is
+ * what chunked exfiltration is: an archive cut into label-sized pieces.
+ */
+const TUNNEL_THRESHOLD = 5;
+
+/**
+ * Dependencies exfiltrating over DNS: many distinct payload-shaped labels under
+ * one apex.
+ *
+ * node-ipc (2026) globs 90+ credential categories, gzips them, splits the
+ * archive into base64 chunks sized to DNS labels and ships them out as TXT
+ * queries — and points its own `dns.Resolver` at 1.1.1.1/8.8.8.8 first, so
+ * host-level DNS monitoring never sees any of it. The Flooding Dropper
+ * (~1,033 packages) *downloads* its second stage the same way, as numbered TXT
+ * records. No TCP connection is ever made, so nothing else in dephawk sees it.
+ *
+ * Derived from the recorded events rather than timing, like
+ * {@link detectExfilChains}, so it is deterministic in CI. Observe-only: it
+ * annotates the report and never blocks — each query was already judged against
+ * the host allowlist on its own.
+ */
+export function detectDnsTunnels(events: readonly DhEvent[]): DnsTunnel[] {
+  // package → apex → the distinct payload labels seen under it.
+  const byPackage = new Map<string, Map<string, Set<string>>>();
+
+  for (const event of events) {
+    if (
+      event.capability !== 'net.resolve' ||
+      event.origin !== 'dependency' ||
+      event.package === null
+    ) {
+      continue;
+    }
+    const labels = extractHost(event.detail).replace(/\.$/, '').split('.');
+    // The apex is what is left once the payload labels are stripped; two labels
+    // is the common case and good enough — an over-long apex only splits one
+    // tunnel into two counts, which is the safe direction to be wrong in.
+    if (labels.length < 3) {
+      continue;
+    }
+    const payload = labels.slice(0, -2).filter((label) => TUNNEL_LABEL.test(label));
+    if (payload.length === 0) {
+      continue;
+    }
+    const apex = labels.slice(-2).join('.');
+    const forPackage = byPackage.get(event.package) ?? new Map<string, Set<string>>();
+    byPackage.set(event.package, forPackage);
+    const seen = forPackage.get(apex) ?? new Set<string>();
+    forPackage.set(apex, seen);
+    for (const label of payload) {
+      seen.add(label);
+    }
+  }
+
+  const tunnels: DnsTunnel[] = [];
+  for (const [pkg, byApex] of byPackage) {
+    for (const [apex, labels] of byApex) {
+      if (labels.size >= TUNNEL_THRESHOLD) {
+        tunnels.push({ package: pkg, apex, queries: labels.size });
+      }
+    }
+  }
+  return tunnels.sort((a, b) => b.queries - a.queries);
+}
+
 /** One dependency's read-a-secret-then-reach-the-network chain. */
 export interface ExfilChain {
   /** The dependency responsible. */
