@@ -3,6 +3,45 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added — the 2026-11 recon
+
+What changed between 2026-08-28 and 2026-11-22, each gap reproduced against
+the published 0.14.0 build first. Evidence and the next tiers:
+[`docs/threat-recon-2026-11.md`](docs/threat-recon-2026-11.md).
+
+### Security
+
+- **`destructive-wipe` — the token-revocation dead-man switch.** The
+  Shai-Hulud lineage's `gh-token-monitor` polls `api.github.com/user` with the
+  stolen token and runs `rm -rf ~/` the moment it is revoked (TanStack, the
+  October "testmetest" wave). From Node, `fs.rmSync(os.homedir(), { recursive:
+true })` was lexically mundane — **no event, and the home directory was gone**.
+  Home directories, their parent and the root are now judged on every
+  destructive `fs` call, and the shell form (`rm -rf ~`, `$HOME`,
+  `Remove-Item -Recurse $env:USERPROFILE`, `rd /s /q %USERPROFILE%`) is named on
+  spawn.
+- **`agent-instruction-tamper` — standing orders for your AI agent.** TrapDoor
+  hid zero-width-Unicode instructions in `CLAUDE.md` and `.cursorrules` telling
+  the assistant to run a fake "security scan". Writes to `CLAUDE.md`,
+  `AGENTS.md`, `GEMINI.md`, Cursor/Windsurf/Cline rules, Copilot instructions and
+  `.claude/{commands,agents,skills}` went **unrecorded**; they are now named and,
+  under enforce, refused. `node_modules` is excluded.
+- **Every agent's MCP / hook config is `editor-hook-persistence`.** Only Cursor
+  and Windsurf were covered. Added `.mcp.json`, `~/.claude.json`,
+  `.vscode/mcp.json`, `.gemini/settings.json` (Phantom Gyp planted one),
+  `.codex/config.toml`, `.cursor/hooks.json`, Amazon Q and Kiro.
+- **`ci-oidc-token-theft` — reaching for the CI job's identity.** ChainDrop
+  minted an OIDC token, traded it at npm's trusted-publishing exchange for a
+  publish credential and signed the poisoned release with genuine provenance.
+  The GitHub OIDC pair and runtime token, GitLab's job JWTs, Azure's
+  `SYSTEM_OIDCREQUESTURI` and the exchange endpoint itself are now named; the
+  GitLab and Azure variables were not secret-shaped and went unrecorded.
+- **Dead drops seen in the window**: `hooks.slack.com` and Sepolia (the
+  `indexed-btree` campaign), `getsession.org` and `catbox.moe` (the TanStack
+  chain's exfil sink and second-stage host).
+
 ## [0.14.0] — 2026-08-29
 
 ### Added — Tier 2 of the August recon, plus the containment self-audit

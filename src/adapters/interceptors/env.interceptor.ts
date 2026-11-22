@@ -1,4 +1,5 @@
 import { isSensitiveEnv, looksLikeSecretValue } from '../../domain/sensitivity.js';
+import { isCiIdentityEnv } from '../../domain/threat.js';
 import type { CapabilityInterceptor, Disposable } from '../../application/ports.js';
 import {
   blockedError,
@@ -126,7 +127,10 @@ export class EnvInterceptor implements CapabilityInterceptor {
       // Sensitive by name, or by value: `DATABASE_URL=postgres://u:pass@host` is
       // a secret its innocuous name hides. Only a boolean flag is reported — the
       // value never leaves this interceptor.
-      const byName = isSensitiveEnv(prop);
+      // Some CI identity variables (`CI_JOB_JWT`, `SYSTEM_OIDCREQUESTURI`) are
+      // not secret-shaped by name, yet they are how a payload mints an OIDC
+      // token for any audience — see {@link isCiIdentityEnv}.
+      const byName = isSensitiveEnv(prop) || isCiIdentityEnv(prop);
       const byValue = !byName && looksLikeSecretValue(value);
       if (!byName && !byValue) {
         return;
@@ -281,7 +285,11 @@ export class EnvInterceptor implements CapabilityInterceptor {
           typeof prop !== 'string' ||
           real.configurable === false ||
           inRuntimeInternals() ||
-          !(isSensitiveEnv(prop) || looksLikeSecretValue(real.value))
+          !(
+            isSensitiveEnv(prop) ||
+            isCiIdentityEnv(prop) ||
+            looksLikeSecretValue(real.value)
+          )
         ) {
           return real;
         }

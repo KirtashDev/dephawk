@@ -1,7 +1,7 @@
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isPersistenceTarget, isSensitivePath } from '../../domain/sensitivity.js';
-import { isPersistenceWrite } from '../../domain/threat.js';
+import { isPersistenceWrite, isWipeTarget } from '../../domain/threat.js';
 import {
   isDephawkConfigPath,
   protectedPathAffectedBy,
@@ -373,12 +373,18 @@ export class FsInterceptor implements CapabilityInterceptor {
     // self-defense attack, matched by basename (its absolute path is unknown on a
     // no-config run). See {@link import('../../domain/protected-path.js')}.
     const configTamper = capability === 'fs.write' && isDephawkConfigPath(path);
+    // Deleting (or chmod-ing, or renaming away) a whole home directory or the
+    // root: the token-revocation wiper's `rm -rf ~/`, done from Node. A home
+    // directory is not secret-shaped, so without this the call was mundane and
+    // went through unrecorded. See {@link import('../../domain/threat.js').isWipeTarget}.
+    const wipe = capability === 'fs.write' && isWipeTarget(path);
 
     let target = path;
     if (
       !isProtected &&
       !intoPackage &&
       !persistence &&
+      !wipe &&
       !configTamper &&
       !isSensitivePath(path)
     ) {
