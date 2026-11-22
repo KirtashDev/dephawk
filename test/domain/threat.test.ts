@@ -808,6 +808,7 @@ describe('isEditorHookPath — every agent’s MCP / hook config', () => {
     '/repo/.vscode/mcp.json',
     '/home/a/.gemini/settings.json',
     '/home/a/.codex/config.toml',
+    '/repo/.codex/hooks.json',
     '/repo/.cursor/hooks.json',
     '/repo/.amazonq/mcp.json',
     '/repo/.kiro/settings/mcp.json',

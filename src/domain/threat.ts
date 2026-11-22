@@ -468,7 +468,7 @@ const EDITOR_HOOK_PATTERNS: readonly RegExp[] = [
   /(^|\/)\.claude\.json$/,
   /(^|\/)\.vscode\/mcp\.json$/,
   /(^|\/)\.gemini\/settings\.json$/,
-  /(^|\/)\.codex\/config\.toml$/,
+  /(^|\/)\.codex\/(config\.toml|hooks\.json)$/,
   /(^|\/)\.cursor\/hooks\.json$/,
   /(^|\/)\.amazonq\/(mcp|agents\/[^/]+)\.json$/,
   /(^|\/)\.kiro\/settings\/mcp\.json$/,

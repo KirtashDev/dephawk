@@ -11,8 +11,27 @@ What changed between 2026-08-28 and 2026-11-22, each gap reproduced against
 the published 0.14.0 build first. Evidence and the next tiers:
 [`docs/threat-recon-2026-11.md`](docs/threat-recon-2026-11.md).
 
+### Added — the install guardrail for every agent
+
+- **`dephawk hooks install --agent claude,cursor,gemini,codex|all`.** The
+  guardrail was Claude Code only. Cursor (`beforeShellExecution`, installed
+  fail-closed and scoped to package-manager commands), Gemini CLI (`BeforeTool`
+  on `run_shell_command`) and Codex (`PreToolUse` on `Bash`) now get the same
+  refusal, each in its own config file and deny dialect. `dephawk hook` detects
+  the agent from the payload, so the flag is only a hint. Default stays
+  `claude`, and an existing 0.12 entry is refreshed rather than duplicated.
+
+### Fixed
+
+- **The hook command broke on a path with a space.** `hooks install` wrote
+  `node /path/cli.js hook` unquoted; agents run it through a shell, so a project
+  under `My Projects` or Node in `Program Files` produced a hook that never ran
+  — a guardrail that silently was not there. Both paths are now quoted.
+
 ### Security
 
+- **`.codex/hooks.json`** joins `editor-hook-persistence`: the file dephawk's own
+  Codex guardrail lives in is one a dependency must not write.
 - **`destructive-wipe` — the token-revocation dead-man switch.** The
   Shai-Hulud lineage's `gh-token-monitor` polls `api.github.com/user` with the
   stolen token and runs `rm -rf ~/` the moment it is revoked (TanStack, the

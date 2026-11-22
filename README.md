@@ -61,7 +61,7 @@ code 2.
 
 > 🛡️ **Hardened release by release.** dephawk watches **12 capability classes**
 > across **18 interceptors**, and every version closes another real bypass —
-> **87 reproduced attack techniques blocked, and counting.** Each was
+> **88 reproduced attack techniques blocked, and counting.** Each was
 > demonstrated against a published build _before_ it was fixed; the running list
 > is in the [CHANGELOG](CHANGELOG.md). Recent additions: **alternative-runtime
 > escape** (a dependency spawning downloaded Bun/Deno to get out from under Node),
@@ -216,13 +216,27 @@ It exposes three tools:
 ### Make it automatic
 
 ```bash
-dephawk hooks install        # or --global
+dephawk hooks install                      # Claude Code (default); add --global for every project
+dephawk hooks install --agent cursor,gemini,codex
+dephawk hooks install --agent all
 ```
 
-Wires a Claude Code `PreToolUse` guardrail so the agent's `npm install` / `npm ci`
-(and pnpm/yarn/bun) is **automatically** routed through dephawk instead of running
-unmonitored — the agent doesn't have to remember to ask. Zero new dependencies —
-the server speaks JSON-RPC by hand.
+Wires a pre-shell-command guardrail into the agent so its `npm install` /
+`npm ci` (and pnpm/yarn/bun) is **automatically** refused unless it goes through
+dephawk — the agent doesn't have to remember to ask. Each agent gets its own
+dialect, merged into its existing config without touching anything else:
+
+| `--agent` | file (project, or `~` with `--global`) | hook                                                 |
+| --------- | -------------------------------------- | ---------------------------------------------------- |
+| `claude`  | `.claude/settings.json`                | `PreToolUse` on `Bash`                               |
+| `cursor`  | `.cursor/hooks.json`                   | `beforeShellExecution`, fail-closed                  |
+| `gemini`  | `.gemini/settings.json`                | `BeforeTool` on `run_shell_command`                  |
+| `codex`   | `.codex/hooks.json`                    | `PreToolUse` on `Bash` — trust it once with `/hooks` |
+
+Re-running is idempotent. And the files it writes are exactly the ones a
+malicious dependency would plant its own hook in, so dephawk names any
+_dependency_ writing them as `editor-hook-persistence`. Zero new dependencies —
+the MCP server speaks JSON-RPC by hand.
 
 ## Vet a single package — `dephawk x`
 

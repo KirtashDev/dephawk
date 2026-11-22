@@ -148,14 +148,14 @@ or Deno gets no coverage. Plan:
 Today: an MCP server any client can use, and `dephawk hooks install` for Claude
 Code only. Plan:
 
-1. **`dephawk hooks install --agent <claude|cursor|gemini|codex>`**: Cursor's
+1. ✅ **shipped on this branch.** **`dephawk hooks install --agent <claude|cursor|gemini|codex>`**: Cursor's
    `hooks.json` (`beforeShellExecution`), Gemini CLI's `settings.json` hooks and
    Codex's approval policy each offer a pre-command hook that can rewrite or
    refuse `npm install`; same routing logic as the Claude hook.
 2. **MCP: `audit_lockfile_diff`** — given a base ref, audit only the packages a
    PR adds or bumps, which is what an agent actually needs before it says
    "dependencies updated".
-3. **Self-protection**: this recon's `agent-instruction-tamper` and widened MCP
+3. ✅ **covered by the dependency side** (`.codex/hooks.json` added; every other file was already in the list). **Self-protection**: this recon's `agent-instruction-tamper` and widened MCP
    config list are the same surface seen from the attacker's side — the
    guardrail dephawk installs is itself one of those files, so `hooks install`
    should register it as a protected path.
