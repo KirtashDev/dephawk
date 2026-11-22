@@ -99,17 +99,78 @@ const nativeCaptureStackTrace = Error.captureStackTrace;
  */
 export const EVAL_FRAME = '[eval]';
 
-function formatStack(_error: unknown, frames: readonly NodeJS.CallSite[]): string {
+function elisionProbeInner(): string {
+  const holder: { stack?: unknown } = {};
+  const capture = nativeCaptureStackTrace as ((target: object) => void) | undefined;
+  if (typeof capture === 'function') {
+    capture(holder);
+  }
+  return typeof holder.stack === 'string' ? holder.stack : '';
+}
+
+function elisionProbeOuter(): string {
+  // A call in tail position, on purpose: the probe asks whether the engine
+  // removes this frame for it.
+  return elisionProbeInner();
+}
+
+/**
+ * True when this engine drops the caller's frame on a tail call — JavaScriptCore
+ * (Bun) implements ES2015 proper tail calls, V8 (Node, Deno) does not.
+ *
+ * On such an engine the stack is not a record of who called whom: a dependency
+ * whose function ends in `return fs.readFileSync(key)` is simply absent from it,
+ * and the nearest surviving frame — often the *application* that called into
+ * the dependency — is what attribution would see. The application is trusted
+ * unconditionally under `--enforce`, so that is a bypass, not a cosmetic gap.
+ *
+ * Measured once at load, before any dependency runs. `dephawk run`/`guard`
+ * start Bun with `BUN_JSC_useTailCalls=false`, which makes this false and
+ * attribution exact; a bare `bun --preload dephawk/register` leaves it true.
+ */
+export const FRAMES_ELIDED: boolean = (() => {
   try {
-    let out = 'Error';
+    const stack = elisionProbeOuter();
+    return stack.includes('elisionProbeInner') && !stack.includes('elisionProbeOuter');
+  } catch {
+    return false;
+  }
+})();
+
+/**
+ * The exact string {@link formatStack} last produced. A capture is trusted only
+ * when the stack it returned *is* this string — proof that dephawk's formatter
+ * really ran, whatever the property read back says.
+ */
+let lastFormatted: string | undefined;
+
+function formatStack(_error: unknown, frames: readonly NodeJS.CallSite[]): string {
+  let out = 'Error';
+  try {
     for (const frame of frames) {
       out += `\n    at ${formatFrame(frame)}`;
     }
-    return out;
   } catch {
-    return 'Error';
+    out = 'Error';
   }
+  lastFormatted = out;
+  return out;
 }
+
+/**
+ * JavaScriptCore (Bun) does not read `Error.prepareStackTrace` when it formats a
+ * stack. It caches the formatter when the property is *assigned*, through a
+ * native hook; `Object.defineProperty` and `delete` bypass the hook — the
+ * property changes, the cached formatter does not, and the hook stays detached
+ * from then on. On Bun, a dependency's `Error.prepareStackTrace = forge` was
+ * therefore still the formatter in force after dephawk's `defineProperty`, and
+ * every capture returned its forged application frame.
+ *
+ * Here the formatter is installed and restored by plain assignment — the only
+ * write JSC honours — and only over a plain writable data property, so no
+ * planted setter ever sees `formatStack`.
+ */
+const FORMATTER_SET_BY_ASSIGNMENT = typeof process.versions['bun'] === 'string';
 
 function formatFrame(frame: NodeJS.CallSite): string {
   try {
@@ -152,6 +213,12 @@ function formatFrame(frame: NodeJS.CallSite): string {
  * dependency's own error handling is untouched afterwards.
  */
 function hardenedCapture(boundary: (...args: never[]) => unknown): string {
+  if (FRAMES_ELIDED) {
+    // The engine may have dropped the very frame that matters. Same rule as a
+    // formatter we cannot install: an empty stack attributes to `unknown` —
+    // deny-by-default — rather than to whichever frame happened to survive.
+    return '';
+  }
   const capture = nativeCaptureStackTrace as
     ((target: object, ctor?: (...args: never[]) => unknown) => void) | undefined;
   const errorGlobal = NativeError as unknown as {
@@ -166,12 +233,23 @@ function hardenedCapture(boundary: (...args: never[]) => unknown): string {
 
   let installed = false;
   try {
-    Object.defineProperty(NativeError, 'prepareStackTrace', {
-      value: formatStack,
-      configurable: true,
-      writable: true,
-      enumerable: false,
-    });
+    if (FORMATTER_SET_BY_ASSIGNMENT) {
+      // Never through an accessor: its setter would receive `formatStack`.
+      if (
+        savedDescriptor !== undefined &&
+        'value' in savedDescriptor &&
+        savedDescriptor.writable === true
+      ) {
+        errorGlobal.prepareStackTrace = formatStack;
+      }
+    } else {
+      Object.defineProperty(NativeError, 'prepareStackTrace', {
+        value: formatStack,
+        configurable: true,
+        writable: true,
+        enumerable: false,
+      });
+    }
     installed = errorGlobal.prepareStackTrace === formatStack;
   } catch {
     installed = false; // non-configurable / frozen — documented residual
@@ -187,15 +265,28 @@ function hardenedCapture(boundary: (...args: never[]) => unknown): string {
     if (!installed) {
       return ''; // could not guarantee our formatter — do not trust a forged stack
     }
+    lastFormatted = undefined;
+    let stack: string | undefined;
     if (typeof capture === 'function') {
       const holder: { stack?: string } = {};
       capture(holder, boundary);
-      return holder.stack ?? '';
+      stack = holder.stack;
+    } else {
+      stack = new NativeError().stack;
     }
-    return new NativeError().stack ?? '';
+    // Trust only what our own formatter produced. An engine that formats with
+    // something else — Bun with its formatter hook detached by a dependency's
+    // `defineProperty`/`delete` — yields an empty stack: unknown origin,
+    // deny-by-default, never a frame the dependency chose.
+    return stack !== undefined && stack === lastFormatted ? stack : '';
   } finally {
+    lastFormatted = undefined;
     try {
-      if (savedDescriptor !== undefined) {
+      if (FORMATTER_SET_BY_ASSIGNMENT) {
+        if (installed) {
+          errorGlobal.prepareStackTrace = savedDescriptor?.value;
+        }
+      } else if (savedDescriptor !== undefined) {
         Object.defineProperty(NativeError, 'prepareStackTrace', savedDescriptor);
       } else {
         delete (NativeError as unknown as { prepareStackTrace?: unknown })
@@ -213,7 +304,14 @@ function hardenedCapture(boundary: (...args: never[]) => unknown): string {
 }
 
 export function captureStack(): string {
-  return hardenedCapture(captureStack);
+  // Deliberately NOT `return hardenedCapture(captureStack)`. JavaScriptCore
+  // (Bun) implements ES2015 proper tail calls in strict code, so a call in tail
+  // position *replaces* the caller's frame: `captureStack` would vanish from the
+  // stack, `captureStackTrace` would never find its boundary, and JSC returns no
+  // frames at all — every event on Bun read as unattributed. Binding the result
+  // first keeps this frame alive on every engine.
+  const stack = hardenedCapture(captureStack);
+  return stack;
 }
 
 /** Emit a record for a capability and return the decision. */

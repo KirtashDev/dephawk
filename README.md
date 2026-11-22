@@ -60,8 +60,8 @@ code 2.
 > ([see for yourself](examples/demo/node_modules/sneaky-dependency/index.js)).
 
 > 🛡️ **Hardened release by release.** dephawk watches **12 capability classes**
-> across **18 interceptors**, and every version closes another real bypass —
-> **82 reproduced attack techniques blocked, and counting.** Each was
+> across **19 interceptors**, and every version closes another real bypass —
+> **93 reproduced attack techniques blocked, and counting.** Each was
 > demonstrated against a published build _before_ it was fixed; the running list
 > is in the [CHANGELOG](CHANGELOG.md). Recent additions: **alternative-runtime
 > escape** (a dependency spawning downloaded Bun/Deno to get out from under Node),
@@ -216,13 +216,27 @@ It exposes three tools:
 ### Make it automatic
 
 ```bash
-dephawk hooks install        # or --global
+dephawk hooks install                      # Claude Code (default); add --global for every project
+dephawk hooks install --agent cursor,gemini,codex
+dephawk hooks install --agent all
 ```
 
-Wires a Claude Code `PreToolUse` guardrail so the agent's `npm install` / `npm ci`
-(and pnpm/yarn/bun) is **automatically** routed through dephawk instead of running
-unmonitored — the agent doesn't have to remember to ask. Zero new dependencies —
-the server speaks JSON-RPC by hand.
+Wires a pre-shell-command guardrail into the agent so its `npm install` /
+`npm ci` (and pnpm/yarn/bun) is **automatically** refused unless it goes through
+dephawk — the agent doesn't have to remember to ask. Each agent gets its own
+dialect, merged into its existing config without touching anything else:
+
+| `--agent` | file (project, or `~` with `--global`) | hook                                                 |
+| --------- | -------------------------------------- | ---------------------------------------------------- |
+| `claude`  | `.claude/settings.json`                | `PreToolUse` on `Bash`                               |
+| `cursor`  | `.cursor/hooks.json`                   | `beforeShellExecution`, fail-closed                  |
+| `gemini`  | `.gemini/settings.json`                | `BeforeTool` on `run_shell_command`                  |
+| `codex`   | `.codex/hooks.json`                    | `PreToolUse` on `Bash` — trust it once with `/hooks` |
+
+Re-running is idempotent. And the files it writes are exactly the ones a
+malicious dependency would plant its own hook in, so dephawk names any
+_dependency_ writing them as `editor-hook-persistence`. Zero new dependencies —
+the MCP server speaks JSON-RPC by hand.
 
 ## Vet a single package — `dephawk x`
 
@@ -580,9 +594,21 @@ overridable — compose your own.
 
 ## Runtime support
 
-Built and tested on Node 20 & 22. Bun/Deno provide most of the same built-ins;
-dephawk degrades gracefully when a built-in is missing, but full coverage there
-is not guaranteed.
+| Runtime       | How                              | Status                                                                                                                                |
+| ------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Node 20 / 22  | `dephawk run node app.js`        | the reference — full suite in CI                                                                                                      |
+| **Bun** ≥ 1.2 | `dephawk run bun app.js`         | attributed, enforceable, and **Bun’s native API** (`Bun.file`, `Bun.write`, `Bun.spawn`, `Bun.$`, `Bun.serve`, `Bun.connect`) watched |
+| **Deno** 2.x  | `dephawk run deno run -A app.ts` | attributed and enforceable through Deno’s Node compatibility layer                                                                    |
+
+Use `dephawk run` rather than a bare preload on Bun. Bun’s engine
+(JavaScriptCore) implements proper tail calls, so `return f()` _removes the
+caller from the stack_ — and a dependency’s frame is what attribution reads.
+`dephawk run` starts Bun with `BUN_JSC_useTailCalls=false`; a bare
+`bun --preload dephawk/register` without it says so on startup and treats every
+event as unknown origin (deny-by-default under `--enforce`) instead of trusting
+whichever frame survived. Deno’s own `Deno.*` APIs (`Deno.readTextFile`,
+`Deno.Command`) are not intercepted yet — its permission flags are the better
+guard for those.
 
 ## Roadmap
 

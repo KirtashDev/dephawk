@@ -86,8 +86,8 @@ export class DnsInterceptor implements CapabilityInterceptor {
     }
 
     for (const holder of [dns, promises]) {
-      const proto = prototypeOf((holder as { Resolver?: unknown } | undefined)?.Resolver);
-      if (proto) {
+      const Resolver = (holder as { Resolver?: unknown } | undefined)?.Resolver;
+      for (const proto of resolverPrototypes(Resolver)) {
         this.patchGroup(proto, record, restores, holder === promises);
         this.patchSetServers(proto, record, restores);
       }
@@ -183,4 +183,38 @@ function firstString(args: readonly unknown[]): string | undefined {
     }
   }
   return undefined;
+}
+
+/**
+ * Every prototype a `Resolver` instance actually dispatches through: the
+ * exported class's, plus — when it differs — the prototype of a real instance.
+ *
+ * On Node they are the same object. On Bun they are not: `new dns.Resolver()`
+ * returns an instance of an *internal, unexported* class, so patching
+ * `dns.Resolver.prototype` alone left every method of a package-built resolver
+ * unwatched — `resolver.resolve4(…)` and, worse, `resolver.setServers([…])`,
+ * the DNS-tunnel redirect this interceptor exists to see. One probe instance at
+ * install time finds the real prototype; it is cancelled straight away.
+ */
+function resolverPrototypes(Resolver: unknown): Record<string, unknown>[] {
+  const declared = prototypeOf(Resolver);
+  if (declared === null) {
+    return [];
+  }
+  const protos = [declared];
+  try {
+    const probe = new (Resolver as new () => { cancel?: () => void })();
+    const actual = Object.getPrototypeOf(probe) as Record<string, unknown> | null;
+    try {
+      probe.cancel?.();
+    } catch {
+      /* nothing in flight */
+    }
+    if (actual !== null && actual !== declared && actual !== Object.prototype) {
+      protos.push(actual);
+    }
+  } catch {
+    // Cannot construct one here — the declared prototype is all there is.
+  }
+  return protos;
 }

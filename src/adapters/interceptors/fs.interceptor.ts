@@ -1,7 +1,7 @@
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isPersistenceTarget, isSensitivePath } from '../../domain/sensitivity.js';
-import { isPersistenceWrite } from '../../domain/threat.js';
+import { isPersistenceWrite, isWipeTarget } from '../../domain/threat.js';
 import {
   isDephawkConfigPath,
   protectedPathAffectedBy,
@@ -329,16 +329,16 @@ export class FsInterceptor implements CapabilityInterceptor {
               const mode = accessMode(args[method.flagsIndex]);
               for (const path of resolvePaths(args[0])) {
                 if (mode.read) {
-                  this.check(record, 'fs.read', path);
+                  this.checkPath(record, 'fs.read', path);
                 }
                 if (mode.write) {
-                  this.check(record, 'fs.write', path);
+                  this.checkPath(record, 'fs.write', path);
                 }
               }
             } else {
               for (const { index, capability } of method.paths) {
                 for (const path of resolvePaths(args[index])) {
-                  this.check(record, capability, path);
+                  this.checkPath(record, capability, path);
                 }
               }
             }
@@ -354,8 +354,12 @@ export class FsInterceptor implements CapabilityInterceptor {
     }
   }
 
-  /** Report a path worth reporting, and throw when the call is refused. */
-  private check(record: RecordFn, capability: Capability, path: string): void {
+  /**
+   * Report a path worth reporting, and throw when the call is refused. Public so
+   * another surface that reaches the filesystem by path — Bun's `Bun.file` /
+   * `Bun.write` — is judged by exactly the same rules, symlinks included.
+   */
+  checkPath(record: RecordFn, capability: Capability, path: string): void {
     const isProtected = protectedPathAffectedBy(path, this.protectedPaths) !== null;
     // A write into an installed package's directory is reported whatever the
     // path looks like: only the policy engine knows who is writing, and one
@@ -373,12 +377,18 @@ export class FsInterceptor implements CapabilityInterceptor {
     // self-defense attack, matched by basename (its absolute path is unknown on a
     // no-config run). See {@link import('../../domain/protected-path.js')}.
     const configTamper = capability === 'fs.write' && isDephawkConfigPath(path);
+    // Deleting (or chmod-ing, or renaming away) a whole home directory or the
+    // root: the token-revocation wiper's `rm -rf ~/`, done from Node. A home
+    // directory is not secret-shaped, so without this the call was mundane and
+    // went through unrecorded. See {@link import('../../domain/threat.js').isWipeTarget}.
+    const wipe = capability === 'fs.write' && isWipeTarget(path);
 
     let target = path;
     if (
       !isProtected &&
       !intoPackage &&
       !persistence &&
+      !wipe &&
       !configTamper &&
       !isSensitivePath(path)
     ) {

@@ -140,6 +140,24 @@ const FIXTURES: Record<Technique, Fixture> = {
         childProcess.spawn('node', ['-e', '0'], { detached: true, stdio: 'ignore' }),
       ),
   },
+  'destructive-wipe': {
+    capability: 'fs.write',
+    // A home directory is not secret-shaped: this is the case the pre-filter
+    // used to drop, so it must go through the real interceptor.
+    exercise: () => throughFs(() => fs.rmSync(HOME, { recursive: true, force: true })),
+  },
+  'agent-instruction-tamper': {
+    capability: 'fs.write',
+    exercise: () => throughFs(() => fs.writeFileSync(`${HOME}/repo/CLAUDE.md`, 'x')),
+  },
+  'ci-oidc-token-theft': {
+    capability: 'env.read',
+    exercise: () =>
+      throughEnv(() => {
+        // Not secret-shaped by name: the case the env pre-filter used to drop.
+        void process.env['CI_JOB_JWT_V2'];
+      }),
+  },
   'tls-verification-disabled': {
     capability: 'env.write',
     exercise: () =>

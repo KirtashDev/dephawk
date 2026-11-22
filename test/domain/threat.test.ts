@@ -3,7 +3,9 @@ import {
   detectDnsTunnels,
   detectExfilChains,
   detectTechnique,
+  isAgentInstructionPath,
   isAltRuntimeEscape,
+  isCiIdentityEnv,
   isCiWorkflowPath,
   isCloudMetadataHost,
   isDeadDropHost,
@@ -13,10 +15,13 @@ import {
   isGitHookPath,
   isLocalServicePivot,
   isManifestTamper,
+  isOidcTokenExchange,
   isRegistryPublish,
   isServicePersistenceCommand,
   isServicePersistencePath,
   isTlsVerificationDisabled,
+  isWipeCommand,
+  isWipeTarget,
   normalizeIpv4,
 } from '../../src/domain/threat.js';
 import { extractPort } from '../../src/domain/host.js';
@@ -701,5 +706,166 @@ describe('detectDnsTunnels — chunked exfiltration over subdomain labels', () =
         }) as DhEvent,
     );
     expect(detectDnsTunnels(events)).toEqual([]);
+  });
+});
+
+describe('isWipeTarget — the token-revocation wiper, from Node', () => {
+  it.each([
+    '/',
+    '//',
+    '/home/alice',
+    '/home/alice/',
+    '/Users/alice',
+    '/home',
+    '/Users',
+    '/root',
+    '/var/root',
+    'C:\\Users\\alice',
+    'c:/users',
+    'C:\\',
+  ])('flags %s', (path) => {
+    expect(isWipeTarget(path)).toBe(true);
+  });
+
+  it.each([
+    '',
+    '/home/alice/project/dist',
+    '/Users/alice/.cache/foo',
+    '/tmp/build',
+    '/var/folders/x/T/dephawk-123',
+    'C:\\Users\\alice\\AppData\\Local\\Temp\\x',
+    'dist',
+    './home',
+    // A sibling that merely shares the prefix — the CVE-2026-58043 shape.
+    '/home-backup',
+  ])('leaves %s alone', (path) => {
+    expect(isWipeTarget(path)).toBe(false);
+  });
+});
+
+describe('isWipeCommand — `rm -rf ~/` in a shell', () => {
+  it.each([
+    'rm -rf ~/',
+    'rm -rf ~',
+    '/bin/rm -fr $HOME',
+    'sh -c "rm -rf ${HOME}/*"',
+    'rm -r -f /home/alice',
+    'rm --recursive --force /',
+    'Remove-Item -Recurse -Force $env:USERPROFILE',
+    'cmd /c rd /s /q %USERPROFILE%',
+    'curl -s api.github.com/user || rm -rf ~/',
+  ])('flags %s', (command) => {
+    expect(isWipeCommand(command)).toBe(true);
+  });
+
+  it.each([
+    'rm -rf node_modules',
+    'rm -rf ~/.cache/dephawk',
+    'rm ~/notes.txt',
+    'rm -f /tmp/x',
+    'Remove-Item -Force $env:USERPROFILE\\x.txt',
+    'git rm -r --cached .',
+    'echo home',
+  ])('leaves %s alone', (command) => {
+    expect(isWipeCommand(command)).toBe(false);
+  });
+});
+
+describe('isAgentInstructionPath — standing orders for an AI agent', () => {
+  it.each([
+    '/repo/CLAUDE.md',
+    '/repo/AGENTS.md',
+    '/repo/packages/web/GEMINI.md',
+    '/repo/CLAUDE.local.md',
+    '/repo/.cursorrules',
+    '/repo/.windsurfrules',
+    '/repo/.cursor/rules/security.mdc',
+    '/repo/.clinerules/01.md',
+    '/repo/.github/copilot-instructions.md',
+    '/repo/.github/instructions/ts.instructions.md',
+    '/repo/.claude/commands/scan.md',
+    '/repo/.claude/skills/scan/SKILL.md',
+    '/home/a/.claude/agents/helper.md',
+  ])('flags %s', (path) => {
+    expect(isAgentInstructionPath(path)).toBe(true);
+  });
+
+  it.each([
+    '/repo/node_modules/foo/CLAUDE.md',
+    '/repo/docs/claude.mdx',
+    '/repo/README.md',
+    '/repo/MY-AGENTS.md.bak',
+    '/repo/.github/workflows/ci.yml',
+  ])('leaves %s alone', (path) => {
+    expect(isAgentInstructionPath(path)).toBe(false);
+  });
+});
+
+describe('isEditorHookPath — every agent’s MCP / hook config', () => {
+  it.each([
+    '/repo/.mcp.json',
+    '/home/a/.claude.json',
+    '/repo/.vscode/mcp.json',
+    '/home/a/.gemini/settings.json',
+    '/home/a/.codex/config.toml',
+    '/repo/.codex/hooks.json',
+    '/repo/.cursor/hooks.json',
+    '/repo/.amazonq/mcp.json',
+    '/repo/.kiro/settings/mcp.json',
+  ])('flags %s', (path) => {
+    expect(isEditorHookPath(path)).toBe(true);
+  });
+});
+
+describe('CI identity — OIDC request vars and the npm token exchange', () => {
+  it.each([
+    'ACTIONS_ID_TOKEN_REQUEST_URL',
+    'ACTIONS_ID_TOKEN_REQUEST_TOKEN',
+    'ACTIONS_RUNTIME_TOKEN',
+    'CI_JOB_JWT_V2',
+    'SYSTEM_OIDCREQUESTURI',
+  ])('names env read of %s', (name) => {
+    expect(isCiIdentityEnv(name)).toBe(true);
+    expect(detectTechnique('env.read', name)).toBe('ci-oidc-token-theft');
+  });
+
+  it('ignores ordinary CI vars', () => {
+    expect(isCiIdentityEnv('GITHUB_ACTIONS')).toBe(false);
+    expect(isCiIdentityEnv('GITHUB_REPOSITORY')).toBe(false);
+  });
+
+  it('names the trusted-publishing exchange, not the rest of the registry', () => {
+    const url = 'https://registry.npmjs.org/-/npm/v1/oidc/token/exchange/package/foo';
+    expect(isOidcTokenExchange(url)).toBe(true);
+    expect(detectTechnique('net.connect', url)).toBe('ci-oidc-token-theft');
+    expect(isOidcTokenExchange('https://registry.npmjs.org/foo')).toBe(false);
+    expect(detectTechnique('net.connect', 'https://registry.npmjs.org/foo')).toBeNull();
+  });
+});
+
+describe('detectTechnique — the 0.15 techniques', () => {
+  it('names a home wipe from fs and from a shell', () => {
+    expect(detectTechnique('fs.write', '/home/alice')).toBe('destructive-wipe');
+    expect(detectTechnique('process.spawn', 'sh -c rm -rf ~/')).toBe('destructive-wipe');
+  });
+
+  it('names agent-instruction tampering', () => {
+    expect(detectTechnique('fs.write', '/repo/AGENTS.md')).toBe(
+      'agent-instruction-tamper',
+    );
+    // Reading one is how every agent works — never a finding.
+    expect(detectTechnique('fs.read', '/repo/AGENTS.md')).toBeNull();
+  });
+
+  it('names the 2026-09/11 exfil sinks as dead drops', () => {
+    for (const url of [
+      'https://hooks.slack.com/services/T/B/x',
+      'https://filev2.getsession.org/file',
+      'https://litter.catbox.moe/h8nc9u.js',
+      'https://rpc.sepolia.org',
+    ]) {
+      expect(isDeadDropHost(url), url).toBe(true);
+    }
+    expect(isDeadDropHost('https://slack.com/api/chat.postMessage')).toBe(false);
   });
 });

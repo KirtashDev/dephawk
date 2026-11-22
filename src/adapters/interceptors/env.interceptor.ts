@@ -1,4 +1,5 @@
 import { isSensitiveEnv, looksLikeSecretValue } from '../../domain/sensitivity.js';
+import { isCiIdentityEnv } from '../../domain/threat.js';
 import type { CapabilityInterceptor, Disposable } from '../../application/ports.js';
 import {
   blockedError,
@@ -37,6 +38,11 @@ import {
 const GUARDED_ENV_WRITES: ReadonlySet<string> = new Set([
   'NODE_TLS_REJECT_UNAUTHORIZED',
   'NODE_OPTIONS',
+  // Bun's equivalents: the preload that attaches dephawk, and the JSC switch
+  // that keeps a dependency's frames on the stack — turning tail calls back on
+  // is how it would blind attribution under Bun.
+  'BUN_OPTIONS',
+  'BUN_JSC_USETAILCALLS',
   'NODE_EXTRA_CA_CERTS',
   'CI',
 ]);
@@ -126,7 +132,10 @@ export class EnvInterceptor implements CapabilityInterceptor {
       // Sensitive by name, or by value: `DATABASE_URL=postgres://u:pass@host` is
       // a secret its innocuous name hides. Only a boolean flag is reported — the
       // value never leaves this interceptor.
-      const byName = isSensitiveEnv(prop);
+      // Some CI identity variables (`CI_JOB_JWT`, `SYSTEM_OIDCREQUESTURI`) are
+      // not secret-shaped by name, yet they are how a payload mints an OIDC
+      // token for any audience — see {@link isCiIdentityEnv}.
+      const byName = isSensitiveEnv(prop) || isCiIdentityEnv(prop);
       const byValue = !byName && looksLikeSecretValue(value);
       if (!byName && !byValue) {
         return;
@@ -251,14 +260,19 @@ export class EnvInterceptor implements CapabilityInterceptor {
         return Reflect.defineProperty(original, prop, descriptor);
       },
       preventExtensions(): boolean {
-        // Forward to the real environment, which refuses (`process.env` cannot
-        // be made non-extensible). Crucially this keeps the *decoy* extensible:
-        // if the decoy were ever sealed, `ownKeys` returning the real
-        // environment's names — none of which exist on the empty decoy — would
-        // violate the Proxy invariant and make every `Object.keys(process.env)`,
-        // spread and `console.log` throw. Mirrors real `process.env`:
-        // `Object.preventExtensions` throws, `Reflect.preventExtensions` is false.
-        return Reflect.preventExtensions(original);
+        // Always refuse — what Node's real `process.env` does
+        // (`Object.preventExtensions` throws, `Reflect.preventExtensions` is
+        // false). Crucially this keeps the *decoy* extensible: if it were ever
+        // sealed, `ownKeys` returning the real environment's names — none of
+        // which exist on the empty decoy — would violate the Proxy invariant and
+        // make every `Object.keys(process.env)`, spread and `console.log` throw.
+        //
+        // This used to forward to the real environment, which is only safe
+        // because Node refuses. Bun does not: it sealed the *real* env, returned
+        // `true` for a still-extensible decoy (a TypeError), and from then on
+        // every `process.env.X = …` in the process threw — a dependency could
+        // break its host, or dephawk's own reattach, with one call.
+        return false;
       },
       getPrototypeOf(): object | null {
         // The decoy is a plain object, but `process.env` has its own special
@@ -281,7 +295,11 @@ export class EnvInterceptor implements CapabilityInterceptor {
           typeof prop !== 'string' ||
           real.configurable === false ||
           inRuntimeInternals() ||
-          !(isSensitiveEnv(prop) || looksLikeSecretValue(real.value))
+          !(
+            isSensitiveEnv(prop) ||
+            isCiIdentityEnv(prop) ||
+            looksLikeSecretValue(real.value)
+          )
         ) {
           return real;
         }

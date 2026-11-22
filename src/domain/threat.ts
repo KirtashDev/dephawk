@@ -33,7 +33,10 @@ export type Technique =
   | 'alt-runtime-escape'
   | 'detached-process'
   | 'tls-verification-disabled'
-  | 'ai-credential-theft';
+  | 'ai-credential-theft'
+  | 'destructive-wipe'
+  | 'agent-instruction-tamper'
+  | 'ci-oidc-token-theft';
 
 /** One-line, plain-English gloss + what to check — shown next to the finding. */
 export const TECHNIQUE_GLOSS: Record<Technique, string> = {
@@ -63,6 +66,12 @@ export const TECHNIQUE_GLOSS: Record<Technique, string> = {
     'setting NODE_TLS_REJECT_UNAUTHORIZED=0 — this turns off certificate validation for the whole process, so every later HTTPS request can be silently intercepted; nothing legitimate does it from inside a dependency',
   'ai-credential-theft':
     'reading an AI coding assistant’s credential store (~/.claude, ~/.codex, ~/.cursor, ~/.gemini, GitHub Copilot) — the 2026 stealers scan these alongside cloud and registry tokens; an assistant’s token buys the attacker your model access and often your repositories',
+  'destructive-wipe':
+    'recursively deleting or rewriting a whole home directory or the filesystem root — the dead-man switch of the 2026 Shai-Hulud lineage (TanStack, the October testmetest wave): a gh-token-monitor daemon runs `rm -rf ~/` the moment you revoke the stolen token. Nothing legitimate does this; rotate credentials from a machine the payload has not reached',
+  'agent-instruction-tamper':
+    'writing a file an AI coding agent obeys as standing instructions (CLAUDE.md, AGENTS.md, GEMINI.md, .cursorrules, .cursor/rules, .github/copilot-instructions.md, .claude/commands|agents|skills) — TrapDoor hid zero-width-Unicode orders in these telling the assistant to run a fake "security scan"; the agent then acts with your shell. Nothing legitimate writes one from inside a dependency',
+  'ci-oidc-token-theft':
+    'reaching for the CI job’s identity — the GitHub Actions OIDC request variables or runtime token, GitLab job JWTs, or npm’s trusted-publishing token exchange. ChainDrop minted an OIDC token, traded it at npm’s exchange for a publish credential and signed the poisoned release with genuine provenance, so “has provenance” stopped meaning “clean”. Legitimate only for your release tooling — allowlist exactly that',
 };
 
 /**
@@ -211,6 +220,13 @@ const DEAD_DROP_HOSTS: readonly string[] = [
   'api.telegram.org',
   'discord.com',
   'discordapp.com',
+  // Slack incoming webhooks — indexed-btree (Sept 2026) exfiltrated host
+  // profiles to hardcoded Slack and Telegram channels.
+  'hooks.slack.com',
+  // The Session/Oxen file-upload network and catbox's anonymous file host —
+  // the TanStack/Mini Shai-Hulud exfil sink and its second-stage host.
+  'getsession.org',
+  'catbox.moe',
   // IPFS gateways (content-addressed dead drops).
   'ipfs.io',
   'cloudflare-ipfs.com',
@@ -235,6 +251,9 @@ const DEAD_DROP_HOSTS: readonly string[] = [
   'blockpi.network',
   'nodereal.io',
   'getblock.io',
+  // Ethereum's Sepolia testnet: free to write to, so a cheap dead drop —
+  // indexed-btree polled a Sepolia contract for its encrypted second stage.
+  'sepolia.org',
   // More chains, since the dead drop has generalised well beyond Ethereum:
   // GlassWorm hides its C2 in a Solana transaction memo, and CanisterWorm is the
   // first npm malware to anchor C2 in an Internet Computer canister.
@@ -440,6 +459,19 @@ const EDITOR_HOOK_PATTERNS: readonly RegExp[] = [
   // Cursor / Windsurf launch an MCP server command from their config.
   /(^|\/)\.cursor\/mcp\.json$/,
   /(^|\/)\.windsurf\/mcp\.json$/,
+  // Every other agent's MCP-server and hook config is the same move: a command
+  // line the agent launches on its own. Claude Code's project `.mcp.json` and
+  // user `~/.claude.json`, VS Code's `mcp.json`, Gemini CLI's `settings.json`
+  // (hooks + MCP — Miasma's Phantom Gyp planted one), Codex's `config.toml`,
+  // Cursor's `hooks.json`, Amazon Q and Kiro.
+  /(^|\/)\.mcp\.json$/,
+  /(^|\/)\.claude\.json$/,
+  /(^|\/)\.vscode\/mcp\.json$/,
+  /(^|\/)\.gemini\/settings\.json$/,
+  /(^|\/)\.codex\/(config\.toml|hooks\.json)$/,
+  /(^|\/)\.cursor\/hooks\.json$/,
+  /(^|\/)\.amazonq\/(mcp|agents\/[^/]+)\.json$/,
+  /(^|\/)\.kiro\/settings\/mcp\.json$/,
   // Dev containers run lifecycle commands (postCreateCommand / initializeCommand,
   // the latter on the host) when the container/Codespace opens.
   /(^|\/)\.devcontainer\/([^/]+\/)?devcontainer\.json$/,
@@ -535,6 +567,7 @@ export function isPersistenceWrite(path: string): boolean {
     isCiWorkflowPath(path) ||
     isGitHookPath(path) ||
     isEditorHookPath(path) ||
+    isAgentInstructionPath(path) ||
     isServicePersistencePath(path)
   );
 }
@@ -771,6 +804,198 @@ export function isTlsVerificationDisabled(detail: string): boolean {
   return /^NODE_TLS_REJECT_UNAUTHORIZED=0$/i.test(detail.trim());
 }
 
+/**
+ * Normalise a path for the wipe check: backslashes to `/`, lower case, and
+ * trailing separators dropped — while keeping a bare root (`/`, `//`) as `/`.
+ */
+function normalizeForWipe(path: string): string {
+  const p = path.trim().replace(/\\/g, '/').toLowerCase();
+  if (p === '') {
+    return '';
+  }
+  const stripped = p.replace(/\/+$/, '');
+  return stripped === '' ? '/' : stripped;
+}
+
+/**
+ * True when a destructive filesystem call targets a whole home directory, the
+ * directory that holds every home, or the filesystem root itself.
+ *
+ * This is the dead-man switch of the 2026 Shai-Hulud lineage (TanStack, the
+ * October "testmetest" wave): a `gh-token-monitor` daemon polls
+ * `api.github.com/user` with the stolen token and, the moment the victim revokes
+ * it, runs `rm -rf ~/`. The deletion is the payload — so a check that only
+ * looked at *secret* paths never saw it: `rmSync(os.homedir(), { recursive })`
+ * was lexically mundane and went through with no event at all.
+ *
+ * Matched lexically on the standard home layouts (`/home/<user>`, `/Users/<user>`,
+ * `/root`, `/var/root`, `C:\Users\<user>`), their parents, and the root — never
+ * on anything *inside* a home, which is where every legitimate cleanup happens.
+ */
+export function isWipeTarget(path: string): boolean {
+  const p = normalizeForWipe(path);
+  if (p === '') {
+    return false;
+  }
+  return (
+    p === '/' ||
+    p === '/*' ||
+    /^\/(home|users)(\/[^/]+)?$/.test(p) ||
+    /^\/(root|var\/root)$/.test(p) ||
+    /^[a-z]:(\/|\/\*|\/users(\/[^/]+)?)?$/.test(p)
+  );
+}
+
+/** Shell spellings of "the home directory" that only a shell expands. */
+const HOME_TOKENS: ReadonlySet<string> = new Set([
+  '~',
+  '~/',
+  '~/*',
+  '$home',
+  '$home/',
+  '$home/*',
+  '${home}',
+  '${home}/',
+  '${home}/*',
+  '%userprofile%',
+  '%userprofile%\\',
+  '%homepath%',
+  '$env:userprofile',
+  '$env:home',
+  '$home\\*',
+]);
+
+/** Deletion verbs across sh, cmd.exe and PowerShell (incl. its aliases). */
+const DELETE_VERBS: ReadonlySet<string> = new Set([
+  'rm',
+  'rmdir',
+  'rd',
+  'del',
+  'erase',
+  'remove-item',
+  'ri',
+]);
+
+/**
+ * A recursive-delete flag: `-r`, `-rf`, `-fR`, `--recursive`, PowerShell's
+ * `-Recurse`, cmd's `/s`. Short flag clusters are capped at four letters so
+ * PowerShell's `-Force` is not read as containing an `r`.
+ */
+const RECURSIVE_FLAG = /^(-[a-z]{0,3}r[a-z]{0,3}|--recursive|-recurse|\/s)$/;
+
+/**
+ * True when a spawned command recursively deletes a home directory or the root —
+ * the spawn-side half of {@link isWipeTarget}, for the `rm -rf ~/` the token
+ * death watch actually runs (in a shell, so no `fs` call is ever made in Node).
+ *
+ * Tokenised rather than one regex so the verb may be wrapped (`sh -c "rm -rf ~"`)
+ * or given by absolute path (`/bin/rm`), and flags may come in any order.
+ */
+export function isWipeCommand(command: string): boolean {
+  const tokens = command
+    .toLowerCase()
+    .split(/[\s;&|()]+/)
+    .map((t) => t.replace(/^['"`]+|['"`]+$/g, ''))
+    .filter((t) => t !== '');
+  const verbOf = (token: string): string =>
+    token.slice(token.lastIndexOf('/') + 1).replace(/\.exe$/, '');
+
+  for (let i = 0; i < tokens.length; i++) {
+    if (!DELETE_VERBS.has(verbOf(tokens[i] ?? ''))) {
+      continue;
+    }
+    let recursive = false;
+    let target = false;
+    for (let j = i + 1; j < tokens.length; j++) {
+      const t = tokens[j] ?? '';
+      if (DELETE_VERBS.has(verbOf(t))) {
+        break;
+      }
+      if (RECURSIVE_FLAG.test(t)) {
+        recursive = true;
+      } else if (HOME_TOKENS.has(t) || isWipeTarget(t)) {
+        target = true;
+      }
+    }
+    if (recursive && target) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Files an AI coding agent reads as *instructions* — standing orders it follows
+ * in every session. Nothing executes them, which is why they are not
+ * {@link isEditorHookPath}; but a planted line in one steers the agent that has
+ * your shell. TrapDoor (May 2026) hid zero-width-Unicode instructions in
+ * `.cursorrules` and `CLAUDE.md` telling the assistant to run a fake "security
+ * scan"; SANDWORM_MODE planted an MCP server with prompt-injected tool
+ * descriptions. A dependency has no reason to write any of them.
+ *
+ * Paths inside `node_modules` are excluded: a package's own `CLAUDE.md` is its
+ * documentation, and an agent does not load it as instructions for your repo.
+ */
+const AGENT_INSTRUCTION_PATTERNS: readonly RegExp[] = [
+  // Claude Code, the AGENTS.md convention (Codex, Jules, Amp, …), Gemini CLI.
+  /(^|\/)(claude|claude\.local|agents|gemini)\.md$/,
+  // Claude Code slash commands, sub-agents and skills are instructions too.
+  /(^|\/)\.claude\/(commands|agents|skills)\/.+$/,
+  // Cursor, Windsurf, Cline rule files and directories.
+  /(^|\/)\.(cursorrules|windsurfrules|clinerules)$/,
+  /(^|\/)\.(cursor|windsurf)\/rules\/.+$/,
+  /(^|\/)\.clinerules\/.+$/,
+  // GitHub Copilot repository and path-scoped instructions, and prompt files.
+  /(^|\/)\.github\/copilot-instructions\.md$/,
+  /(^|\/)\.github\/(instructions|prompts)\/[^/]+\.md$/,
+];
+
+/** True when a write targets a file an AI coding agent reads as instructions. */
+export function isAgentInstructionPath(path: string): boolean {
+  const p = normalizeForPersistence(path);
+  if (/(^|\/)node_modules\//.test(p)) {
+    return false;
+  }
+  return AGENT_INSTRUCTION_PATTERNS.some((pattern) => pattern.test(p));
+}
+
+/**
+ * Environment variables that hand a CI job its *identity* rather than a static
+ * secret: GitHub Actions' OIDC request pair (with which any step can mint a
+ * token for any audience — `npm:registry.npmjs.org`, `sigstore`, a cloud
+ * provider), its runtime token (cache/artifact writes — the TanStack cache
+ * poisoning), GitLab's job JWTs and Azure DevOps' OIDC endpoint.
+ *
+ * ChainDrop (Aug 2026) skipped stolen npm tokens entirely: it asked the runner
+ * for an OIDC token, traded it at npm's trusted-publishing exchange for a real
+ * publish credential, then minted genuine Sigstore provenance for the poisoned
+ * release. The GitHub pair was recorded (its names contain `TOKEN`) but never
+ * named; GitLab's `CI_JOB_JWT*` and Azure's `SYSTEM_OIDCREQUESTURI` are not
+ * secret-shaped at all, so they were not even recorded.
+ */
+const CI_IDENTITY_ENV: ReadonlySet<string> = new Set([
+  'ACTIONS_ID_TOKEN_REQUEST_URL',
+  'ACTIONS_ID_TOKEN_REQUEST_TOKEN',
+  'ACTIONS_RUNTIME_TOKEN',
+  'CI_JOB_JWT',
+  'CI_JOB_JWT_V1',
+  'CI_JOB_JWT_V2',
+  'SYSTEM_OIDCREQUESTURI',
+]);
+
+/** True when an `env.read` detail is a CI identity-token variable. */
+export function isCiIdentityEnv(detail: string): boolean {
+  return CI_IDENTITY_ENV.has(detail.trim().toUpperCase());
+}
+
+/**
+ * True when an outbound request reaches npm's trusted-publishing token exchange
+ * — the endpoint that turns a CI OIDC token into a publish credential.
+ */
+export function isOidcTokenExchange(detail: string): boolean {
+  return /\/-\/npm\/v1\/oidc\/token\/exchange(\/|\?|$)/i.test(detail);
+}
+
 /** True when a spawned command publishes to a package registry. */
 export function isRegistryPublish(command: string): boolean {
   // `npm publish`, `pnpm publish`, `yarn publish`, `npm exec -- … publish` — the
@@ -801,21 +1026,27 @@ export function detectTechnique(
     case 'net.connect':
     case 'net.resolve':
       if (isCloudMetadataHost(detail)) return 'cloud-metadata';
+      if (isOidcTokenExchange(detail)) return 'ci-oidc-token-theft';
       if (isDeadDropHost(detail)) return 'dead-drop-c2';
       if (isLocalServicePivot(detail)) return 'local-service-pivot';
       return null;
     case 'fs.write':
+      if (isWipeTarget(detail)) return 'destructive-wipe';
       if (isCiWorkflowPath(detail)) return 'ci-workflow-persistence';
       if (isGitHookPath(detail)) return 'git-hook-persistence';
       if (isEditorHookPath(detail)) return 'editor-hook-persistence';
+      if (isAgentInstructionPath(detail)) return 'agent-instruction-tamper';
       if (isServicePersistencePath(detail)) return 'service-persistence';
       if (isManifestTamper(detail)) return 'manifest-tamper';
       return null;
     case 'fs.read':
       return isAiCredentialPath(detail) ? 'ai-credential-theft' : null;
+    case 'env.read':
+      return isCiIdentityEnv(detail) ? 'ci-oidc-token-theft' : null;
     case 'env.write':
       return isTlsVerificationDisabled(detail) ? 'tls-verification-disabled' : null;
     case 'process.spawn':
+      if (isWipeCommand(detail)) return 'destructive-wipe';
       if (isRegistryPublish(detail)) return 'registry-publish';
       if (isServicePersistenceCommand(detail)) return 'service-persistence';
       if (isAltRuntimeEscape(detail, origin)) return 'alt-runtime-escape';

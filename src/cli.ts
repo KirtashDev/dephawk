@@ -40,12 +40,17 @@ import { SarifReporter } from './adapters/reporting/sarif-reporter.js';
 import { parseSink } from './adapters/reporting/jsonl-sink-reporter.js';
 import { startMcpServer } from './adapters/mcp/server.js';
 import { examinePackage } from './composition/examine-package.js';
+import { runtimeLoaderEnv, withDenoPreload } from './composition/runtime-env.js';
 import { detectDnsTunnels, detectExfilChains, detectTechnique } from './domain/threat.js';
 import {
+  AGENTS,
   decideHook,
+  detectAgent,
+  parseAgents,
   renderHookOutput,
-  withDephawkHook,
+  withAgentHook,
 } from './adapters/agent-hook/hook.js';
+import type { AgentKind, HookPayload } from './adapters/agent-hook/hook.js';
 
 /** Exit code when findings meet the `--fail-on` threshold. */
 const FINDINGS_EXIT_CODE = 2;
@@ -74,8 +79,10 @@ Commands:
   mcp     Run as an MCP server (stdio) so an AI coding agent can ask dephawk to
           audit what a command's dependencies do at runtime. Add it with
           \`claude mcp add dephawk -- npx -y dephawk mcp\`.
-  hooks   \`dephawk hooks install [--global]\` wires a Claude Code guardrail so the
-          agent routes \`npm install\`/\`ci\` (and pnpm/yarn/bun) through dephawk.
+  hooks   \`dephawk hooks install [--global] [--agent claude,cursor,gemini,codex|all]\`
+          wires a guardrail into your AI coding agent so it routes
+          \`npm install\`/\`ci\` (and pnpm/yarn/bun) through dephawk.
+          Default agent: claude.
 
 Modes:
   --observe (default)    record only, block nothing
@@ -136,7 +143,7 @@ export async function run(argv: readonly string[]): Promise<number> {
     return examineSubcommand(argv.slice(1));
   }
   if (subcommand === 'hook') {
-    return hookSubcommand();
+    return hookSubcommand(argv.slice(1));
   }
   if (subcommand === 'hooks') {
     return hooksSubcommand(argv.slice(1));
@@ -197,9 +204,6 @@ export async function run(argv: readonly string[]): Promise<number> {
   // Resolve the sibling register.js next to this built CLI. As a file URL it is
   // safe to hand to `--import` (spaces are percent-encoded).
   const registerUrl = new URL('./register.js', import.meta.url).href;
-  const nodeOptions = [process.env['NODE_OPTIONS'], `--import ${registerUrl}`]
-    .filter((part) => part !== undefined && part.length > 0)
-    .join(' ');
 
   // Every monitored process appends its events to one shared JSONL file (via
   // DEPHAWK_SINK, honoured by register.js) and the parent reports once, instead
@@ -218,7 +222,8 @@ export async function run(argv: readonly string[]): Promise<number> {
     ...process.env,
     ...(modeOverride === undefined ? {} : { DEPHAWK_MODE: modeOverride }),
     ...(drafting ? { DEPHAWK_MODE: 'observe' } : {}),
-    NODE_OPTIONS: nodeOptions,
+    // NODE_OPTIONS for Node, BUN_OPTIONS + tail calls off for Bun.
+    ...runtimeLoaderEnv(process.env, registerUrl),
     DEPHAWK_POLICY: JSON.stringify(policy),
     DEPHAWK_SINK: sink.path,
     // The resolved config path travels to the whole tree so `register.js` can
@@ -234,7 +239,11 @@ export async function run(argv: readonly string[]): Promise<number> {
     ...(baselinePath === null ? {} : { DEPHAWK_BASELINE: baselinePath }),
   };
 
-  const { code: exitCode, started } = await spawnMonitored(command, commandArgs, env);
+  const { code: exitCode, started } = await spawnMonitored(
+    command,
+    withDenoPreload(command, commandArgs, registerUrl),
+    env,
+  );
   const events = drainSink(sink);
 
   // Nothing ran, so there is nothing to report on. Writing an empty report for
@@ -586,63 +595,94 @@ async function reportAggregate(
   }
 }
 
-/** dephawk's own version, for the SARIF tool driver. Best-effort. */
-/** The command Claude Code should run for the hook: this exact dephawk build. */
-function hookCommand(): string {
-  return `${process.execPath} ${fileURLToPath(import.meta.url)} hook`;
+/** The command an agent should run for the hook: this exact dephawk build. */
+function hookCommand(agent: AgentKind): string {
+  // Quoted: agents run this through a shell, and either path may hold a space
+  // (`/Users/x/My Projects/…`, `C:\\Program Files\\nodejs\\node.exe`).
+  const base = `"${process.execPath}" "${fileURLToPath(import.meta.url)}" hook`;
+  // Claude Code's entry stays flag-less, as 0.12 wrote it, so a re-install
+  // recognises and refreshes it rather than adding a second one.
+  return agent === 'claude' ? base : `${base} --agent ${agent}`;
+}
+
+/** The value after `--agent`, or undefined. */
+function agentFlag(args: readonly string[]): string | undefined {
+  const index = args.indexOf('--agent');
+  return index === -1 ? undefined : args[index + 1];
 }
 
 /**
- * `dephawk hook` — the PreToolUse hook body. Reads the Claude Code payload on
- * stdin and, for an unmonitored install, tells the agent to route it through
- * dephawk. Never throws: a hook that errors must not break the agent's loop.
+ * `dephawk hook [--agent <name>]` — the pre-shell-command hook body. Reads the
+ * agent's payload on stdin and, for an unmonitored install, refuses it in that
+ * agent's own dialect. Never throws: a hook that errors must not break the
+ * agent's loop.
  */
-async function hookSubcommand(): Promise<number> {
+async function hookSubcommand(args: readonly string[]): Promise<number> {
+  const flag = agentFlag(args);
+  const named = flag === undefined ? undefined : parseAgents(flag)?.[0];
   const raw = await readStdin();
+  let agent: AgentKind = named ?? 'claude';
   try {
-    const decision = decideHook(JSON.parse(raw) as Record<string, unknown>);
-    const output = renderHookOutput(decision);
+    const payload = JSON.parse(raw) as HookPayload;
+    agent = named ?? detectAgent(payload);
+    const output = renderHookOutput(decideHook(payload, agent), agent);
     if (output !== null) {
       process.stdout.write(output);
     }
   } catch {
-    // Malformed payload or no input — allow (emit nothing, exit 0).
+    // Malformed payload or no input — allow. Cursor is installed fail-closed,
+    // where silence would block, so it gets an explicit allow.
+    const output = renderHookOutput({ block: false }, agent);
+    if (output !== null) {
+      process.stdout.write(output);
+    }
   }
   return 0;
 }
 
-/** `dephawk hooks install [--global]` — wire the guardrail into Claude Code. */
+const HOOKS_USAGE =
+  'usage: dephawk hooks install [--global] [--agent claude,cursor,gemini,codex|all]\n';
+
+/** `dephawk hooks install` — wire the guardrail into one or more AI agents. */
 function hooksSubcommand(args: readonly string[]): number {
   if (args[0] !== 'install') {
-    process.stderr.write('usage: dephawk hooks install [--global]\n');
+    process.stderr.write(HOOKS_USAGE);
     return 1;
   }
-  const global = args.includes('--global');
-  const base = global ? join(homedir(), '.claude') : join(process.cwd(), '.claude');
-  const settingsPath = join(base, 'settings.json');
+  const agents = parseAgents(agentFlag(args));
+  if (agents === null) {
+    process.stderr.write(`dephawk: unknown agent in --agent\n${HOOKS_USAGE}`);
+    return 1;
+  }
+  const root = args.includes('--global') ? homedir() : process.cwd();
 
-  let existing: Record<string, unknown> = {};
-  if (existsSync(settingsPath)) {
-    try {
-      existing = JSON.parse(readFileSync(settingsPath, 'utf8')) as Record<
-        string,
-        unknown
-      >;
-    } catch {
-      process.stderr.write(
-        `dephawk: ${settingsPath} is not valid JSON — not touching it\n`,
-      );
-      return 1;
+  // Validate every target before writing any, so a broken file never leaves the
+  // install half-done.
+  const plans: { agent: AgentKind; path: string; existing: Record<string, unknown> }[] =
+    [];
+  for (const agent of agents) {
+    const path = join(root, ...AGENTS[agent].file);
+    let existing: Record<string, unknown> = {};
+    if (existsSync(path)) {
+      try {
+        existing = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
+      } catch {
+        process.stderr.write(`dephawk: ${path} is not valid JSON — not touching it\n`);
+        return 1;
+      }
     }
+    plans.push({ agent, path, existing });
   }
 
-  const updated = withDephawkHook(existing, hookCommand());
-  mkdirSync(base, { recursive: true });
-  writeFileSync(settingsPath, `${JSON.stringify(updated, null, 2)}\n`);
-  process.stdout.write(
-    `🦅 dephawk: installed the install-guardrail hook in ${settingsPath}\n` +
-      `   Claude Code will now route \`npm install\`/\`ci\` (and pnpm/yarn/bun) through dephawk.\n`,
-  );
+  for (const { agent, path, existing } of plans) {
+    const updated = withAgentHook(agent, existing, hookCommand(agent));
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, `${JSON.stringify(updated, null, 2)}\n`);
+    process.stdout.write(
+      `🦅 dephawk: installed the install-guardrail hook in ${path}\n` +
+        `   ${AGENTS[agent].note}\n`,
+    );
+  }
   return 0;
 }
 

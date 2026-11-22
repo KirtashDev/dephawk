@@ -3,6 +3,7 @@ import { buildMonitor } from './composition/build-monitor.js';
 import { JsonlSink } from './adapters/sink/jsonl-sink.js';
 import { ConsoleReporter } from './adapters/reporting/console-reporter.js';
 import { HtmlReporter } from './adapters/reporting/html-reporter.js';
+import { FRAMES_ELIDED } from './adapters/interceptors/support.js';
 
 /**
  * The `--import dephawk/register` entrypoint.
@@ -23,6 +24,16 @@ const globals = globalThis as Record<symbol, unknown>;
 
 if (globals[INSTALLED] !== true) {
   globals[INSTALLED] = true;
+
+  if (FRAMES_ELIDED) {
+    // Bun without `BUN_JSC_useTailCalls=false`: still monitored, but no call
+    // can be pinned on a package, so every event is judged as unknown origin.
+    process.stderr.write(
+      'dephawk: this runtime drops stack frames on tail calls (Bun), so events cannot ' +
+        'be attributed to a package and are judged as unknown origin. Run under ' +
+        '`dephawk run` / `dephawk guard`, or set BUN_JSC_useTailCalls=false.\n',
+    );
+  }
 
   const policy = resolveEnvPolicy(process.env);
   const sinkPath = process.env['DEPHAWK_SINK'];

@@ -42,6 +42,43 @@ jobs:
       - name: Test (with coverage)
         run: npm run test:coverage
 
+  # Other runtimes. Node runs the suite; Bun and Deno run the monitored
+  # program. Bun's e2e (test/e2e/bun-runtime) skips itself when `bun` is absent,
+  # so it only proves anything here.
+  runtimes:
+    name: Bun & Deno
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: oven-sh/setup-bun@v2
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Bun e2e (tail calls, native API)
+        run: npx vitest run test/e2e/bun-runtime.e2e.test.ts
+
+      - name: Demo attributed under Bun and Deno
+        run: |
+          for runtime in "bun" "deno run -A"; do
+            out=$(NO_COLOR=1 node dist/cli.js run --config examples/demo/dephawk.config.js -- $runtime examples/demo/index.js 2>&1)
+            echo "$out"
+            echo "$out" | grep -q 'sneaky-dependency  →' || { echo "::error::$runtime: nothing attributed"; exit 1; }
+            if echo "$out" | grep -q unattributed; then echo "::error::$runtime: unattributed events"; exit 1; fi
+          done
+
   # The action's own wiring — input parsing, the run-then-report-then-fail
   # ordering, SARIF, the job summary — is YAML and shell that no unit test can
   # reach. `bin` points the action at the build from this commit, so this checks

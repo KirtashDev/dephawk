@@ -3,6 +3,113 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added — the 2026-11 recon
+
+What changed between 2026-08-28 and 2026-11-22, each gap reproduced against
+the published 0.14.0 build first. Evidence and the next tiers:
+[`docs/threat-recon-2026-11.md`](docs/threat-recon-2026-11.md).
+
+### Added — Bun and Deno
+
+- **`dephawk run bun …` / `dephawk run deno run …`.** `dephawk run` now attaches
+  to Bun through `BUN_OPTIONS=--preload` and to Deno by inserting `--preload`
+  after `deno run|test|serve|bench`. The attack demo is fully attributed under
+  both (14/14 on Bun, 13/13 on Deno), and a CI job runs it on every push.
+
+### Security — Bun
+
+- **Proper tail calls erased the culprit from the stack.** JavaScriptCore
+  implements ES2015 proper tail calls, and Bun's transpiler rewrites
+  `const s = f(); return s;` into `return f()`. dephawk's own boundary frame
+  vanished with it, so **every event under Bun was unattributed**; fixed only
+  that far, a dependency ending in `return fs.readFileSync(key)` would have been
+  pinned on the _application_ that called it — trusted unconditionally under
+  `--enforce`. `dephawk run` now starts Bun with `BUN_JSC_useTailCalls=false`,
+  pinned against a dependency scrubbing it for its children, and a process
+  where frames are still elided judges every event as unknown origin
+  (deny-by-default) and says so on startup.
+- **Bun's native API went around every interceptor.** `Bun.file(key).text()`,
+  `Bun.write`, `Bun.spawn`/`spawnSync`, `` Bun.$`…` ``, `Bun.serve`,
+  `Bun.listen`, `Bun.udpSocket` and `Bun.connect` never touch a Node built-in and
+  ran with no event at all. A new `bun` interceptor records them as the same
+  capabilities (`fs.read`, `fs.write`, `process.spawn`, `net.listen`,
+  `net.connect`), judges paths with the fs interceptor's own rules, and puts
+  monitoring back into a `Bun.spawn(cmd, { env: {} })`.
+- **`http.createServer().listen()` under Bun.** Bun's `http.Server` has its own
+  `listen` rather than inheriting `net.Server`'s, so an HTTP backdoor bound with
+  no event. Own `listen` methods on `http`/`https`/`http2` servers are now
+  patched (none exist on Node, so nothing changes there).
+- **A forged `Error.prepareStackTrace` still won under Bun.** JavaScriptCore
+  caches the stack formatter when `Error.prepareStackTrace` is _assigned_;
+  `Object.defineProperty` — how dephawk installed its own — bypasses that hook.
+  A dependency's `Error.prepareStackTrace = () => 'at … /app/index.js'` stayed
+  in force and every capture attributed it to the application, which
+  `--enforce` trusts unconditionally. Under Bun the formatter is now installed
+  and restored by assignment (never through an accessor), and on every engine a
+  stack is trusted only if it is byte-for-byte what dephawk's formatter
+  produced; anything else — including a dependency that detaches Bun's hook —
+  reads as unknown origin, deny-by-default.
+- **Interceptors that did not hold on Bun.** `dns.Resolver` instances dispatch
+  through an internal, unexported class, so a package-built resolver's
+  `resolve*` and `setServers` (the DNS-tunnel redirect) went unseen; the real
+  prototype is now found and patched. `process.env`'s `preventExtensions` trap
+  sealed the real env and broke every later env write in the process; it now
+  refuses, as Node's own `process.env` does. Data properties on `process`
+  (Bun has no accessors where Node does) are guarded too. The whole interceptor
+  suite now runs green under `bun test` (259/259) as well as Node.
+
+### Added — the install guardrail for every agent
+
+- **`dephawk hooks install --agent claude,cursor,gemini,codex|all`.** The
+  guardrail was Claude Code only. Cursor (`beforeShellExecution`, installed
+  fail-closed and scoped to package-manager commands), Gemini CLI (`BeforeTool`
+  on `run_shell_command`) and Codex (`PreToolUse` on `Bash`) now get the same
+  refusal, each in its own config file and deny dialect. `dephawk hook` detects
+  the agent from the payload, so the flag is only a hint. Default stays
+  `claude`, and an existing 0.12 entry is refreshed rather than duplicated.
+
+### Fixed
+
+- **The hook command broke on a path with a space.** `hooks install` wrote
+  `node /path/cli.js hook` unquoted; agents run it through a shell, so a project
+  under `My Projects` or Node in `Program Files` produced a hook that never ran
+  — a guardrail that silently was not there. Both paths are now quoted.
+
+### Security
+
+- **`.codex/hooks.json`** joins `editor-hook-persistence`: the file dephawk's own
+  Codex guardrail lives in is one a dependency must not write.
+- **`destructive-wipe` — the token-revocation dead-man switch.** The
+  Shai-Hulud lineage's `gh-token-monitor` polls `api.github.com/user` with the
+  stolen token and runs `rm -rf ~/` the moment it is revoked (TanStack, the
+  October "testmetest" wave). From Node, `fs.rmSync(os.homedir(), { recursive:
+true })` was lexically mundane — **no event, and the home directory was gone**.
+  Home directories, their parent and the root are now judged on every
+  destructive `fs` call, and the shell form (`rm -rf ~`, `$HOME`,
+  `Remove-Item -Recurse $env:USERPROFILE`, `rd /s /q %USERPROFILE%`) is named on
+  spawn.
+- **`agent-instruction-tamper` — standing orders for your AI agent.** TrapDoor
+  hid zero-width-Unicode instructions in `CLAUDE.md` and `.cursorrules` telling
+  the assistant to run a fake "security scan". Writes to `CLAUDE.md`,
+  `AGENTS.md`, `GEMINI.md`, Cursor/Windsurf/Cline rules, Copilot instructions and
+  `.claude/{commands,agents,skills}` went **unrecorded**; they are now named and,
+  under enforce, refused. `node_modules` is excluded.
+- **Every agent's MCP / hook config is `editor-hook-persistence`.** Only Cursor
+  and Windsurf were covered. Added `.mcp.json`, `~/.claude.json`,
+  `.vscode/mcp.json`, `.gemini/settings.json` (Phantom Gyp planted one),
+  `.codex/config.toml`, `.cursor/hooks.json`, Amazon Q and Kiro.
+- **`ci-oidc-token-theft` — reaching for the CI job's identity.** ChainDrop
+  minted an OIDC token, traded it at npm's trusted-publishing exchange for a
+  publish credential and signed the poisoned release with genuine provenance.
+  The GitHub OIDC pair and runtime token, GitLab's job JWTs, Azure's
+  `SYSTEM_OIDCREQUESTURI` and the exchange endpoint itself are now named; the
+  GitLab and Azure variables were not secret-shaped and went unrecorded.
+- **Dead drops seen in the window**: `hooks.slack.com` and Sepolia (the
+  `indexed-btree` campaign), `getsession.org` and `catbox.moe` (the TanStack
+  chain's exfil sink and second-stage host).
+
 ## [0.14.0] — 2026-08-29
 
 ### Added — Tier 2 of the August recon, plus the containment self-audit

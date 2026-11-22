@@ -149,6 +149,43 @@ export class ProcessMemoryInterceptor implements CapabilityInterceptor {
    * config accessors, where the assignment — not a method call — is what arms a
    * later dump. The getter is preserved so reads are untouched.
    */
+  /** {@link patchAccessorSetter} for a runtime that exposes the knob as data. */
+  private guardDataProperty(
+    target: Record<string, unknown>,
+    key: string,
+    descriptor: PropertyDescriptor,
+    detail: string,
+    record: RecordFn,
+    restores: (() => void)[],
+  ): void {
+    let current: unknown = descriptor.value;
+    try {
+      Object.defineProperty(target, key, {
+        enumerable: descriptor.enumerable ?? true,
+        configurable: true,
+        get(): unknown {
+          return current;
+        },
+        set(value: unknown): void {
+          const decision = report(record, 'process.memory', detail);
+          if (!decision.allow) {
+            throw blockedError(`arming a memory dump via ${detail}`, decision.reason);
+          }
+          current = value;
+        },
+      });
+    } catch {
+      return; // best effort
+    }
+    restores.push(() => {
+      try {
+        Object.defineProperty(target, key, { ...descriptor, value: current });
+      } catch {
+        /* nothing we can do */
+      }
+    });
+  }
+
   private patchAccessorSetter(
     target: Record<string, unknown>,
     key: string,
@@ -157,12 +194,17 @@ export class ProcessMemoryInterceptor implements CapabilityInterceptor {
     restores: (() => void)[],
   ): void {
     const descriptor = Object.getOwnPropertyDescriptor(target, key);
-    if (
-      descriptor === undefined ||
-      typeof descriptor.set !== 'function' ||
-      descriptor.configurable !== true
-    ) {
-      return; // not a reconfigurable accessor on this runtime
+    if (descriptor === undefined || descriptor.configurable !== true) {
+      return; // not reconfigurable on this runtime
+    }
+    if ('value' in descriptor) {
+      // A plain data property (Bun): assigning it bypassed the setter guard
+      // entirely. Turn it into a guarded accessor over the same value.
+      this.guardDataProperty(target, key, descriptor, detail, record, restores);
+      return;
+    }
+    if (typeof descriptor.set !== 'function') {
+      return; // read-only accessor: nothing can be armed through it
     }
     const originalSet = descriptor.set;
     try {
