@@ -5,6 +5,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.15.0] — 2026-11-22
+
+The first npm release since 0.12.0: it also ships everything listed under
+0.13.0 and 0.14.0, which were never published.
+
 ### Added — the 2026-11 recon
 
 What changed between 2026-08-28 and 2026-11-22, each gap reproduced against
