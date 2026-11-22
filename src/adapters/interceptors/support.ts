@@ -99,6 +99,44 @@ const nativeCaptureStackTrace = Error.captureStackTrace;
  */
 export const EVAL_FRAME = '[eval]';
 
+function elisionProbeInner(): string {
+  const holder: { stack?: unknown } = {};
+  const capture = nativeCaptureStackTrace as ((target: object) => void) | undefined;
+  if (typeof capture === 'function') {
+    capture(holder);
+  }
+  return typeof holder.stack === 'string' ? holder.stack : '';
+}
+
+function elisionProbeOuter(): string {
+  // A call in tail position, on purpose: the probe asks whether the engine
+  // removes this frame for it.
+  return elisionProbeInner();
+}
+
+/**
+ * True when this engine drops the caller's frame on a tail call — JavaScriptCore
+ * (Bun) implements ES2015 proper tail calls, V8 (Node, Deno) does not.
+ *
+ * On such an engine the stack is not a record of who called whom: a dependency
+ * whose function ends in `return fs.readFileSync(key)` is simply absent from it,
+ * and the nearest surviving frame — often the *application* that called into
+ * the dependency — is what attribution would see. The application is trusted
+ * unconditionally under `--enforce`, so that is a bypass, not a cosmetic gap.
+ *
+ * Measured once at load, before any dependency runs. `dephawk run`/`guard`
+ * start Bun with `BUN_JSC_useTailCalls=false`, which makes this false and
+ * attribution exact; a bare `bun --preload dephawk/register` leaves it true.
+ */
+export const FRAMES_ELIDED: boolean = (() => {
+  try {
+    const stack = elisionProbeOuter();
+    return stack.includes('elisionProbeInner') && !stack.includes('elisionProbeOuter');
+  } catch {
+    return false;
+  }
+})();
+
 function formatStack(_error: unknown, frames: readonly NodeJS.CallSite[]): string {
   try {
     let out = 'Error';
@@ -152,6 +190,12 @@ function formatFrame(frame: NodeJS.CallSite): string {
  * dependency's own error handling is untouched afterwards.
  */
 function hardenedCapture(boundary: (...args: never[]) => unknown): string {
+  if (FRAMES_ELIDED) {
+    // The engine may have dropped the very frame that matters. Same rule as a
+    // formatter we cannot install: an empty stack attributes to `unknown` —
+    // deny-by-default — rather than to whichever frame happened to survive.
+    return '';
+  }
   const capture = nativeCaptureStackTrace as
     ((target: object, ctor?: (...args: never[]) => unknown) => void) | undefined;
   const errorGlobal = NativeError as unknown as {
@@ -213,7 +257,14 @@ function hardenedCapture(boundary: (...args: never[]) => unknown): string {
 }
 
 export function captureStack(): string {
-  return hardenedCapture(captureStack);
+  // Deliberately NOT `return hardenedCapture(captureStack)`. JavaScriptCore
+  // (Bun) implements ES2015 proper tail calls in strict code, so a call in tail
+  // position *replaces* the caller's frame: `captureStack` would vanish from the
+  // stack, `captureStackTrace` would never find its boundary, and JSC returns no
+  // frames at all — every event on Bun read as unattributed. Binding the result
+  // first keeps this frame alive on every engine.
+  const stack = hardenedCapture(captureStack);
+  return stack;
 }
 
 /** Emit a record for a capability and return the decision. */

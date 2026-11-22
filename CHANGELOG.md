@@ -11,6 +11,37 @@ What changed between 2026-08-28 and 2026-11-22, each gap reproduced against
 the published 0.14.0 build first. Evidence and the next tiers:
 [`docs/threat-recon-2026-11.md`](docs/threat-recon-2026-11.md).
 
+### Added — Bun and Deno
+
+- **`dephawk run bun …` / `dephawk run deno run …`.** `dephawk run` now attaches
+  to Bun through `BUN_OPTIONS=--preload` and to Deno by inserting `--preload`
+  after `deno run|test|serve|bench`. The attack demo is fully attributed under
+  both (14/14 on Bun, 13/13 on Deno), and a CI job runs it on every push.
+
+### Security — Bun
+
+- **Proper tail calls erased the culprit from the stack.** JavaScriptCore
+  implements ES2015 proper tail calls, and Bun's transpiler rewrites
+  `const s = f(); return s;` into `return f()`. dephawk's own boundary frame
+  vanished with it, so **every event under Bun was unattributed**; fixed only
+  that far, a dependency ending in `return fs.readFileSync(key)` would have been
+  pinned on the _application_ that called it — trusted unconditionally under
+  `--enforce`. `dephawk run` now starts Bun with `BUN_JSC_useTailCalls=false`,
+  pinned against a dependency scrubbing it for its children, and a process
+  where frames are still elided judges every event as unknown origin
+  (deny-by-default) and says so on startup.
+- **Bun's native API went around every interceptor.** `Bun.file(key).text()`,
+  `Bun.write`, `Bun.spawn`/`spawnSync`, `` Bun.$`…` ``, `Bun.serve`,
+  `Bun.listen`, `Bun.udpSocket` and `Bun.connect` never touch a Node built-in and
+  ran with no event at all. A new `bun` interceptor records them as the same
+  capabilities (`fs.read`, `fs.write`, `process.spawn`, `net.listen`,
+  `net.connect`), judges paths with the fs interceptor's own rules, and puts
+  monitoring back into a `Bun.spawn(cmd, { env: {} })`.
+- **`http.createServer().listen()` under Bun.** Bun's `http.Server` has its own
+  `listen` rather than inheriting `net.Server`'s, so an HTTP backdoor bound with
+  no event. Own `listen` methods on `http`/`https`/`http2` servers are now
+  patched (none exist on Node, so nothing changes there).
+
 ### Added — the install guardrail for every agent
 
 - **`dephawk hooks install --agent claude,cursor,gemini,codex|all`.** The

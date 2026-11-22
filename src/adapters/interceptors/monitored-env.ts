@@ -34,6 +34,17 @@ const IMPORT_FLAG = /--import(?:=|\s+)(\S+)/g;
 const DEPHAWK_PREFIX = 'DEPHAWK_';
 
 /**
+ * Bun's half of the attachment, pinned to the value dephawk started with when
+ * it is present at all (a Node-only run has neither, so nothing changes there).
+ * `BUN_OPTIONS` carries the `--preload` of `register.js`; `BUN_JSC_useTailCalls`
+ * keeps dependency frames on the stack. A child spawned with either removed or
+ * flipped would run unmonitored, or monitored but unattributable. Restored as an
+ * exact value: a child's own extra `BUN_OPTIONS` flags lose out to monitoring,
+ * the conservative side to err on.
+ */
+const PINNED: ReadonlySet<string> = new Set(['BUN_OPTIONS', 'BUN_JSC_useTailCalls']);
+
+/**
  * Snapshot what monitoring needs from `env`.
  *
  * Taken once at install time, which is before any dependency has run, so the
@@ -58,7 +69,7 @@ export function captureMonitoringEnv(
 
   const variables: Record<string, string> = {};
   for (const [key, value] of Object.entries(env)) {
-    if (key.startsWith(DEPHAWK_PREFIX) && value !== undefined) {
+    if ((key.startsWith(DEPHAWK_PREFIX) || PINNED.has(key)) && value !== undefined) {
       variables[key] = value;
     }
   }

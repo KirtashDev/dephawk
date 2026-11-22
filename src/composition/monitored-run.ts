@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { runtimeLoaderEnv, withDenoPreload } from './runtime-env.js';
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -43,19 +44,16 @@ export async function auditCommand(
 ): Promise<AuditOutcome> {
   const directory = realpathSync(mkdtempSync(join(tmpdir(), 'dephawk-mcp-')));
   const sinkPath = join(directory, 'events.jsonl');
-  const nodeOptions = [process.env['NODE_OPTIONS'], `--import ${options.registerUrl}`]
-    .filter((part) => part !== undefined && part.length > 0)
-    .join(' ');
   const env: NodeJS.ProcessEnv = {
     ...process.env,
-    NODE_OPTIONS: nodeOptions,
+    ...runtimeLoaderEnv(process.env, options.registerUrl),
     DEPHAWK_POLICY: JSON.stringify(options.policy),
     DEPHAWK_SINK: sinkPath,
     ...(options.mode === undefined ? {} : { DEPHAWK_MODE: options.mode }),
   };
 
   const outcome = await new Promise<{ code: number; started: boolean }>((resolve) => {
-    const child = spawn(command, args, {
+    const child = spawn(command, withDenoPreload(command, args, options.registerUrl), {
       // `ignore`, never `inherit`: the child must not write to the caller's
       // stdout (the MCP protocol channel) or block on a stdin no one feeds.
       stdio: 'ignore',

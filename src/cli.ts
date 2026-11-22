@@ -40,6 +40,7 @@ import { SarifReporter } from './adapters/reporting/sarif-reporter.js';
 import { parseSink } from './adapters/reporting/jsonl-sink-reporter.js';
 import { startMcpServer } from './adapters/mcp/server.js';
 import { examinePackage } from './composition/examine-package.js';
+import { runtimeLoaderEnv, withDenoPreload } from './composition/runtime-env.js';
 import { detectDnsTunnels, detectExfilChains, detectTechnique } from './domain/threat.js';
 import {
   AGENTS,
@@ -203,9 +204,6 @@ export async function run(argv: readonly string[]): Promise<number> {
   // Resolve the sibling register.js next to this built CLI. As a file URL it is
   // safe to hand to `--import` (spaces are percent-encoded).
   const registerUrl = new URL('./register.js', import.meta.url).href;
-  const nodeOptions = [process.env['NODE_OPTIONS'], `--import ${registerUrl}`]
-    .filter((part) => part !== undefined && part.length > 0)
-    .join(' ');
 
   // Every monitored process appends its events to one shared JSONL file (via
   // DEPHAWK_SINK, honoured by register.js) and the parent reports once, instead
@@ -224,7 +222,8 @@ export async function run(argv: readonly string[]): Promise<number> {
     ...process.env,
     ...(modeOverride === undefined ? {} : { DEPHAWK_MODE: modeOverride }),
     ...(drafting ? { DEPHAWK_MODE: 'observe' } : {}),
-    NODE_OPTIONS: nodeOptions,
+    // NODE_OPTIONS for Node, BUN_OPTIONS + tail calls off for Bun.
+    ...runtimeLoaderEnv(process.env, registerUrl),
     DEPHAWK_POLICY: JSON.stringify(policy),
     DEPHAWK_SINK: sink.path,
     // The resolved config path travels to the whole tree so `register.js` can
@@ -240,7 +239,11 @@ export async function run(argv: readonly string[]): Promise<number> {
     ...(baselinePath === null ? {} : { DEPHAWK_BASELINE: baselinePath }),
   };
 
-  const { code: exitCode, started } = await spawnMonitored(command, commandArgs, env);
+  const { code: exitCode, started } = await spawnMonitored(
+    command,
+    withDenoPreload(command, commandArgs, registerUrl),
+    env,
+  );
   const events = drainSink(sink);
 
   // Nothing ran, so there is nothing to report on. Writing an empty report for

@@ -38,6 +38,11 @@ import {
 const GUARDED_ENV_WRITES: ReadonlySet<string> = new Set([
   'NODE_TLS_REJECT_UNAUTHORIZED',
   'NODE_OPTIONS',
+  // Bun's equivalents: the preload that attaches dephawk, and the JSC switch
+  // that keeps a dependency's frames on the stack — turning tail calls back on
+  // is how it would blind attribution under Bun.
+  'BUN_OPTIONS',
+  'BUN_JSC_USETAILCALLS',
   'NODE_EXTRA_CA_CERTS',
   'CI',
 ]);

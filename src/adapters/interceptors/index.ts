@@ -17,6 +17,7 @@ import { ListenInterceptor } from './listen.interceptor.js';
 import { EnvInterceptor } from './env.interceptor.js';
 import { OsInterceptor } from './os.interceptor.js';
 import { SchedulerInterceptor } from './scheduler.interceptor.js';
+import { BunInterceptor } from './bun.interceptor.js';
 import type { FsInterceptorOptions } from './fs.interceptor.js';
 import type { ChildProcessInterceptorOptions } from './child-process.interceptor.js';
 import type { WorkerInterceptorOptions } from './worker.interceptor.js';
@@ -60,6 +61,7 @@ export { ListenInterceptor } from './listen.interceptor.js';
 export { EnvInterceptor } from './env.interceptor.js';
 export { OsInterceptor } from './os.interceptor.js';
 export { SchedulerInterceptor } from './scheduler.interceptor.js';
+export { BunInterceptor } from './bun.interceptor.js';
 
 /**
  * The default interceptor set, in install order. Adding a capability means
@@ -82,6 +84,10 @@ export function createInterceptors(
     new ListenInterceptor(),
     new ChildProcessInterceptor(options),
     new WorkerInterceptor(options),
+    // Bun's native API goes around every Node built-in; a no-op on Node. Before
+    // the env interceptor, like the child-process one: its install-time
+    // snapshot of the environment must not be read through the env proxy.
+    new BunInterceptor(options),
     new NativeAddonInterceptor(),
     new BindingInterceptor(),
     new SqliteInterceptor(),

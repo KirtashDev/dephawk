@@ -60,8 +60,8 @@ code 2.
 > ([see for yourself](examples/demo/node_modules/sneaky-dependency/index.js)).
 
 > 🛡️ **Hardened release by release.** dephawk watches **12 capability classes**
-> across **18 interceptors**, and every version closes another real bypass —
-> **88 reproduced attack techniques blocked, and counting.** Each was
+> across **19 interceptors**, and every version closes another real bypass —
+> **91 reproduced attack techniques blocked, and counting.** Each was
 > demonstrated against a published build _before_ it was fixed; the running list
 > is in the [CHANGELOG](CHANGELOG.md). Recent additions: **alternative-runtime
 > escape** (a dependency spawning downloaded Bun/Deno to get out from under Node),
@@ -594,9 +594,21 @@ overridable — compose your own.
 
 ## Runtime support
 
-Built and tested on Node 20 & 22. Bun/Deno provide most of the same built-ins;
-dephawk degrades gracefully when a built-in is missing, but full coverage there
-is not guaranteed.
+| Runtime       | How                              | Status                                                                                                                                |
+| ------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Node 20 / 22  | `dephawk run node app.js`        | the reference — full suite in CI                                                                                                      |
+| **Bun** ≥ 1.2 | `dephawk run bun app.js`         | attributed, enforceable, and **Bun’s native API** (`Bun.file`, `Bun.write`, `Bun.spawn`, `Bun.$`, `Bun.serve`, `Bun.connect`) watched |
+| **Deno** 2.x  | `dephawk run deno run -A app.ts` | attributed and enforceable through Deno’s Node compatibility layer                                                                    |
+
+Use `dephawk run` rather than a bare preload on Bun. Bun’s engine
+(JavaScriptCore) implements proper tail calls, so `return f()` _removes the
+caller from the stack_ — and a dependency’s frame is what attribution reads.
+`dephawk run` starts Bun with `BUN_JSC_useTailCalls=false`; a bare
+`bun --preload dephawk/register` without it says so on startup and treats every
+event as unknown origin (deny-by-default under `--enforce`) instead of trusting
+whichever frame survived. Deno’s own `Deno.*` APIs (`Deno.readTextFile`,
+`Deno.Command`) are not intercepted yet — its permission flags are the better
+guard for those.
 
 ## Roadmap
 

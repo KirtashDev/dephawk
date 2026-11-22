@@ -124,6 +124,19 @@ so the plan lives next to the evidence that motivated it.
 
 ### Bun / Deno
 
+> ✅ **Shipped on this branch.** Measured first: under 0.14 the demo was caught
+> but **14/15 events unattributed on Bun** (proper tail calls — see the
+> CHANGELOG), Deno 2.9 was already exact with `--preload`, and Bun's native API
+> was unwatched entirely. Done: `dephawk run` attaches to both, tail calls off
+> for Bun with a fail-safe when they are not, a `bun` interceptor for the native
+> API, a Bun/Deno CI job. Left: `Deno.*` native APIs, and 18 interceptor unit
+> tests that still fail under `bun test` (mostly test-isolation around the
+> `process.env` proxy, plus `dns.Resolver`/`setServers` on a private resolver,
+> `process.report`, and `stackTraceLimit` hardening) — none reproduced end to
+> end, but each needs a look before Bun is called first-class.
+
+Original plan, for the record:
+
 The 2026 worms run stage 2 under Bun _to escape Node instrumentation_; 0.13's
 `alt-runtime-escape` names and refuses the spawn, but a project that _is_ on Bun
 or Deno gets no coverage. Plan:

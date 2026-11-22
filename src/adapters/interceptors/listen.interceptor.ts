@@ -14,6 +14,14 @@ const net = loadBuiltin('node:net');
 const dgram = loadBuiltin('node:dgram');
 
 /**
+ * Server classes that, on some runtimes, define their **own** `listen` instead
+ * of inheriting `net.Server`'s. On Node none do, so this adds nothing there; on
+ * Bun `http.Server.prototype.listen` is its own function, and an HTTP backdoor
+ * (`http.createServer(h).listen(4444)`) bound with no event at all.
+ */
+const SERVER_MODULES = ['node:http', 'node:https', 'node:http2'] as const;
+
+/**
  * Intercepts inbound listeners — the gap the other network interceptors leave
  * open. `net`/`socket`/`dns` all watch egress (a dependency phoning home); none
  * watch a dependency that *binds a port and waits*, which is a reverse-shell or
@@ -42,6 +50,24 @@ export class ListenInterceptor implements CapabilityInterceptor {
     const serverProto = prototypeOf((net as unknown as { Server?: unknown }).Server);
     if (serverProto) {
       this.patch(serverProto, 'listen', describeListen, record, restores);
+    }
+    for (const id of SERVER_MODULES) {
+      let mod: Record<string, unknown>;
+      try {
+        mod = loadBuiltin(id);
+      } catch {
+        continue;
+      }
+      for (const cls of ['Server', 'Http2Server', 'Http2SecureServer']) {
+        const proto = prototypeOf(mod[cls]);
+        if (
+          proto !== null &&
+          proto !== serverProto &&
+          Object.prototype.hasOwnProperty.call(proto, 'listen')
+        ) {
+          this.patch(proto, 'listen', describeListen, record, restores);
+        }
+      }
     }
 
     const socketProto = prototypeOf((dgram as unknown as { Socket?: unknown }).Socket);
