@@ -137,17 +137,40 @@ export const FRAMES_ELIDED: boolean = (() => {
   }
 })();
 
+/**
+ * The exact string {@link formatStack} last produced. A capture is trusted only
+ * when the stack it returned *is* this string — proof that dephawk's formatter
+ * really ran, whatever the property read back says.
+ */
+let lastFormatted: string | undefined;
+
 function formatStack(_error: unknown, frames: readonly NodeJS.CallSite[]): string {
+  let out = 'Error';
   try {
-    let out = 'Error';
     for (const frame of frames) {
       out += `\n    at ${formatFrame(frame)}`;
     }
-    return out;
   } catch {
-    return 'Error';
+    out = 'Error';
   }
+  lastFormatted = out;
+  return out;
 }
+
+/**
+ * JavaScriptCore (Bun) does not read `Error.prepareStackTrace` when it formats a
+ * stack. It caches the formatter when the property is *assigned*, through a
+ * native hook; `Object.defineProperty` and `delete` bypass the hook — the
+ * property changes, the cached formatter does not, and the hook stays detached
+ * from then on. On Bun, a dependency's `Error.prepareStackTrace = forge` was
+ * therefore still the formatter in force after dephawk's `defineProperty`, and
+ * every capture returned its forged application frame.
+ *
+ * Here the formatter is installed and restored by plain assignment — the only
+ * write JSC honours — and only over a plain writable data property, so no
+ * planted setter ever sees `formatStack`.
+ */
+const FORMATTER_SET_BY_ASSIGNMENT = typeof process.versions['bun'] === 'string';
 
 function formatFrame(frame: NodeJS.CallSite): string {
   try {
@@ -210,12 +233,23 @@ function hardenedCapture(boundary: (...args: never[]) => unknown): string {
 
   let installed = false;
   try {
-    Object.defineProperty(NativeError, 'prepareStackTrace', {
-      value: formatStack,
-      configurable: true,
-      writable: true,
-      enumerable: false,
-    });
+    if (FORMATTER_SET_BY_ASSIGNMENT) {
+      // Never through an accessor: its setter would receive `formatStack`.
+      if (
+        savedDescriptor !== undefined &&
+        'value' in savedDescriptor &&
+        savedDescriptor.writable === true
+      ) {
+        errorGlobal.prepareStackTrace = formatStack;
+      }
+    } else {
+      Object.defineProperty(NativeError, 'prepareStackTrace', {
+        value: formatStack,
+        configurable: true,
+        writable: true,
+        enumerable: false,
+      });
+    }
     installed = errorGlobal.prepareStackTrace === formatStack;
   } catch {
     installed = false; // non-configurable / frozen — documented residual
@@ -231,15 +265,28 @@ function hardenedCapture(boundary: (...args: never[]) => unknown): string {
     if (!installed) {
       return ''; // could not guarantee our formatter — do not trust a forged stack
     }
+    lastFormatted = undefined;
+    let stack: string | undefined;
     if (typeof capture === 'function') {
       const holder: { stack?: string } = {};
       capture(holder, boundary);
-      return holder.stack ?? '';
+      stack = holder.stack;
+    } else {
+      stack = new NativeError().stack;
     }
-    return new NativeError().stack ?? '';
+    // Trust only what our own formatter produced. An engine that formats with
+    // something else — Bun with its formatter hook detached by a dependency's
+    // `defineProperty`/`delete` — yields an empty stack: unknown origin,
+    // deny-by-default, never a frame the dependency chose.
+    return stack !== undefined && stack === lastFormatted ? stack : '';
   } finally {
+    lastFormatted = undefined;
     try {
-      if (savedDescriptor !== undefined) {
+      if (FORMATTER_SET_BY_ASSIGNMENT) {
+        if (installed) {
+          errorGlobal.prepareStackTrace = savedDescriptor?.value;
+        }
+      } else if (savedDescriptor !== undefined) {
         Object.defineProperty(NativeError, 'prepareStackTrace', savedDescriptor);
       } else {
         delete (NativeError as unknown as { prepareStackTrace?: unknown })

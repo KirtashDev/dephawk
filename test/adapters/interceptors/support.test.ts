@@ -72,7 +72,17 @@ describe('captureStack hardening', () => {
 
   it('is not blinded by Error.stackTraceLimit = 0', () => {
     Error.stackTraceLimit = 0;
-    const stack = captureStack();
+    // Two frames of our own under the capture: a test runner's frames may be
+    // native and invisible (`bun test`), so they cannot be counted on.
+    function outer(): string {
+      const s = inner();
+      return s;
+    }
+    function inner(): string {
+      const s = captureStack();
+      return s;
+    }
+    const stack = outer();
     // A real, multi-frame stack came back despite the zero limit.
     expect(
       stack.split('\n').filter((l) => l.trim().startsWith('at ')).length,

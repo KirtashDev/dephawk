@@ -41,6 +41,24 @@ the published 0.14.0 build first. Evidence and the next tiers:
   `listen` rather than inheriting `net.Server`'s, so an HTTP backdoor bound with
   no event. Own `listen` methods on `http`/`https`/`http2` servers are now
   patched (none exist on Node, so nothing changes there).
+- **A forged `Error.prepareStackTrace` still won under Bun.** JavaScriptCore
+  caches the stack formatter when `Error.prepareStackTrace` is _assigned_;
+  `Object.defineProperty` — how dephawk installed its own — bypasses that hook.
+  A dependency's `Error.prepareStackTrace = () => 'at … /app/index.js'` stayed
+  in force and every capture attributed it to the application, which
+  `--enforce` trusts unconditionally. Under Bun the formatter is now installed
+  and restored by assignment (never through an accessor), and on every engine a
+  stack is trusted only if it is byte-for-byte what dephawk's formatter
+  produced; anything else — including a dependency that detaches Bun's hook —
+  reads as unknown origin, deny-by-default.
+- **Interceptors that did not hold on Bun.** `dns.Resolver` instances dispatch
+  through an internal, unexported class, so a package-built resolver's
+  `resolve*` and `setServers` (the DNS-tunnel redirect) went unseen; the real
+  prototype is now found and patched. `process.env`'s `preventExtensions` trap
+  sealed the real env and broke every later env write in the process; it now
+  refuses, as Node's own `process.env` does. Data properties on `process`
+  (Bun has no accessors where Node does) are guarded too. The whole interceptor
+  suite now runs green under `bun test` (259/259) as well as Node.
 
 ### Added — the install guardrail for every agent
 

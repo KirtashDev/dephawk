@@ -61,7 +61,7 @@ code 2.
 
 > 🛡️ **Hardened release by release.** dephawk watches **12 capability classes**
 > across **19 interceptors**, and every version closes another real bypass —
-> **91 reproduced attack techniques blocked, and counting.** Each was
+> **93 reproduced attack techniques blocked, and counting.** Each was
 > demonstrated against a published build _before_ it was fixed; the running list
 > is in the [CHANGELOG](CHANGELOG.md). Recent additions: **alternative-runtime
 > escape** (a dependency spawning downloaded Bun/Deno to get out from under Node),

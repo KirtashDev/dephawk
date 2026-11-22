@@ -260,14 +260,19 @@ export class EnvInterceptor implements CapabilityInterceptor {
         return Reflect.defineProperty(original, prop, descriptor);
       },
       preventExtensions(): boolean {
-        // Forward to the real environment, which refuses (`process.env` cannot
-        // be made non-extensible). Crucially this keeps the *decoy* extensible:
-        // if the decoy were ever sealed, `ownKeys` returning the real
-        // environment's names — none of which exist on the empty decoy — would
-        // violate the Proxy invariant and make every `Object.keys(process.env)`,
-        // spread and `console.log` throw. Mirrors real `process.env`:
-        // `Object.preventExtensions` throws, `Reflect.preventExtensions` is false.
-        return Reflect.preventExtensions(original);
+        // Always refuse — what Node's real `process.env` does
+        // (`Object.preventExtensions` throws, `Reflect.preventExtensions` is
+        // false). Crucially this keeps the *decoy* extensible: if it were ever
+        // sealed, `ownKeys` returning the real environment's names — none of
+        // which exist on the empty decoy — would violate the Proxy invariant and
+        // make every `Object.keys(process.env)`, spread and `console.log` throw.
+        //
+        // This used to forward to the real environment, which is only safe
+        // because Node refuses. Bun does not: it sealed the *real* env, returned
+        // `true` for a still-extensible decoy (a TypeError), and from then on
+        // every `process.env.X = …` in the process threw — a dependency could
+        // break its host, or dephawk's own reattach, with one call.
+        return false;
       },
       getPrototypeOf(): object | null {
         // The decoy is a plain object, but `process.env` has its own special
